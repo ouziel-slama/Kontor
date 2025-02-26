@@ -1,0 +1,18 @@
+[package]
+name = "kontor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22.1"
+bitcoin = { version = "0.32.5", features = ["serde"] }
+deadpool = "0.12.2"
+libsql = "0.6.0"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde-env = "0.2.0"
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
