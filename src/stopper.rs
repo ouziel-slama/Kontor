@@ -18,5 +18,6 @@ pub fn run(cancel_token: CancellationToken) -> JoinHandle<()> {
         };
         info!("Initiating shutdown");
         cancel_token.cancel();
+        info!("Stopper exited");
     })
 }

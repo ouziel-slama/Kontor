@@ -1,3 +1,4 @@
+use anyhow::{Error, Result};
 use backon::{ExponentialBuilder, Retryable};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -33,11 +34,11 @@ pub async fn retry<T, E, F, Fut>(
     action: &str,
     backoff: ExponentialBuilder,
     cancel_token: CancellationToken,
-) -> anyhow::Result<T>
+) -> Result<T>
 where
+    E: std::fmt::Debug + Into<Error>,
+    Fut: Future<Output = Result<T, E>>,
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, E>>,
-    E: std::fmt::Debug + Into<anyhow::Error>,
 {
     operation
         .retry(&backoff)
