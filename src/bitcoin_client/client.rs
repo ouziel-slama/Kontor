@@ -130,9 +130,26 @@ impl Client {
         self.call("getblockhash", vec![height.into()]).await
     }
 
-    pub async fn get_block(&self, hash: &bitcoin::BlockHash) -> Result<Block, Error> {
+    pub async fn get_block(&self, hash: &BlockHash) -> Result<Block, Error> {
         let hex: String = self
             .call("getblock", vec![serde_json::to_value(hash)?, 0.into()])
+            .await?;
+        Ok(encode::deserialize_hex(&hex)?)
+    }
+
+    pub async fn get_raw_mempool(&self) -> Result<Vec<Txid>, Error> {
+        self.call("getrawmempool", vec![]).await
+    }
+
+    pub async fn get_raw_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
+        let hex: String = self
+            .call(
+                "getrawtransaction",
+                vec![
+                    serde_json::to_value(txid).unwrap(),
+                    serde_json::to_value(false).unwrap(),
+                ],
+            )
             .await?;
         Ok(encode::deserialize_hex(&hex)?)
     }

@@ -15,8 +15,10 @@ use zmq::Socket;
 use crate::{
     bitcoin_client,
     config::Config,
-    retry::{new_backoff_unlimited, retry},
+    retry::{new_backoff_limited, retry},
 };
+
+use super::event::FollowEvent;
 
 #[derive(Debug, PartialEq)]
 pub enum ZmqMonitorEvent {
@@ -85,6 +87,7 @@ impl ZmqMonitorEvent {
         matches!(
             self,
             ZmqMonitorEvent::ConnectRetried
+                | ZmqMonitorEvent::Closed
                 | ZmqMonitorEvent::CloseFailed
                 | ZmqMonitorEvent::Disconnected
                 | ZmqMonitorEvent::HandshakeFailedNoDetail
@@ -120,7 +123,7 @@ fn run_monitor_socket(
     thread::spawn(move || {
         loop {
             if cancel_token.is_cancelled() {
-                info!("ZMQ listener cancelled, cancelling monitor socket thread");
+                info!("Cancelling monitor socket thread");
                 break;
             }
 
@@ -130,7 +133,7 @@ fn run_monitor_socket(
                         .send(ZmqMonitorEvent::from_zmq_message(multipart))
                         .is_err()
                     {
-                        info!("ZMQ listener send channel is closed, exiting monitor socket thread");
+                        info!("Send channel is closed, exiting monitor socket thread");
                         break;
                     }
                 }
@@ -139,14 +142,14 @@ fn run_monitor_socket(
                 }
                 Err(e) => {
                     if tx.send(Err(e.into())).is_err() {
-                        info!("ZMQ listener send channel is closed, exiting monitor socket thread");
+                        info!("Send channel is closed, exiting monitor socket thread");
                         break;
                     }
                 }
             }
         }
 
-        info!("ZMQ listener monitor socket thread exited");
+        info!("Monitor socket thread exited");
     })
 }
 
@@ -219,7 +222,7 @@ fn run_socket(
     thread::spawn(move || {
         loop {
             if cancel_token.is_cancelled() {
-                info!("ZMQ listener cancelled, cancelling socket thread");
+                info!("Cancelling socket thread");
                 break;
             }
 
@@ -229,7 +232,7 @@ fn run_socket(
                         .send(SequenceMessage::from_zmq_message(zmq_message))
                         .is_err()
                     {
-                        info!("ZMQ listener send channel is closed, exiting socket thread");
+                        info!("Send channel is closed, exiting socket thread");
                         break;
                     }
                 }
@@ -238,74 +241,84 @@ fn run_socket(
                 }
                 Err(e) => {
                     if tx.send(Err(e.into())).is_err() {
-                        info!("ZMQ listener send channel is closed, exiting socket thread");
+                        info!("Send channel is closed, exiting socket thread");
                         break;
                     }
                 }
             }
         }
 
-        info!("ZMQ listener socket thread exited");
+        info!("Socket thread exited");
     })
 }
 
-async fn handle_sequence_message(
+async fn process_sequence_message(
     cancel_token: CancellationToken,
     bitcoin: bitcoin_client::Client,
-    set: &mut HashSet<Txid>,
+    mempool_cache: &mut HashSet<Txid>,
     msg: SequenceMessage,
-) -> Result<()> {
+) -> Result<Vec<FollowEvent>> {
     match msg {
         SequenceMessage::BlockConnected(hash) => {
             let result = retry(
                 || bitcoin.get_block(&hash),
                 "get block after block connected event",
-                new_backoff_unlimited(),
+                new_backoff_limited(),
                 cancel_token.clone(),
             )
             .await;
-            match result {
-                Err(e) => {
-                    return Err(e).context("Failed to fetch block after block connected event");
-                }
+            return match result {
+                Err(e) => Err(e).context("Failed to get block after block connected event"),
                 Ok(block) => {
-                    for tx in block.txdata {
+                    let mut txids = vec![];
+                    for tx in block.txdata.iter() {
                         let txid = tx.compute_txid();
-                        set.remove(&txid);
+                        if mempool_cache.remove(&txid) {
+                            txids.push(txid);
+                        }
                     }
-                    info!("Block Connected: {:?}", hash);
+                    Ok(vec![
+                        FollowEvent::MempoolTransactionsRemoved(txids),
+                        FollowEvent::BlockConnected(block),
+                    ])
                 }
+            };
+        }
+        SequenceMessage::BlockDisconnected(hash) => return Ok(vec![FollowEvent::Rollback(hash)]),
+        SequenceMessage::TransactionAdded { txid, .. } => {
+            if mempool_cache.insert(txid) {
+                let result = retry(
+                    || bitcoin.get_raw_transaction(&txid),
+                    "get raw transaction after transaction added event",
+                    new_backoff_limited(),
+                    cancel_token.clone(),
+                )
+                .await;
+                return match result {
+                    Err(e) => Err(e)
+                        .context("Failed to get raw transaction after transaction added event"),
+                    Ok(t) => Ok(vec![FollowEvent::MempoolTransactionAdded(t)]),
+                };
             }
         }
-        SequenceMessage::BlockDisconnected(hash) => info!("Block Disconnected: {:?}", hash),
-        SequenceMessage::TransactionAdded {
-            txid,
-            mempool_sequence_number,
-            ..
-        } => {
-            if set.insert(txid) {
-                info!("Tx Added: {:?}, seq={}", txid, mempool_sequence_number);
-            }
-        }
-        SequenceMessage::TransactionRemoved {
-            txid,
-            mempool_sequence_number,
-            ..
-        } => {
-            if set.remove(&txid) {
-                info!("Tx Removed: {:?}, seq={}", txid, mempool_sequence_number);
+        SequenceMessage::TransactionRemoved { txid, .. } => {
+            if mempool_cache.remove(&txid) {
+                return Ok(vec![FollowEvent::MempoolTransactionsRemoved(vec![txid])]);
             }
         }
     }
-    Ok(())
+
+    Ok(vec![])
 }
 
 pub async fn run(
     config: Config,
     cancel_token: CancellationToken,
     bitcoin: bitcoin_client::Client,
+    mut mempool_cache: HashSet<Txid>,
+    tx: UnboundedSender<FollowEvent>,
 ) -> Result<JoinHandle<Result<()>>> {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (socket_tx, mut socket_rx) = mpsc::unbounded_channel();
     let (monitor_tx, mut monitor_rx) = mpsc::unbounded_channel();
     let socket_cancel_token = CancellationToken::new();
     let ctx = zmq::Context::new();
@@ -334,7 +347,7 @@ pub async fn run(
         "Connected to Bitcoin ZMQ @ {}",
         config.zmq_pub_sequence_address
     );
-    let socket_handle = run_socket(socket, socket_cancel_token.clone(), tx.clone());
+    let socket_handle = run_socket(socket, socket_cancel_token.clone(), socket_tx.clone());
     let monitor_socket_handle =
         run_monitor_socket(monitor_socket, socket_cancel_token.clone(), monitor_tx);
 
@@ -342,69 +355,77 @@ pub async fn run(
         defer! {
             socket_cancel_token.cancel();
             if socket_handle.join().is_err() {
-                error!("ZMQ socket thread panicked");
+                error!("Socket thread panicked on join");
             }
             if monitor_socket_handle.join().is_err() {
-                error!("ZMQ monitor socket thread panicked");
+                error!("Monitor socket thread panicked on join");
             }
 
-            info!("ZMQ listener exited");
+            info!("Exited");
         }
 
-        let mut set = HashSet::new();
         let mut last_sequence_number: Option<u32> = None;
 
         loop {
             select! {
                 _ = cancel_token.cancelled() => {
-                    info!("ZMQ listener cancelled");
+                    info!("Cancelled");
                     return Ok(())
                 },
                 option_monitor_event = monitor_rx.recv() => {
                     match option_monitor_event {
                         Some(Ok(event)) => {
                             if event.is_failure() {
-                                return Err(anyhow!("ZMQ listener received failure event from monitor socket: {:?}", event));
+                                return Err(anyhow!("Received failure event from monitor socket: {:?}", event));
                             }
-                            info!("Monitor event received: {:?}", event);
+                            if let ZmqMonitorEvent::HandshakeSucceeded = event {
+                                if tx.send(FollowEvent::ZmqConnected).is_err() {
+                                    info!("Send channel is closed, exiting")
+                                }
+                            }
                         },
                         Some(Err(e)) => {
-                            return Err(e.context("ZMQ listener received Err from monitor socket thread, exiting"));
+                            return Err(e.context("Received Err from monitor socket thread, exiting"));
                         },
                         None => {
-                            warn!("ZMQ listener received None message from monitor socket thread, exiting");
+                            warn!("Received None message from monitor socket thread, exiting");
                             return Ok(());
                         },
                     }
                 },
-                option_message = rx.recv() => {
+                option_message = socket_rx.recv() => {
                     match option_message {
                         Some(Ok((sequence_number, sequence_message))) => {
                             if let Some(n) = last_sequence_number {
                                 if sequence_number != n.wrapping_add(1) {
                                     return Err(anyhow!(
-                                        "ZMQ listener received out of sequence messages: {} {}",
+                                        "Received out of sequence messages: {} {}",
                                         n, sequence_number
                                     ));
                                 }
                             }
                             last_sequence_number = Some(sequence_number);
-                            if let Err(e) = handle_sequence_message(
+                            match process_sequence_message(
                                 cancel_token.clone(),
                                 bitcoin.clone(),
-                                &mut set,
+                                &mut mempool_cache,
                                 sequence_message,
-                            )
-                            .await
-                            {
-                                return Err(e.context("ZMQ listener failed to handle message"));
-                            }
+                            ).await {
+                                Err(e) => return Err(e.context("Failed to handle message")),
+                                Ok(events) => {
+                                    for event in events {
+                                        if tx.send(event).is_err() {
+                                            info!("Send channel is closed, exiting")
+                                        }
+                                    }
+                                }
+                            };
                         },
                         Some(Err(e)) => {
-                            return Err(e.context("ZMQ listener received Err from socket thread, exiting"));
+                            return Err(e.context("Received Err from socket thread, exiting"));
                         },
                         None => {
-                            warn!("ZMQ listener received None message from socket thread, exiting");
+                            warn!("Received None message from socket thread, exiting");
                             return Ok(());
                         },
                     }
