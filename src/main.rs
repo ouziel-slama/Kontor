@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use kontor::{bitcoin_client, bitcoin_follower, config::Config, logging, stopper};
 use tokio_util::sync::CancellationToken;
@@ -16,6 +18,7 @@ async fn main() -> Result<()> {
             config.clone(),
             cancel_token.clone(),
             bitcoin.clone(),
+            HashSet::new(),
         )
         .await
         .await;

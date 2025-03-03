@@ -1,7 +1,7 @@
-use std::{collections::HashSet, thread};
+use std::thread;
 
 use anyhow::{Context, Result, anyhow};
-use bitcoin::{BlockHash, Txid, hashes::Hash};
+use bitcoin::{BlockHash, Transaction, Txid, hashes::Hash};
 use scopeguard::defer;
 use tokio::{
     select,
@@ -15,13 +15,13 @@ use zmq::Socket;
 use crate::{
     bitcoin_client,
     config::Config,
-    retry::{new_backoff_limited, retry},
+    retry::{new_backoff_unlimited, retry},
 };
 
-use super::event::FollowEvent;
+use super::event::ZmqEvent;
 
 #[derive(Debug, PartialEq)]
-pub enum ZmqMonitorEvent {
+pub enum MonitorMessage {
     Connected,               // 0x0001
     ConnectDelayed,          // 0x0002
     ConnectRetried,          // 0x0004
@@ -40,59 +40,59 @@ pub enum ZmqMonitorEvent {
     Unknown(u16),            // Catch-all
 }
 
-impl ZmqMonitorEvent {
+impl MonitorMessage {
     pub fn from_raw(event_type: u16) -> Self {
         match event_type {
-            0x0001 => ZmqMonitorEvent::Connected,
-            0x0002 => ZmqMonitorEvent::ConnectDelayed,
-            0x0004 => ZmqMonitorEvent::ConnectRetried,
-            0x0008 => ZmqMonitorEvent::Listening,
-            0x0010 => ZmqMonitorEvent::BindFailed,
-            0x0020 => ZmqMonitorEvent::Accepted,
-            0x0040 => ZmqMonitorEvent::AcceptFailed,
-            0x0080 => ZmqMonitorEvent::Closed,
-            0x0100 => ZmqMonitorEvent::CloseFailed,
-            0x0200 => ZmqMonitorEvent::Disconnected,
-            0x0400 => ZmqMonitorEvent::MonitorStopped,
-            0x0800 => ZmqMonitorEvent::HandshakeFailedNoDetail,
-            0x1000 => ZmqMonitorEvent::HandshakeSucceeded,
-            0x2000 => ZmqMonitorEvent::HandshakeFailedProtocol,
-            0x4000 => ZmqMonitorEvent::HandshakeFailedAuth,
-            other => ZmqMonitorEvent::Unknown(other),
+            0x0001 => MonitorMessage::Connected,
+            0x0002 => MonitorMessage::ConnectDelayed,
+            0x0004 => MonitorMessage::ConnectRetried,
+            0x0008 => MonitorMessage::Listening,
+            0x0010 => MonitorMessage::BindFailed,
+            0x0020 => MonitorMessage::Accepted,
+            0x0040 => MonitorMessage::AcceptFailed,
+            0x0080 => MonitorMessage::Closed,
+            0x0100 => MonitorMessage::CloseFailed,
+            0x0200 => MonitorMessage::Disconnected,
+            0x0400 => MonitorMessage::MonitorStopped,
+            0x0800 => MonitorMessage::HandshakeFailedNoDetail,
+            0x1000 => MonitorMessage::HandshakeSucceeded,
+            0x2000 => MonitorMessage::HandshakeFailedProtocol,
+            0x4000 => MonitorMessage::HandshakeFailedAuth,
+            other => MonitorMessage::Unknown(other),
         }
     }
 
     pub fn to_raw(&self) -> u16 {
         match self {
-            ZmqMonitorEvent::Connected => 0x0001,
-            ZmqMonitorEvent::ConnectDelayed => 0x0002,
-            ZmqMonitorEvent::ConnectRetried => 0x0004,
-            ZmqMonitorEvent::Listening => 0x0008,
-            ZmqMonitorEvent::BindFailed => 0x0010,
-            ZmqMonitorEvent::Accepted => 0x0020,
-            ZmqMonitorEvent::AcceptFailed => 0x0040,
-            ZmqMonitorEvent::Closed => 0x0080,
-            ZmqMonitorEvent::CloseFailed => 0x0100,
-            ZmqMonitorEvent::Disconnected => 0x0200,
-            ZmqMonitorEvent::MonitorStopped => 0x0400,
-            ZmqMonitorEvent::HandshakeFailedNoDetail => 0x0800,
-            ZmqMonitorEvent::HandshakeSucceeded => 0x1000,
-            ZmqMonitorEvent::HandshakeFailedProtocol => 0x2000,
-            ZmqMonitorEvent::HandshakeFailedAuth => 0x4000,
-            ZmqMonitorEvent::Unknown(val) => *val,
+            MonitorMessage::Connected => 0x0001,
+            MonitorMessage::ConnectDelayed => 0x0002,
+            MonitorMessage::ConnectRetried => 0x0004,
+            MonitorMessage::Listening => 0x0008,
+            MonitorMessage::BindFailed => 0x0010,
+            MonitorMessage::Accepted => 0x0020,
+            MonitorMessage::AcceptFailed => 0x0040,
+            MonitorMessage::Closed => 0x0080,
+            MonitorMessage::CloseFailed => 0x0100,
+            MonitorMessage::Disconnected => 0x0200,
+            MonitorMessage::MonitorStopped => 0x0400,
+            MonitorMessage::HandshakeFailedNoDetail => 0x0800,
+            MonitorMessage::HandshakeSucceeded => 0x1000,
+            MonitorMessage::HandshakeFailedProtocol => 0x2000,
+            MonitorMessage::HandshakeFailedAuth => 0x4000,
+            MonitorMessage::Unknown(val) => *val,
         }
     }
 
     pub fn is_failure(&self) -> bool {
         matches!(
             self,
-            ZmqMonitorEvent::ConnectRetried
-                | ZmqMonitorEvent::Closed
-                | ZmqMonitorEvent::CloseFailed
-                | ZmqMonitorEvent::Disconnected
-                | ZmqMonitorEvent::HandshakeFailedNoDetail
-                | ZmqMonitorEvent::HandshakeFailedProtocol
-                | ZmqMonitorEvent::HandshakeFailedAuth
+            MonitorMessage::ConnectRetried
+                | MonitorMessage::Closed
+                | MonitorMessage::CloseFailed
+                | MonitorMessage::Disconnected
+                | MonitorMessage::HandshakeFailedNoDetail
+                | MonitorMessage::HandshakeFailedProtocol
+                | MonitorMessage::HandshakeFailedAuth
         )
     }
 
@@ -111,14 +111,14 @@ impl ZmqMonitorEvent {
             return Err(anyhow!("Received invalid multipart message"));
         }
         let event_type = u16::from_le_bytes(multipart[0][0..2].try_into().unwrap());
-        Ok(ZmqMonitorEvent::from_raw(event_type))
+        Ok(MonitorMessage::from_raw(event_type))
     }
 }
 
 fn run_monitor_socket(
     socket: Socket,
     cancel_token: CancellationToken,
-    tx: UnboundedSender<Result<ZmqMonitorEvent>>,
+    tx: UnboundedSender<Result<MonitorMessage>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
@@ -130,7 +130,7 @@ fn run_monitor_socket(
             match socket.recv_multipart(0) {
                 Ok(multipart) => {
                     if tx
-                        .send(ZmqMonitorEvent::from_zmq_message(multipart))
+                        .send(MonitorMessage::from_zmq_message(multipart))
                         .is_err()
                     {
                         info!("Send channel is closed, exiting monitor socket thread");
@@ -252,71 +252,11 @@ fn run_socket(
     })
 }
 
-async fn process_sequence_message(
-    cancel_token: CancellationToken,
-    bitcoin: bitcoin_client::Client,
-    mempool_cache: &mut HashSet<Txid>,
-    msg: SequenceMessage,
-) -> Result<Vec<FollowEvent>> {
-    match msg {
-        SequenceMessage::BlockConnected(hash) => {
-            let result = retry(
-                || bitcoin.get_block(&hash),
-                "get block after block connected event",
-                new_backoff_limited(),
-                cancel_token.clone(),
-            )
-            .await;
-            return match result {
-                Err(e) => Err(e).context("Failed to get block after block connected event"),
-                Ok(block) => {
-                    let mut txids = vec![];
-                    for tx in block.txdata.iter() {
-                        let txid = tx.compute_txid();
-                        if mempool_cache.remove(&txid) {
-                            txids.push(txid);
-                        }
-                    }
-                    Ok(vec![
-                        FollowEvent::MempoolTransactionsRemoved(txids),
-                        FollowEvent::BlockConnected(block),
-                    ])
-                }
-            };
-        }
-        SequenceMessage::BlockDisconnected(hash) => return Ok(vec![FollowEvent::Rollback(hash)]),
-        SequenceMessage::TransactionAdded { txid, .. } => {
-            if mempool_cache.insert(txid) {
-                let result = retry(
-                    || bitcoin.get_raw_transaction(&txid),
-                    "get raw transaction after transaction added event",
-                    new_backoff_limited(),
-                    cancel_token.clone(),
-                )
-                .await;
-                return match result {
-                    Err(e) => Err(e)
-                        .context("Failed to get raw transaction after transaction added event"),
-                    Ok(t) => Ok(vec![FollowEvent::MempoolTransactionAdded(t)]),
-                };
-            }
-        }
-        SequenceMessage::TransactionRemoved { txid, .. } => {
-            if mempool_cache.remove(&txid) {
-                return Ok(vec![FollowEvent::MempoolTransactionsRemoved(vec![txid])]);
-            }
-        }
-    }
-
-    Ok(vec![])
-}
-
 pub async fn run(
     config: Config,
     cancel_token: CancellationToken,
     bitcoin: bitcoin_client::Client,
-    mut mempool_cache: HashSet<Txid>,
-    tx: UnboundedSender<FollowEvent>,
+    tx: UnboundedSender<ZmqEvent>,
 ) -> Result<JoinHandle<Result<()>>> {
     let (socket_tx, mut socket_rx) = mpsc::unbounded_channel();
     let (monitor_tx, mut monitor_rx) = mpsc::unbounded_channel();
@@ -329,7 +269,7 @@ pub async fn run(
 
     let monitor_endpoint = format!("inproc://{}-monitor", SEQUENCE);
     socket
-        .monitor(&monitor_endpoint, ZmqMonitorEvent::all_events_mask())
+        .monitor(&monitor_endpoint, MonitorMessage::all_events_mask())
         .context("Failed to set up socket monitor")?;
     let monitor_socket = ctx
         .socket(zmq::PAIR)
@@ -339,17 +279,33 @@ pub async fn run(
         .context("Failed to connect monitor socket")?;
     monitor_socket.set_rcvhwm(0)?;
     monitor_socket.set_rcvtimeo(1000)?;
+    let monitor_socket_handle =
+        run_monitor_socket(monitor_socket, socket_cancel_token.clone(), monitor_tx);
 
     socket
         .connect(&config.zmq_pub_sequence_address)
         .context("Could not connect to ZMQ address")?;
-    info!(
-        "Connected to Bitcoin ZMQ @ {}",
-        config.zmq_pub_sequence_address
-    );
     let socket_handle = run_socket(socket, socket_cancel_token.clone(), socket_tx.clone());
-    let monitor_socket_handle =
-        run_monitor_socket(monitor_socket, socket_cancel_token.clone(), monitor_tx);
+
+    let mempool_txs = retry(
+        || bitcoin.get_raw_mempool(),
+        "get raw mempool",
+        new_backoff_unlimited(),
+        cancel_token.clone(),
+    )
+    .await?;
+    let mut txs: Vec<Transaction> = vec![];
+    for txids in mempool_txs.chunks(100) {
+        let results = retry(
+            || bitcoin.get_raw_transactions(txids),
+            "get raw transactions",
+            new_backoff_unlimited(),
+            cancel_token.clone(),
+        )
+        .await?;
+        txs.extend(results.into_iter().filter_map(Result::ok));
+    }
+    let _ = tx.send(ZmqEvent::MempoolTransactions(txs));
 
     Ok(task::spawn(async move {
         defer! {
@@ -368,6 +324,7 @@ pub async fn run(
 
         loop {
             select! {
+                biased;
                 _ = cancel_token.cancelled() => {
                     info!("Cancelled");
                     return Ok(())
@@ -378,8 +335,8 @@ pub async fn run(
                             if event.is_failure() {
                                 return Err(anyhow!("Received failure event from monitor socket: {:?}", event));
                             }
-                            if let ZmqMonitorEvent::HandshakeSucceeded = event {
-                                if tx.send(FollowEvent::ZmqConnected).is_err() {
+                            if let MonitorMessage::HandshakeSucceeded = event {
+                                if tx.send(ZmqEvent::Connected).is_err() {
                                     info!("Send channel is closed, exiting")
                                 }
                             }
@@ -405,21 +362,9 @@ pub async fn run(
                                 }
                             }
                             last_sequence_number = Some(sequence_number);
-                            match process_sequence_message(
-                                cancel_token.clone(),
-                                bitcoin.clone(),
-                                &mut mempool_cache,
-                                sequence_message,
-                            ).await {
-                                Err(e) => return Err(e.context("Failed to handle message")),
-                                Ok(events) => {
-                                    for event in events {
-                                        if tx.send(event).is_err() {
-                                            info!("Send channel is closed, exiting")
-                                        }
-                                    }
-                                }
-                            };
+                            if tx.send(ZmqEvent::SequenceMessage(sequence_message)).is_err() {
+                                info!("Send channel is closed, exiting")
+                            }
                         },
                         Some(Err(e)) => {
                             return Err(e.context("Received Err from socket thread, exiting"));
