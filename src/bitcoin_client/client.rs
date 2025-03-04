@@ -11,7 +11,7 @@ use super::{
     types::{GetBlockchainInfoResult, Request, Response},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Client {
     client: HttpClient,
     url: String,

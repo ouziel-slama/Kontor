@@ -1,0 +1,235 @@
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap},
+};
+
+use anyhow::Result;
+use bitcoin::Block;
+use tokio::{
+    select,
+    sync::mpsc::{self, Sender},
+    task::JoinHandle,
+};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
+
+use crate::{
+    bitcoin_client,
+    retry::{new_backoff_unlimited, retry},
+};
+
+#[derive(Debug)]
+pub struct Fetcher {
+    handle: Option<JoinHandle<()>>,
+    cancel_token: CancellationToken,
+    bitcoin: bitcoin_client::Client,
+}
+
+impl Fetcher {
+    pub fn new(bitcoin: bitcoin_client::Client) -> Self {
+        Self {
+            handle: None,
+            cancel_token: CancellationToken::new(),
+            bitcoin,
+        }
+    }
+
+    pub async fn start(&mut self, start_height: u64, tx: Sender<Block>) {
+        self.handle = Some(tokio::spawn({
+            let bitcoin = self.bitcoin.clone();
+            let cancel_token = self.cancel_token.clone();
+            let (tx_1, mut rx_1) = mpsc::channel(10);
+            let (tx_2, mut rx_2) = mpsc::channel(10);
+            let (tx_3, mut rx_3) = mpsc::channel(10);
+            async move {
+                let producer = tokio::spawn({
+                    let cancel_token = cancel_token.clone();
+                    let bitcoin = bitcoin.clone();
+                    async move {
+                        let mut height = start_height;
+                        let mut target_height = height;
+                        loop {
+                            if cancel_token.is_cancelled() {
+                                info!("Producer cancelled");
+                                break;
+                            }
+
+                            if target_height == height {
+                                match retry(
+                                    || bitcoin.get_blockchain_info(),
+                                    "get blockchain info",
+                                    new_backoff_unlimited(),
+                                    cancel_token.clone(),
+                                )
+                                .await
+                                {
+                                    Ok(info) => {
+                                        target_height = info.blocks;
+                                    }
+                                    Err(e) => {
+                                        info!(
+                                            "Producer cancelled while fetching blockchain info: {}",
+                                            e
+                                        );
+                                    }
+                                }
+
+                                continue;
+                            }
+
+                            if tx_1.send(height).await.is_err() {
+                                info!("Producer send channel closed, exiting");
+                                break;
+                            }
+
+                            height += 1;
+                        }
+
+                        info!("Producer exiting");
+                    }
+                });
+                let fetcher = tokio::spawn({
+                    let cancel_token = cancel_token.clone();
+                    let bitcoin = bitcoin.clone();
+                    async move {
+                        loop {
+                            select! {
+                                _ = cancel_token.cancelled() => {
+                                    info!("Fetcher cancelled");
+                                    break;
+                                }
+                                option_height = rx_1.recv() => {
+                                    match option_height {
+                                        Some(height) => {
+                                            let bitcoin = bitcoin.clone();
+                                            let cancel_token = cancel_token.clone();
+                                            let tx = tx_2.clone();
+                                            tokio::spawn(
+                                                async move {
+                                                    if let Ok(block_hash) = retry(
+                                                        || bitcoin.get_block_hash(height),
+                                                        "get block hash",
+                                                        new_backoff_unlimited(),
+                                                        cancel_token.clone(),
+                                                    )
+                                                    .await {
+                                                        if let Ok(block) = retry(
+                                                            || bitcoin.get_block(&block_hash),
+                                                            "get block",
+                                                            new_backoff_unlimited(),
+                                                            cancel_token.clone(),
+                                                        )
+                                                        .await {
+                                                            let _ = tx.send(block).await;
+                                                        }
+                                                    }
+
+                                                    info!("Fetcher worker cancelled");
+                                                }
+                                            );
+                                        },
+                                        None => {
+                                            info!("Fetcher received None message, exiting");
+                                            break;
+                                        },
+                                    }
+                                }
+                            }
+                        }
+
+                        info!("Fetcher exited");
+                    }
+                });
+                let processor = tokio::spawn({
+                    let cancel_token = cancel_token.clone();
+                    async move {
+                        loop {
+                            select! {
+                                _ = cancel_token.cancelled() => {
+                                    info!("Processor cancelled");
+                                    break;
+                                }
+                                option_block = rx_2.recv() => {
+                                    match option_block {
+                                        Some(block) => {
+                                            let tx = tx_3.clone();
+                                            tokio::spawn(
+                                                async move {
+                                                    let _ = tx.send((
+                                                        block.bip34_block_height()
+                                                            .expect("Unexpectged error when computing block height"),
+                                                        block)
+                                                    ).await;
+                                                }
+                                            );
+                                        },
+                                        None => {
+                                            info!("Procesor received None message, exiting");
+                                            break;
+                                        },
+                                    }
+                                }
+                            }
+                        }
+
+                        info!("Processor exited");
+                    }
+                });
+                let orderer = tokio::spawn({
+                    let cancel_token = cancel_token.clone();
+                    async move {
+                        let mut heap = BinaryHeap::new();
+                        let mut next_index = start_height;
+                        let mut pending_blocks = HashMap::new();
+                        loop {
+                            select! {
+                                _ = cancel_token.cancelled() => {
+                                    info!("Orderer cancelled");
+                                    break;
+                                }
+                                option_pair = rx_3.recv() => {
+                                    match option_pair {
+                                        Some((height, data)) => {
+                                            heap.push(Reverse(height));
+                                            pending_blocks.insert(height, data);
+                                            while let Some(&Reverse(maybe_next_index)) = heap.peek() {
+                                                if maybe_next_index == next_index {
+                                                    heap.pop();
+                                                    if let Some(data) = pending_blocks.remove(&next_index) {
+                                                        let _ = tx.send(data).await;
+                                                        next_index += 1;
+                                                    }
+                                                } else {
+                                                    break;
+                                                }
+                                            }
+                                        },
+                                        None => {
+                                            info!("Orderer received None message, exiting");
+                                            break;
+                                        },
+                                    }
+                                }
+                            }
+
+                            info!("Orderer exited");
+                        }
+                    }
+                });
+                for handle in [producer, fetcher, processor, orderer] {
+                    if let Err(e) = handle.await {
+                        error!("Fetcher sub task panicked on join: {}", e);
+                    }
+                }
+            }
+        }));
+    }
+
+    pub async fn stop(&mut self) -> Result<()> {
+        if let Some(handle) = self.handle.take() {
+            self.cancel_token.cancel();
+            handle.await?;
+        }
+        Ok(())
+    }
+}
