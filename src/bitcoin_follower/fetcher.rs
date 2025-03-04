@@ -1,13 +1,17 @@
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap},
+    sync::Arc,
 };
 
 use anyhow::Result;
 use bitcoin::Block;
 use tokio::{
     select,
-    sync::mpsc::{self, Sender},
+    sync::{
+        Semaphore,
+        mpsc::{self, Sender},
+    },
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -92,6 +96,7 @@ impl Fetcher {
                     let cancel_token = cancel_token.clone();
                     let bitcoin = bitcoin.clone();
                     async move {
+                        let semaphore = Arc::new(Semaphore::new(10));
                         loop {
                             select! {
                                 _ = cancel_token.cancelled() => {
@@ -104,8 +109,10 @@ impl Fetcher {
                                             let bitcoin = bitcoin.clone();
                                             let cancel_token = cancel_token.clone();
                                             let tx = tx_2.clone();
+                                            let permit = semaphore.clone().acquire_owned().await.unwrap();
                                             tokio::spawn(
                                                 async move {
+                                                    let _permit = permit;
                                                     if let Ok(block_hash) = retry(
                                                         || bitcoin.get_block_hash(height),
                                                         "get block hash",
@@ -143,6 +150,7 @@ impl Fetcher {
                 let processor = tokio::spawn({
                     let cancel_token = cancel_token.clone();
                     async move {
+                        let semaphore = Arc::new(Semaphore::new(10));
                         loop {
                             select! {
                                 _ = cancel_token.cancelled() => {
@@ -153,8 +161,10 @@ impl Fetcher {
                                     match option_block {
                                         Some(block) => {
                                             let tx = tx_3.clone();
+                                            let permit = semaphore.clone().acquire_owned().await.unwrap();
                                             tokio::spawn(
                                                 async move {
+                                                    let _permit = permit;
                                                     let _ = tx.send((
                                                         block.bip34_block_height()
                                                             .expect("Unexpectged error when computing block height"),
