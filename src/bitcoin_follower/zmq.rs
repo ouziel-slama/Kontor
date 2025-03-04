@@ -15,7 +15,7 @@ use zmq::Socket;
 use crate::{
     bitcoin_client,
     config::Config,
-    retry::{new_backoff_unlimited, retry},
+    retry::{new_backoff_limited, new_backoff_unlimited, retry},
 };
 
 use super::event::ZmqEvent;
@@ -287,6 +287,7 @@ pub async fn run(
         .context("Could not connect to ZMQ address")?;
     let socket_handle = run_socket(socket, socket_cancel_token.clone(), socket_tx.clone());
 
+    info!("Getting mempool transactions...");
     let mempool_txs = retry(
         || bitcoin.get_raw_mempool(),
         "get raw mempool",
@@ -299,7 +300,7 @@ pub async fn run(
         let results = retry(
             || bitcoin.get_raw_transactions(txids),
             "get raw transactions",
-            new_backoff_unlimited(),
+            new_backoff_limited(),
             cancel_token.clone(),
         )
         .await?;
@@ -362,7 +363,21 @@ pub async fn run(
                                 }
                             }
                             last_sequence_number = Some(sequence_number);
-                            if tx.send(ZmqEvent::SequenceMessage(sequence_message)).is_err() {
+                            let event = match sequence_message {
+                                SequenceMessage::BlockConnected(block_hash) => {
+                                    let block = retry(
+                                        || bitcoin.get_block(&block_hash),
+                                        "get block",
+                                        new_backoff_limited(),
+                                        cancel_token.clone(),
+                                    )
+                                    .await
+                                    .context("Failed to get block handling BlockConnected sequence message")?;
+                                    ZmqEvent::BlockConnected(block)
+                                }
+                                _ => ZmqEvent::SequenceMessage(sequence_message),
+                            };
+                            if tx.send(event).is_err() {
                                 info!("Send channel is closed, exiting")
                             }
                         },

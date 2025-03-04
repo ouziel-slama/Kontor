@@ -1,7 +1,10 @@
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use anyhow::Result;
-use bitcoin::Txid;
+use bitcoin::{Transaction, Txid};
 use tokio::{
     select,
     sync::mpsc::{self, UnboundedSender},
@@ -9,11 +12,19 @@ use tokio::{
     time::sleep,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::{bitcoin_client, config::Config};
+use crate::{
+    bitcoin_client,
+    bitcoin_follower::zmq::SequenceMessage,
+    config::Config,
+    retry::{new_backoff_limited, retry},
+};
 
-use super::{event::ZmqEvent, zmq};
+use super::{
+    event::{Event, ZmqEvent},
+    zmq,
+};
 
 async fn zmq_runner(
     config: Config,
@@ -61,42 +72,117 @@ pub async fn run(
     config: Config,
     cancel_token: CancellationToken,
     bitcoin: bitcoin_client::Client,
-    mempool_cache: HashSet<Txid>,
+    initial_mempool_cache: HashSet<Txid>,
+    tx: UnboundedSender<Event>,
 ) -> JoinHandle<()> {
-    let (tx, mut rx) = mpsc::unbounded_channel::<ZmqEvent>();
+    let (zmq_tx, mut zmq_rx) = mpsc::unbounded_channel::<ZmqEvent>();
     let runner_cancel_token = CancellationToken::new();
     let runner_handle = zmq_runner(
         config.clone(),
         runner_cancel_token.clone(),
         bitcoin.clone(),
-        tx,
+        zmq_tx,
     )
     .await;
 
-    info!("Initializing with mempool cache: {}", mempool_cache.len());
+    info!(
+        "Initializing reconciler with mempool cache: {}",
+        initial_mempool_cache.len()
+    );
 
     tokio::spawn(async move {
-        let handle_zmq_event = async |event: ZmqEvent| -> Result<()> {
+        let mut mempool_cache = initial_mempool_cache;
+        let mut handle_zmq_event = async |event: ZmqEvent| -> Vec<Event> {
             match event {
-                ZmqEvent::Connected => info!(
-                    "Connected to Bitcoin ZMQ @ {}",
-                    config.zmq_pub_sequence_address
-                ),
-                ZmqEvent::MempoolTransactions(txs) => info!("Mempool transactions: {}", txs.len()),
-                _ => info!("{}", event),
+                ZmqEvent::Connected => {
+                    info!(
+                        "Connected to Bitcoin ZMQ @ {}",
+                        config.zmq_pub_sequence_address
+                    );
+                    vec![]
+                }
+                ZmqEvent::MempoolTransactions(txs) => {
+                    let mut txid_to_transaction: HashMap<Txid, Transaction> =
+                        txs.into_iter().map(|tx| (tx.compute_txid(), tx)).collect();
+                    let txids: HashSet<Txid> = txid_to_transaction.keys().cloned().collect();
+                    let removed: Vec<Txid> = mempool_cache.difference(&txids).cloned().collect();
+                    let added: Vec<Transaction> = txids
+                        .difference(&mempool_cache)
+                        .map(|txid| txid_to_transaction.remove(txid).expect("Txid should exist"))
+                        .collect();
+                    mempool_cache = txids;
+                    vec![Event::MempoolUpdates { added, removed }]
+                }
+                ZmqEvent::SequenceMessage(SequenceMessage::TransactionAdded { txid, .. }) => {
+                    if mempool_cache.insert(txid) {
+                        match retry(
+                            || bitcoin.get_raw_transaction(&txid),
+                            "get raw transaction",
+                            new_backoff_limited(),
+                            cancel_token.clone(),
+                        )
+                        .await
+                        {
+                            Ok(t) => vec![Event::MempoolUpdates {
+                                added: vec![t],
+                                removed: vec![],
+                            }],
+                            Err(e) => {
+                                warn!(
+                                    "Skipping adding mempool transaction due to get error: {}",
+                                    e
+                                );
+                                vec![]
+                            }
+                        }
+                    } else {
+                        vec![]
+                    }
+                }
+                ZmqEvent::SequenceMessage(SequenceMessage::TransactionRemoved { txid, .. }) => {
+                    if mempool_cache.remove(&txid) {
+                        vec![Event::MempoolUpdates {
+                            added: vec![],
+                            removed: vec![txid],
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                ZmqEvent::BlockConnected(block) => {
+                    let mut removed = vec![];
+                    for t in block.txdata.iter() {
+                        let txid = t.compute_txid();
+                        if mempool_cache.remove(&txid) {
+                            removed.push(txid);
+                        }
+                    }
+                    vec![
+                        Event::MempoolUpdates {
+                            added: vec![],
+                            removed,
+                        },
+                        Event::Block(block),
+                    ]
+                }
+                ZmqEvent::SequenceMessage(SequenceMessage::BlockDisconnected(block_hash)) => {
+                    vec![Event::Rollback(block_hash)]
+                }
+                _ => vec![],
             }
-            Ok(())
         };
 
         loop {
             select! {
-                option_zmq_event = rx.recv() => {
+                option_zmq_event = zmq_rx.recv() => {
                     match option_zmq_event {
-                        Some(event) => {
-                            if let Err(e) = handle_zmq_event(event).await {
-                                error!("Failed to handle event: {}", e);
-                                break;
-                            };
+                        Some(zmq_event) => {
+                            for event in handle_zmq_event(zmq_event).await {
+                                if tx.send(event).is_err() {
+                                    error!("Send channel closed, exiting");
+                                    break;
+                                }
+                            }
                         },
                         None => {
                             // Occurs when runner fails to start up and drops channel sender
