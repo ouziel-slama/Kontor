@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     bitcoin_client,
-    bitcoin_follower::zmq::SequenceMessage,
+    bitcoin_follower::message::SequenceMessage,
     config::Config,
     retry::{new_backoff_limited, retry},
 };

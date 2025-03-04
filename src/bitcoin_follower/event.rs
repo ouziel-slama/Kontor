@@ -2,7 +2,7 @@ use std::fmt;
 
 use bitcoin::{Block, BlockHash, Transaction, Txid};
 
-use super::zmq::SequenceMessage;
+use super::message::SequenceMessage;
 
 #[derive(Debug)]
 pub enum ZmqEvent {
