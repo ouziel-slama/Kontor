@@ -1,6 +1,6 @@
 use std::fmt;
 
-use bitcoin::{Block, BlockHash, Transaction, Txid};
+use bitcoin::{Block, Transaction, Txid};
 
 use super::message::SequenceMessage;
 
@@ -38,7 +38,7 @@ pub enum Event {
         removed: Vec<Txid>,
     },
     Block(Block),
-    Rollback(BlockHash),
+    Rollback(u64),
 }
 
 impl fmt::Display for Event {

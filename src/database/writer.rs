@@ -25,4 +25,13 @@ impl Writer {
             .await?;
         Ok(())
     }
+
+    pub async fn rollback_to_height(&self, height: u64) -> Result<u64> {
+        let num_rows = self
+            .conn
+            .execute("DELETE FROM blocks WHERE height > ?", [height])
+            .await?;
+
+        Ok(num_rows)
+    }
 }

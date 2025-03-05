@@ -47,6 +47,7 @@ impl Fetcher {
     }
 
     pub fn start(&mut self, start_height: u64) {
+        info!("RPC fetcher starting at height: {}", start_height);
         self.handle = Some(tokio::spawn({
             let bitcoin = self.bitcoin.clone();
             let cancel_token = self.cancel_token.clone();
@@ -253,10 +254,12 @@ impl Fetcher {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
+        info!("RPC fetcher stopping");
         if let Some(handle) = self.handle.take() {
             self.cancel_token.cancel();
             handle.await?;
         }
+        info!("RPC fetcher stopped");
         Ok(())
     }
 }
