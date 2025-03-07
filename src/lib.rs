@@ -6,3 +6,4 @@ pub mod database;
 pub mod logging;
 pub mod retry;
 pub mod stopper;
+pub mod utils;

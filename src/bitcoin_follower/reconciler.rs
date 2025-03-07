@@ -1,10 +1,8 @@
-use std::{
-    collections::{HashMap, HashSet, hash_map::Entry},
-    time::Duration,
-};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use bitcoin::{BlockHash, Transaction, Txid};
+use indexmap::{IndexMap, IndexSet, map::Entry};
 use tokio::{
     select,
     sync::mpsc::{self, Receiver, UnboundedSender},
@@ -78,11 +76,11 @@ fn in_reorg_window(
     height >= target_height - reorg_window
 }
 
-fn handle_block<T: Tx>(mempool_cache: &mut HashMap<Txid, T>, block: Block<T>) -> Vec<Event<T>> {
+fn handle_block<T: Tx>(mempool_cache: &mut IndexMap<Txid, T>, block: Block<T>) -> Vec<Event<T>> {
     let mut removed = vec![];
     for t in block.transactions.iter() {
         let txid = t.txid();
-        if mempool_cache.remove(&txid).is_some() {
+        if mempool_cache.shift_remove(&txid).is_some() {
             removed.push(txid);
         }
     }
@@ -101,12 +99,55 @@ enum Mode {
     Rpc,
 }
 
+pub fn handle_new_mempool_transactions<T: Tx>(
+    initial_mempool_txids: &mut IndexSet<Txid>,
+    mempool_cache: &mut IndexMap<Txid, T>,
+    txs: Vec<T>,
+) -> Event<T> {
+    let new_mempool_cache: IndexMap<Txid, T> = txs.into_iter().map(|t| (t.txid(), t)).collect();
+    let new_mempool_cache_txids: IndexSet<Txid> = new_mempool_cache.keys().cloned().collect();
+    let removed_from_initial: IndexSet<Txid> = initial_mempool_txids
+        .difference(&new_mempool_cache_txids)
+        .cloned()
+        .collect();
+    let mempool_cache_txids: IndexSet<Txid> = mempool_cache.keys().cloned().collect();
+    let removed: Vec<Txid> = removed_from_initial
+        .union(
+            &mempool_cache_txids
+                .difference(&new_mempool_cache_txids)
+                .cloned()
+                .collect::<IndexSet<Txid>>(),
+        )
+        .cloned()
+        .collect();
+    let added: Vec<T> = new_mempool_cache_txids
+        .difference(
+            &initial_mempool_txids
+                .union(&mempool_cache_txids)
+                .cloned()
+                .collect::<IndexSet<Txid>>(),
+        )
+        .map(|txid| {
+            new_mempool_cache
+                .get(txid)
+                .expect("Txid should exist")
+                .clone()
+        })
+        .collect();
+
+    // After being taken into account, reset initial mempool txids so they are not referenced again
+    *initial_mempool_txids = IndexSet::new();
+
+    *mempool_cache = new_mempool_cache;
+    Event::MempoolUpdates { added, removed }
+}
+
 pub async fn run<T: Tx + 'static>(
     config: Config,
     cancel_token: CancellationToken,
     reader: database::Reader,
     bitcoin: bitcoin_client::Client,
-    mut initial_mempool_txids: HashSet<Txid>,
+    mut initial_mempool_txids: IndexSet<Txid>,
     f: fn(Transaction) -> T,
     tx: UnboundedSender<Event<T>>,
 ) -> JoinHandle<()> {
@@ -131,11 +172,11 @@ pub async fn run<T: Tx + 'static>(
 
     tokio::spawn(async move {
         let handle_zmq_event = async |reader: &database::Reader,
-                                      initial_mempool_txids: &mut HashSet<Txid>,
+                                      initial_mempool_txids: &mut IndexSet<Txid>,
                                       mode: &mut Mode,
                                       connected: &mut bool,
                                       fetcher: &mut rpc::Fetcher<T>,
-                                      mempool_cache: &mut HashMap<Txid, T>,
+                                      mempool_cache: &mut IndexMap<Txid, T>,
                                       start_height: u64,
                                       rpc_latest_block: &Option<(u64, BlockHash)>,
                                       latest_block: &mut Option<(u64, BlockHash)>,
@@ -167,40 +208,11 @@ pub async fn run<T: Tx + 'static>(
                     vec![]
                 }
                 ZmqEvent::MempoolTransactions(txs) => {
-                    let mut new_mempool_cache: HashMap<Txid, T> =
-                        txs.into_iter().map(|t| (t.txid(), t)).collect();
-                    let new_mempool_cache_txids: HashSet<Txid> =
-                        new_mempool_cache.keys().cloned().collect();
-                    let removed_from_initial: HashSet<Txid> = initial_mempool_txids
-                        .difference(&new_mempool_cache_txids)
-                        .cloned()
-                        .collect();
-                    let mempool_cache_txids: HashSet<Txid> =
-                        mempool_cache.keys().cloned().collect();
-                    let removed: Vec<Txid> = removed_from_initial
-                        .union(
-                            &mempool_cache_txids
-                                .difference(&new_mempool_cache_txids)
-                                .cloned()
-                                .collect(),
-                        )
-                        .cloned()
-                        .collect();
-                    let added: Vec<T> = new_mempool_cache_txids
-                        .difference(
-                            &initial_mempool_txids
-                                .union(&mempool_cache_txids)
-                                .cloned()
-                                .collect(),
-                        )
-                        .map(|txid| new_mempool_cache.remove(txid).expect("Txid should exist"))
-                        .collect();
-
-                    // After being taken into account, reset initial mempool txids so they are not referenced again
-                    *initial_mempool_txids = HashSet::new();
-
-                    *mempool_cache = new_mempool_cache;
-                    vec![Event::MempoolUpdates { added, removed }]
+                    vec![handle_new_mempool_transactions(
+                        initial_mempool_txids,
+                        mempool_cache,
+                        txs,
+                    )]
                 }
                 ZmqEvent::MempoolTransactionAdded(t) => {
                     let txid = t.txid();
@@ -215,7 +227,7 @@ pub async fn run<T: Tx + 'static>(
                     }
                 }
                 ZmqEvent::MempoolTransactionRemoved(txid) => {
-                    if mempool_cache.remove(&txid).is_some() {
+                    if mempool_cache.shift_remove(&txid).is_some() {
                         vec![Event::MempoolUpdates {
                             added: vec![],
                             removed: vec![txid],
@@ -276,7 +288,7 @@ pub async fn run<T: Tx + 'static>(
                                       zmq_connected: &bool,
                                       fetcher: &mut rpc::Fetcher<T>,
                                       rpc_rx: &mut Receiver<(TargetBlockHeight, Block<T>)>,
-                                      mempool_cache: &mut HashMap<Txid, T>,
+                                      mempool_cache: &mut IndexMap<Txid, T>,
                                       zmq_latest_block: &Option<(u64, BlockHash)>,
                                       rpc_latest_block: &mut Option<(u64, BlockHash)>,
                                       (target_height, block): (u64, Block<T>)|
@@ -371,7 +383,7 @@ pub async fn run<T: Tx + 'static>(
 
         let start_height = 850000;
         fetcher.start(start_height);
-        let mut mempool_cache = HashMap::new();
+        let mut mempool_cache = IndexMap::new();
         let mut zmq_latest_block = None;
         let mut rpc_latest_block = None;
         let mut zmq_connected = false;

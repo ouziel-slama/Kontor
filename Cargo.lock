@@ -1299,6 +1299,7 @@ dependencies = [
  "base64 0.22.1",
  "bitcoin",
  "deadpool",
+ "indexmap 2.7.1",
  "libsql",
  "rayon",
  "reqwest",

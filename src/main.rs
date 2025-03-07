@@ -1,6 +1,7 @@
-use std::{collections::HashSet, path::Path};
+use std::path::Path;
 
 use anyhow::Result;
+use indexmap::IndexSet;
 use kontor::{
     bitcoin_client,
     bitcoin_follower::{self, event::Event},
@@ -33,7 +34,7 @@ async fn main() -> Result<()> {
                 cancel_token.clone(),
                 reader,
                 bitcoin.clone(),
-                HashSet::new(),
+                IndexSet::new(),
                 |t| t,
                 tx,
             )

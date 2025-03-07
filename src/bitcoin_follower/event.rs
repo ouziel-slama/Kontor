@@ -39,7 +39,7 @@ impl<T: Tx> fmt::Display for ZmqEvent<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Event<T: Tx> {
     MempoolUpdates { added: Vec<T>, removed: Vec<Txid> },
     Block(Block<T>),

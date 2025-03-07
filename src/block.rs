@@ -13,7 +13,7 @@ impl HasTxid for Transaction {
 pub trait Tx: Clone + HasTxid + Send {}
 impl<T> Tx for T where T: Clone + HasTxid + Send {}
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Block<T: Tx> {
     pub height: u64,
     pub hash: BlockHash,
