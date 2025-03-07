@@ -142,6 +142,50 @@ pub fn handle_new_mempool_transactions<T: Tx>(
     Event::MempoolUpdates { added, removed }
 }
 
+pub async fn get_last_matching_block_height<T: Tx>(
+    cancel_token: CancellationToken,
+    reader: &database::Reader,
+    bitcoin: &bitcoin_client::Client,
+    block: &Block<T>,
+) -> u64 {
+    let mut prev_block_hash = block.prev_hash;
+    let mut subtrahend = 1;
+    loop {
+        let prev_block_row = retry(
+            async || match reader.get_block_at_height(block.height - subtrahend).await {
+                Ok(Some(row)) => Ok(row),
+                Ok(None) => Err(anyhow!(
+                    "Block at height not found: {}",
+                    block.height - subtrahend
+                )),
+                Err(e) => Err(e),
+            },
+            "get block at height",
+            new_backoff_unlimited(),
+            cancel_token.clone(),
+        )
+        .await
+        .expect("Block at height below new block should exist in database");
+
+        if prev_block_row.hash == prev_block_hash {
+            break;
+        }
+
+        subtrahend += 1;
+
+        prev_block_hash = retry(
+            || bitcoin.get_block_hash(block.height - subtrahend),
+            "get block hash",
+            new_backoff_unlimited(),
+            cancel_token.clone(),
+        )
+        .await
+        .expect("Block hash should be returned by bitcoin");
+    }
+
+    block.height - subtrahend
+}
+
 pub async fn run<T: Tx + 'static>(
     config: Config,
     cancel_token: CancellationToken,
@@ -295,49 +339,15 @@ pub async fn run<T: Tx + 'static>(
                -> Vec<Event<T>> {
             if in_reorg_window(target_height, block.height, 20) {
                 info!("In reorg window: {} {}", target_height, block.height);
-                let mut prev_block_hash = block.prev_hash;
-                let mut subtrahend = 1;
-                loop {
-                    let prev_block_row = retry(
-                        async || match reader.get_block_at_height(block.height - subtrahend).await {
-                            Ok(Some(row)) => Ok(row),
-                            Ok(None) => Err(anyhow!(
-                                "Block at height not found: {}",
-                                block.height - subtrahend
-                            )),
-                            Err(e) => Err(e),
-                        },
-                        "get block at height",
-                        new_backoff_unlimited(),
-                        cancel_token.clone(),
-                    )
-                    .await
-                    .expect("Block at height below new block should exist in database");
-
-                    if prev_block_row.hash == prev_block_hash {
-                        break;
-                    }
-
-                    subtrahend += 1;
-
-                    prev_block_hash = retry(
-                        || bitcoin.get_block_hash(block.height - subtrahend),
-                        "get block hash",
-                        new_backoff_unlimited(),
-                        cancel_token.clone(),
-                    )
-                    .await
-                    .expect("Block hash should be returned by bitcoin");
-                }
-
-                if subtrahend > 1 {
+                let last_matching_block_height =
+                    get_last_matching_block_height(cancel_token.clone(), reader, bitcoin, &block)
+                        .await;
+                if last_matching_block_height != block.height - 1 {
                     warn!(
                         "Reorganization occured while RPC fetching: {}, {}",
-                        block.height,
-                        block.height - subtrahend
+                        block.height, last_matching_block_height
                     );
                     *rpc_latest_block = None;
-                    let rollback_height = block.height - subtrahend;
                     if let Err(e) = fetcher.stop().await {
                         error!("Fetcher panicked on join: {}", e);
                     }
@@ -345,8 +355,8 @@ pub async fn run<T: Tx + 'static>(
                     while !rpc_rx.is_empty() {
                         let _ = rpc_rx.recv().await;
                     }
-                    fetcher.start(rollback_height + 1);
-                    return vec![Event::Rollback(rollback_height)];
+                    fetcher.start(last_matching_block_height + 1);
+                    return vec![Event::Rollback(last_matching_block_height)];
                 }
             }
 

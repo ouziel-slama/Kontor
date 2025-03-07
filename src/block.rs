@@ -10,8 +10,8 @@ impl HasTxid for Transaction {
     }
 }
 
-pub trait Tx: Clone + HasTxid + Send {}
-impl<T> Tx for T where T: Clone + HasTxid + Send {}
+pub trait Tx: Clone + HasTxid + Send + Sync {}
+impl<T> Tx for T where T: Clone + HasTxid + Send + Sync {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block<T: Tx> {
