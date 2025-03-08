@@ -24,23 +24,20 @@ use crate::{
     retry::{new_backoff_unlimited, retry},
 };
 
-pub type TargetBlockHeight = u64;
-pub type BlockHeight = u64;
-
 #[derive(Debug)]
 pub struct Fetcher<T: Tx> {
     handle: Option<JoinHandle<()>>,
     cancel_token: CancellationToken,
     bitcoin: bitcoin_client::Client,
     f: fn(Transaction) -> T,
-    tx: Sender<(TargetBlockHeight, Block<T>)>,
+    tx: Sender<(u64, Block<T>)>,
 }
 
 impl<T: Tx + 'static> Fetcher<T> {
     pub fn new(
         bitcoin: bitcoin_client::Client,
         f: fn(Transaction) -> T,
-        tx: Sender<(TargetBlockHeight, Block<T>)>,
+        tx: Sender<(u64, Block<T>)>,
     ) -> Self {
         Self {
             handle: None,

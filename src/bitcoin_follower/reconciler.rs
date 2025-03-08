@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     bitcoin_client,
-    bitcoin_follower::rpc::{self, BlockHeight, TargetBlockHeight},
+    bitcoin_follower::rpc,
     block::{Block, Tx},
     config::Config,
     database,
@@ -68,11 +68,7 @@ async fn zmq_runner<T: Tx + 'static>(
     })
 }
 
-fn in_reorg_window(
-    target_height: TargetBlockHeight,
-    height: BlockHeight,
-    reorg_window: u64,
-) -> bool {
+fn in_reorg_window(target_height: u64, height: u64, reorg_window: u64) -> bool {
     height >= target_height - reorg_window
 }
 
@@ -339,7 +335,7 @@ pub async fn run<T: Tx + 'static>(
                                       mode: &mut Mode,
                                       zmq_connected: &bool,
                                       fetcher: &mut rpc::Fetcher<T>,
-                                      rpc_rx: &mut Receiver<(TargetBlockHeight, Block<T>)>,
+                                      rpc_rx: &mut Receiver<(u64, Block<T>)>,
                                       mempool_cache: &mut IndexMap<Txid, T>,
                                       zmq_latest_block: &Option<(u64, BlockHash)>,
                                       rpc_latest_block: &mut Option<(u64, BlockHash)>,
