@@ -15,15 +15,15 @@ use zmq::Socket;
 
 use crate::{
     bitcoin_client,
-    bitcoin_follower::message::SEQUENCE,
+    bitcoin_follower::messages::SEQUENCE,
     block::{Block, Tx},
     config::Config,
     retry::{new_backoff_limited, new_backoff_unlimited, retry},
 };
 
 use super::{
-    event::ZmqEvent,
-    message::{MonitorMessage, SequenceMessage},
+    events::ZmqEvent,
+    messages::{MonitorMessage, SequenceMessage},
 };
 
 fn run_monitor_socket(

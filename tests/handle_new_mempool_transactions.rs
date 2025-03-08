@@ -1,7 +1,7 @@
 use bitcoin::Txid;
 use indexmap::{IndexMap, IndexSet};
 use kontor::{
-    bitcoin_follower::{event::Event, reconciler::handle_new_mempool_transactions},
+    bitcoin_follower::{events::Event, reconciler::handle_new_mempool_transactions},
     block::HasTxid,
     utils::MockTransaction,
 };
@@ -20,8 +20,8 @@ fn test_empty_initial_state() {
     assert_eq!(
         result,
         Event::MempoolUpdates {
-            added: vec![tx1.clone(), tx2.clone()],
             removed: vec![],
+            added: vec![tx1.clone(), tx2.clone()],
         }
     );
     assert!(initial_mempool_txids.is_empty());
@@ -52,8 +52,8 @@ fn test_adding_and_removing_transactions() {
     assert_eq!(
         result,
         Event::MempoolUpdates {
-            added: vec![tx4.clone()],
             removed: vec![tx1.txid(), tx3.txid()],
+            added: vec![tx4.clone()],
         }
     );
     assert!(initial_mempool_txids.is_empty());
@@ -76,8 +76,8 @@ fn test_no_changes() {
     assert_eq!(
         result,
         Event::MempoolUpdates {
-            added: vec![],
             removed: vec![],
+            added: vec![],
         }
     );
     assert!(initial_mempool_txids.is_empty());
@@ -99,8 +99,8 @@ fn test_empty_new_transactions() {
     assert_eq!(
         result,
         Event::MempoolUpdates {
-            added: vec![],
             removed: vec![tx1.txid()],
+            added: vec![],
         }
     );
     assert!(initial_mempool_txids.is_empty());
@@ -120,8 +120,8 @@ fn test_duplicate_transactions() {
     assert_eq!(
         result,
         Event::MempoolUpdates {
-            added: vec![tx1.clone()],
             removed: vec![],
+            added: vec![tx1.clone()],
         }
     );
     assert!(initial_mempool_txids.is_empty());

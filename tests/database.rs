@@ -1,11 +1,12 @@
 use anyhow::Result;
+use clap::Parser;
 use kontor::{
     bitcoin_client::Client, config::Config, database::types::BlockRow, utils::new_test_db,
 };
 
 #[tokio::test]
 async fn test_database() -> Result<()> {
-    let client = Client::new_from_config(Config::load()?)?;
+    let client = Client::new_from_config(Config::try_parse()?)?;
     let height = 800000;
     let hash = client.get_block_hash(height).await?;
     let block = BlockRow { height, hash };

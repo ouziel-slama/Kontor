@@ -1,2 +1,7 @@
 /target
 .envrc
+**/cert.pem
+**/key.pem
+**/*.db
+**/*.db-shm
+**/*.db-wal

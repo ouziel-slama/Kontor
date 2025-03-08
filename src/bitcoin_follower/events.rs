@@ -41,7 +41,7 @@ impl<T: Tx> fmt::Display for ZmqEvent<T> {
 
 #[derive(Debug, PartialEq)]
 pub enum Event<T: Tx> {
-    MempoolUpdates { added: Vec<T>, removed: Vec<Txid> },
+    MempoolUpdates { removed: Vec<Txid>, added: Vec<T> },
     Block(Block<T>),
     Rollback(u64),
 }
@@ -49,11 +49,11 @@ pub enum Event<T: Tx> {
 impl<T: Tx> fmt::Display for Event<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Event::MempoolUpdates { added, removed } => write!(
+            Event::MempoolUpdates { removed, added } => write!(
                 f,
-                "Mempool updates: added {} removed {}",
+                "Mempool updates: removed {} added {}",
+                removed.len(),
                 added.len(),
-                removed.len()
             ),
             Event::Rollback(block_hash) => {
                 write!(f, "Rollback: {}", block_hash)

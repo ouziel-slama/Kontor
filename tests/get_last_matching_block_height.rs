@@ -1,5 +1,6 @@
 use anyhow::Result;
 use bitcoin::BlockHash;
+use clap::Parser;
 use kontor::{
     bitcoin_client,
     bitcoin_follower::reconciler::get_last_matching_block_height,
@@ -22,7 +23,7 @@ fn new_minimal_block(height: u64, hash: BlockHash, prev_hash: BlockHash) -> Bloc
 #[tokio::test]
 async fn test_no_reorg() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let bitcoin = bitcoin_client::Client::new_from_config(Config::load()?)?;
+    let bitcoin = bitcoin_client::Client::new_from_config(Config::try_parse()?)?;
     let (reader, writer, _temp_dir) = new_test_db().await?;
 
     let height = 100; // Adjust to a known height on your chain
@@ -49,7 +50,7 @@ async fn test_no_reorg() -> Result<()> {
 #[tokio::test]
 async fn test_single_block_reorg() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let bitcoin = bitcoin_client::Client::new_from_config(Config::load()?)?;
+    let bitcoin = bitcoin_client::Client::new_from_config(Config::try_parse()?)?;
     let (reader, writer, _temp_dir) = new_test_db().await?;
 
     let height = 100; // Adjust to a known height
@@ -84,7 +85,7 @@ async fn test_single_block_reorg() -> Result<()> {
 #[tokio::test]
 async fn test_multi_block_reorg() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let bitcoin = bitcoin_client::Client::new_from_config(Config::load()?)?;
+    let bitcoin = bitcoin_client::Client::new_from_config(Config::try_parse()?)?;
     let (reader, writer, _temp_dir) = new_test_db().await?;
 
     let height = 100; // Adjust to a known height

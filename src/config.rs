@@ -1,39 +1,62 @@
-use anyhow::{Result, anyhow};
+use std::path::PathBuf;
+
+use clap::Parser;
 use serde::{Deserialize, Serialize};
-use serde_env::from_env;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Env {
-    pub bitcoin_rpc_url: Option<String>,
-    pub bitcoin_rpc_user: Option<String>,
-    pub bitcoin_rpc_password: Option<String>,
-    pub zmq_pub_sequence_address: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Parser)]
+#[clap(
+    author = "Unspendable Labs",
+    version = "0.1.0",
+    about = "Kontor",
+    long_about = r#"Kontor is a Bitcoin Layer 2"#
+)]
 pub struct Config {
+    #[clap(
+        long,
+        env = "BITCOIN_RPC_URL",
+        help = "URL of the Bitcoin RPC server (e.g., http://localhost:8332)"
+    )]
     pub bitcoin_rpc_url: String,
-    pub bitcoin_rpc_user: String,
-    pub bitcoin_rpc_password: String,
-    pub zmq_pub_sequence_address: String,
-}
 
-impl Config {
-    pub fn load() -> Result<Self> {
-        let env: Env = from_env()?;
-        Ok(Self {
-            bitcoin_rpc_url: env
-                .bitcoin_rpc_url
-                .ok_or(anyhow!("BITCOIN_RPC_URL not set"))?,
-            bitcoin_rpc_user: env
-                .bitcoin_rpc_user
-                .ok_or(anyhow!("BITCOIN_RPC_USER not set"))?,
-            bitcoin_rpc_password: env
-                .bitcoin_rpc_password
-                .ok_or(anyhow!("BITCOIN_RPC_PASSWORD not set"))?,
-            zmq_pub_sequence_address: env
-                .zmq_pub_sequence_address
-                .ok_or(anyhow!("ZMQ_PUB_SEQUENCE_ADDRESS not set"))?,
-        })
-    }
+    #[clap(
+        long,
+        env = "BITCOIN_RPC_USER",
+        help = "User for Bitcoin RPC authentication"
+    )]
+    pub bitcoin_rpc_user: String,
+
+    #[clap(
+        long,
+        env = "BITCOIN_RPC_PASSWORD",
+        help = "Password for Bitcoin RPC authentication"
+    )]
+    pub bitcoin_rpc_password: String,
+
+    #[clap(
+        long,
+        env = "ZMQ_PUB_SEQUENCE_ADDRESS",
+        help = "ZMQ address for sequence notifications (e.g., tcp://localhost:28332)"
+    )]
+    pub zmq_pub_sequence_address: String,
+
+    #[clap(
+        long,
+        env = "API_PORT",
+        help = "Port number for the API server (e.g., 8080)"
+    )]
+    pub api_port: u16,
+
+    #[clap(
+        long,
+        env = "CERT_DIR",
+        help = "Directory path for TLS cert.pem and key.pem files (e.g., /var/lib/myapp/certs)"
+    )]
+    pub cert_dir: PathBuf,
+
+    #[clap(
+        long,
+        env = "DATABASE_DIR",
+        help = "Directory path for the database (e.g., /var/lib/myapp/db)"
+    )]
+    pub database_dir: PathBuf,
 }

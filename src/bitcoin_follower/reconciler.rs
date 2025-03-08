@@ -5,7 +5,7 @@ use bitcoin::{BlockHash, Transaction, Txid};
 use indexmap::{IndexMap, IndexSet, map::Entry};
 use tokio::{
     select,
-    sync::mpsc::{self, Receiver, UnboundedSender},
+    sync::mpsc::{self, Receiver, Sender, UnboundedSender},
     task::JoinHandle,
     time::sleep,
 };
@@ -22,7 +22,7 @@ use crate::{
 };
 
 use super::{
-    event::{Event, ZmqEvent},
+    events::{Event, ZmqEvent},
     zmq,
 };
 
@@ -86,8 +86,8 @@ fn handle_block<T: Tx>(mempool_cache: &mut IndexMap<Txid, T>, block: Block<T>) -
     }
     vec![
         Event::MempoolUpdates {
-            added: vec![],
             removed,
+            added: vec![],
         },
         Event::Block(block),
     ]
@@ -139,7 +139,7 @@ pub fn handle_new_mempool_transactions<T: Tx>(
     *initial_mempool_txids = IndexSet::new();
 
     *mempool_cache = new_mempool_cache;
-    Event::MempoolUpdates { added, removed }
+    Event::MempoolUpdates { removed, added }
 }
 
 pub async fn get_last_matching_block_height<T: Tx>(
@@ -193,7 +193,7 @@ pub async fn run<T: Tx + 'static>(
     bitcoin: bitcoin_client::Client,
     mut initial_mempool_txids: IndexSet<Txid>,
     f: fn(Transaction) -> T,
-    tx: UnboundedSender<Event<T>>,
+    tx: Sender<Event<T>>,
 ) -> JoinHandle<()> {
     let (zmq_tx, mut zmq_rx) = mpsc::unbounded_channel::<ZmqEvent<T>>();
     let (rpc_tx, mut rpc_rx) = mpsc::channel(10);
@@ -263,8 +263,8 @@ pub async fn run<T: Tx + 'static>(
                     if let Entry::Vacant(_) = mempool_cache.entry(txid) {
                         mempool_cache.insert(txid, t.clone());
                         vec![Event::MempoolUpdates {
-                            added: vec![t],
                             removed: vec![],
+                            added: vec![t],
                         }]
                     } else {
                         vec![]
@@ -273,8 +273,8 @@ pub async fn run<T: Tx + 'static>(
                 ZmqEvent::MempoolTransactionRemoved(txid) => {
                     if mempool_cache.shift_remove(&txid).is_some() {
                         vec![Event::MempoolUpdates {
-                            added: vec![],
                             removed: vec![txid],
+                            added: vec![],
                         }]
                     } else {
                         vec![]
@@ -380,8 +380,8 @@ pub async fn run<T: Tx + 'static>(
                 }
 
                 vec![Event::MempoolUpdates {
-                    added: mempool_cache.values().cloned().collect(),
                     removed: vec![],
+                    added: mempool_cache.values().cloned().collect(),
                 }]
             } else {
                 vec![]
@@ -415,7 +415,7 @@ pub async fn run<T: Tx + 'static>(
                                 &mut zmq_latest_block,
                                 zmq_event
                             ).await {
-                                if tx.send(event).is_err() {
+                                if tx.send(event).await.is_err() {
                                     info!("Send channel closed, exiting");
                                     break;
                                 }
@@ -443,7 +443,7 @@ pub async fn run<T: Tx + 'static>(
                                 &mut rpc_latest_block,
                                 rpc_event
                             ).await {
-                                if tx.send(event).is_err() {
+                                if tx.send(event).await.is_err() {
                                     info!("Send channel closed, exiting");
                                     break;
                                 }
