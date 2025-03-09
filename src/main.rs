@@ -21,14 +21,11 @@ async fn main() -> Result<()> {
     let reader = database::Reader::new(&db_path).await?;
     let writer = database::Writer::new(&db_path).await?;
     handles.push(
-        api::run(
-            cancel_token.clone(),
-            Context {
-                config: config.clone(),
-                cancel_token: cancel_token.clone(),
-                reader: reader.clone(),
-            },
-        )
+        api::run(Context {
+            config: config.clone(),
+            cancel_token: cancel_token.clone(),
+            reader: reader.clone(),
+        })
         .await?,
     );
     let start_height = reader
