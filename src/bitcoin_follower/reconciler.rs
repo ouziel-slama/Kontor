@@ -187,6 +187,7 @@ pub async fn run<T: Tx + 'static>(
     cancel_token: CancellationToken,
     reader: database::Reader,
     bitcoin: bitcoin_client::Client,
+    start_height: u64,
     mut initial_mempool_txids: IndexSet<Txid>,
     f: fn(Transaction) -> T,
     tx: Sender<Event<T>>,
@@ -395,7 +396,6 @@ pub async fn run<T: Tx + 'static>(
             .collect()
         };
 
-        let start_height = 850000;
         fetcher.start(start_height);
         let mut mempool_cache = IndexMap::new();
         let mut zmq_latest_block = None;

@@ -59,4 +59,12 @@ pub struct Config {
         help = "Directory path for the database (e.g., /var/lib/myapp/db)"
     )]
     pub database_dir: PathBuf,
+
+    #[clap(
+        long,
+        env = "STARTING_BLOCK_HEIGHT",
+        help = "Block height to begin parsing at (e.g. 850000)",
+        default_value = "850000"
+    )]
+    pub starting_block_height: u64,
 }

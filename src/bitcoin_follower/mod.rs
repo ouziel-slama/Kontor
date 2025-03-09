@@ -18,6 +18,7 @@ pub async fn run<T: Tx + 'static>(
     cancel_token: CancellationToken,
     reader: Reader,
     bitcoin: bitcoin_client::Client,
+    start_height: u64,
     f: fn(Transaction) -> T,
     tx: Sender<Event<T>>,
 ) -> JoinHandle<()> {
@@ -26,6 +27,7 @@ pub async fn run<T: Tx + 'static>(
         cancel_token.clone(),
         reader,
         bitcoin,
+        start_height,
         IndexSet::new(),
         f,
         tx,

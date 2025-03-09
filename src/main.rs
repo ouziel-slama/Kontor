@@ -31,6 +31,12 @@ async fn main() -> Result<()> {
         )
         .await?,
     );
+    let start_height = reader
+        .get_block_latest()
+        .await?
+        .map(|block_row| block_row.height)
+        .unwrap_or(config.starting_block_height - 1)
+        + 1;
     let (reactor_tx, reactor_rx) = mpsc::channel(10);
     handles.push(
         bitcoin_follower::run(
@@ -38,6 +44,7 @@ async fn main() -> Result<()> {
             cancel_token.clone(),
             reader.clone(),
             bitcoin,
+            start_height,
             |t| t,
             reactor_tx,
         )
