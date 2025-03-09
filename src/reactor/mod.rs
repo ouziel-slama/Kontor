@@ -20,8 +20,8 @@ pub fn run<T: Tx + 'static>(
             loop {
                 select! {
                     _ = cancel_token.cancelled() => {
-                    info!("Core cancelled");
-                    break;
+                        info!("Core cancelled");
+                        break;
                     }
                     option_event = rx.recv() => {
                         match option_event {
@@ -47,6 +47,7 @@ pub fn run<T: Tx + 'static>(
                                     },
                                     Event::Rollback(height) => {
                                         writer.rollback_to_height(height).await.unwrap();
+                                        option_last_height = Some(height);
                                         info!("Rollback {}" ,height);
                                     },
                                     Event::MempoolUpdates {removed, added} => {
