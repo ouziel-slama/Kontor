@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use kontor::api::Context;
 use kontor::{api, reactor};
 use kontor::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
 use tokio::sync::mpsc;
@@ -22,7 +23,7 @@ async fn main() -> Result<()> {
     handles.push(
         api::run(
             cancel_token.clone(),
-            api::router::State {
+            Context {
                 config: config.clone(),
                 cancel_token: cancel_token.clone(),
                 reader: reader.clone(),

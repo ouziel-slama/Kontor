@@ -1,7 +1,7 @@
 use bitcoin::BlockHash;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlockRow {
     pub height: u64,
     pub hash: BlockHash,
