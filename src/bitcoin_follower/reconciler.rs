@@ -545,7 +545,8 @@ pub async fn run<T: Tx + 'static>(
                                     }
                                 },
                                 Err(e) => {
-                                    warn!("Handling zmq event resulted in error implying cancellation, exiting: {}", e);
+                                    warn!("Handling zmq event resulted in error. Cancelling program and exiting: {}", e);
+                                    cancel_token.cancel();
                                     break;
                                 }
                             }
@@ -575,7 +576,8 @@ pub async fn run<T: Tx + 'static>(
                                     }
                                 },
                                 Err(e) => {
-                                    warn!("Handling rpc event resulted in error implying cancellation, exiting: {}", e);
+                                    warn!("Handling rpc event resulted in error. Cancelling program and exiting: {}", e);
+                                    cancel_token.cancel();
                                     break;
                                 }
                             }
