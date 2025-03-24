@@ -7,7 +7,7 @@ use kontor::{
         queries::{insert_block, select_block_at_height, select_block_latest},
         types::BlockRow,
     },
-    utils::{new_test_conn, new_test_db},
+    utils::new_test_db,
 };
 
 #[tokio::test]
@@ -36,8 +36,8 @@ async fn test_database() -> Result<()> {
 
 #[tokio::test]
 async fn test_transaction() -> Result<()> {
-    let (conn, _temp_dir) = new_test_conn().await?;
-    let tx = conn.transaction().await?;
+    let (_reader, writer, _temp_dir) = new_test_db().await?;
+    let tx = writer.connection().transaction().await?;
     let height = 800000;
     let client = Client::new_from_config(Config::try_parse()?)?;
     let hash = client.get_block_hash(height).await?;

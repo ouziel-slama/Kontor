@@ -1,4 +1,4 @@
-pub mod connection;
+mod connection;
 mod pool;
 pub mod queries;
 pub mod reader;
