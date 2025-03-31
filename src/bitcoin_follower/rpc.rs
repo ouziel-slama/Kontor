@@ -143,7 +143,6 @@ impl<T: Tx + 'static> Fetcher<T> {
                                                 .expect("semaphore.acquired_owned failed despite never being closed");
                                             tokio::spawn(
                                                 async move {
-                                                    let _permit = permit;
                                                     if let Ok(block_hash) = retry(
                                                         || bitcoin.get_block_hash(height),
                                                         "get block hash",
@@ -161,6 +160,7 @@ impl<T: Tx + 'static> Fetcher<T> {
                                                             let _ = tx.send((target_height, height, block)).await;
                                                         }
                                                     }
+                                                    drop(permit);
                                                 }
                                             );
                                         },
@@ -200,7 +200,6 @@ impl<T: Tx + 'static> Fetcher<T> {
                                                 .expect("semaphore.acquired_owned failed despite never being closed");
                                             tokio::spawn(
                                                 async move {
-                                                    let _permit = permit;
                                                     let _ = tx.send((
                                                         target_height,
                                                         Block {
@@ -210,6 +209,7 @@ impl<T: Tx + 'static> Fetcher<T> {
                                                             transactions: block.txdata.into_par_iter().map(f).collect(),
                                                         })
                                                     ).await;
+                                                    drop(permit);
                                                 }
                                             );
                                         },

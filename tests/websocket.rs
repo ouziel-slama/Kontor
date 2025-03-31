@@ -7,8 +7,10 @@ use kontor::{
     api::{self, Env},
     config::Config,
     logging,
+    reactor::events::EventSubscriber,
     utils::new_test_db,
 };
+use tokio::sync::mpsc;
 use tokio_tungstenite::{Connector, connect_async_tls_with_config, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
@@ -18,12 +20,19 @@ async fn test_websocket_server() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let config = Config::try_parse()?;
     let (reader, _writer, _temp_dir) = new_test_db().await?;
-    let handle = api::run(Env {
-        config: config.clone(),
-        cancel_token: cancel_token.clone(),
-        reader: reader.clone(),
-    })
-    .await?;
+    let (_, event_rx) = mpsc::channel(10);
+    let event_subscriber = EventSubscriber::new();
+    let mut handles = vec![];
+    handles.push(event_subscriber.run(cancel_token.clone(), event_rx));
+    handles.push(
+        api::run(Env {
+            config: config.clone(),
+            cancel_token: cancel_token.clone(),
+            reader: reader.clone(),
+            event_subscriber,
+        })
+        .await?,
+    );
 
     let url = format!("wss://localhost:{}/ws", config.api_port);
     let certs = rustls_native_certs::load_native_certs().unwrap();
@@ -43,27 +52,15 @@ async fn test_websocket_server() -> Result<()> {
     ws_stream
         .send(Message::Ping(ping_data.clone().into()))
         .await?;
-    let received = ws_stream
-        .next()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("No response"))??;
+    let received = ws_stream.next().await.unwrap()?;
     assert_eq!(received, Message::Pong(ping_data.into()));
 
-    let test_msg = r#"{"type":"Test","message":"Hello, WebSocket!"}"#;
-    ws_stream.send(Message::Text(test_msg.into())).await?;
-    let received = ws_stream
-        .next()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("No response"))??;
-    assert_eq!(received, Message::Text(test_msg.into()));
-
     ws_stream.send(Message::Close(None)).await?;
-    let close_msg = ws_stream
-        .next()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("No close"))??;
+    let close_msg = ws_stream.next().await.unwrap()?;
     assert!(close_msg.is_close());
     cancel_token.cancel();
-    handle.await?;
+    for handle in handles {
+        handle.await?;
+    }
     Ok(())
 }

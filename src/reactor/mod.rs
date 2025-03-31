@@ -1,3 +1,5 @@
+pub mod events;
+
 use tokio::{select, sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};

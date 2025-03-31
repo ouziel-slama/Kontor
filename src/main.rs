@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use kontor::api::Env;
+use kontor::reactor::events::EventSubscriber;
 use kontor::{api, reactor};
 use kontor::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
 use tokio::sync::mpsc;
@@ -20,11 +21,15 @@ async fn main() -> Result<()> {
     let db_path = config.database_dir.join("state.db");
     let reader = database::Reader::new(&db_path).await?;
     let writer = database::Writer::new(&db_path).await?;
+    let (_, event_rx) = mpsc::channel(10);
+    let event_subscriber = EventSubscriber::new();
+    handles.push(event_subscriber.run(cancel_token.clone(), event_rx));
     handles.push(
         api::run(Env {
             config: config.clone(),
             cancel_token: cancel_token.clone(),
             reader: reader.clone(),
+            event_subscriber,
         })
         .await?,
     );
