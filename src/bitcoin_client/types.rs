@@ -1,6 +1,6 @@
 use std::fmt;
 
-use bitcoin::{Network, Txid};
+use bitcoin::{Amount, Network, Txid};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -79,33 +79,18 @@ pub struct GetBlockchainInfoResult {
     pub prune_target_size: Option<u64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct TestMempoolAcceptResult {
-    pub txid: Txid,
-    #[serde(default)]
-    pub allowed: Option<bool>,
-    pub vsize: Option<u64>,
-    pub fees: Option<Fees>,
+    pub txid: bitcoin::Txid,
+    pub allowed: bool,
     #[serde(rename = "reject-reason")]
     pub reject_reason: Option<String>,
-    #[serde(rename = "wtxid")]
-    pub wtxid: Option<Txid>,
-    #[serde(rename = "other-reject-reason")]
-    pub other_reject_reason: Option<String>,
-    #[serde(rename = "tx-size")]
-    pub tx_size: Option<u64>,
-    #[serde(rename = "tx-weight")]
-    pub tx_weight: Option<u64>,
+    pub vsize: Option<u64>,
+    pub fees: Option<TestMempoolAcceptResultFees>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Fees {
-    #[serde(rename = "base")]
-    pub base: Option<f64>,
-    #[serde(rename = "modified")]
-    pub modified: Option<f64>,
-    #[serde(rename = "ancestor")]
-    pub ancestor: Option<f64>,
-    #[serde(rename = "descendant")]
-    pub descendant: Option<f64>,
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct TestMempoolAcceptResultFees {
+    #[serde(with = "bitcoin::amount::serde::as_btc")]
+    pub base: Amount,
 }

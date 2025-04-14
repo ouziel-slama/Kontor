@@ -7,7 +7,7 @@ use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::{Instruction, PushBytesBuf};
 use bitcoin::secp256k1::All;
 use bitcoin::{
-    Amount, OutPoint, ScriptBuf, Sequence, Txid, Witness,
+    Amount, OutPoint, ScriptBuf, Txid, Witness,
     absolute::LockTime,
     address::Address,
     consensus::encode::serialize as serialize_tx,
@@ -85,11 +85,8 @@ async fn test_psbt_with_secret() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
-    assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(result[1].allowed.unwrap(), "Swap transaction was rejected");
+    assert!(result[0].allowed, "Attach transaction was rejected");
+    assert!(result[1].allowed, "Swap transaction was rejected");
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -220,12 +217,9 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
 
     // Assert attach transaction is allowed but swap is rejected
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -362,12 +356,9 @@ async fn test_psbt_without_secret() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -506,12 +497,9 @@ async fn test_psbt_without_token_balance() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -643,12 +631,9 @@ async fn test_psbt_without_prefix() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -791,12 +776,9 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -953,12 +935,9 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -1109,12 +1088,9 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
 
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(
-        result[0].allowed.unwrap(),
-        "Attach transaction was rejected"
-    );
-    assert!(
-        !result[1].allowed.unwrap(),
+        !result[1].allowed,
         "Swap transaction was unexpectedly accepted"
     );
     assert_eq!(
@@ -1235,9 +1211,7 @@ fn build_signed_attach_tx(
                 txid: input_txid,
                 vout: input_vout,
             },
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness: Witness::new(),
+            ..Default::default()
         }],
         output: vec![
             TxOut {
@@ -1318,9 +1292,7 @@ fn build_seller_psbt_and_sig(
                     txid: attach_tx.compute_txid(),
                     vout: 0,
                 },
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
+                ..Default::default()
             }],
             output: vec![TxOut {
                 value: Amount::from_sat(600),
@@ -1390,9 +1362,7 @@ fn build_signed_buyer_psbt(
                         txid: attach_tx.compute_txid(),
                         vout: 0,
                     },
-                    script_sig: ScriptBuf::new(),
-                    sequence: Sequence::MAX,
-                    witness: Witness::new(),
+                    ..Default::default()
                 },
                 // Buyer's UTXO input
                 TxIn {
@@ -1402,9 +1372,7 @@ fn build_signed_buyer_psbt(
                         )?,
                         vout: 0,
                     },
-                    script_sig: ScriptBuf::new(),
-                    sequence: Sequence::MAX,
-                    witness: Witness::new(),
+                    ..Default::default()
                 },
             ],
             output: vec![
