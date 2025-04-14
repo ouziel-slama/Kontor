@@ -1,6 +1,6 @@
 use std::fmt;
 
-use bitcoin::Network;
+use bitcoin::{Network, Txid};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -77,4 +77,35 @@ pub struct GetBlockchainInfoResult {
     pub automatic_pruning: Option<bool>,
     /// The target size used by pruning (only present if automatic pruning is enabled)
     pub prune_target_size: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TestMempoolAcceptResult {
+    pub txid: Txid,
+    #[serde(default)]
+    pub allowed: Option<bool>,
+    pub vsize: Option<u64>,
+    pub fees: Option<Fees>,
+    #[serde(rename = "reject-reason")]
+    pub reject_reason: Option<String>,
+    #[serde(rename = "wtxid")]
+    pub wtxid: Option<Txid>,
+    #[serde(rename = "other-reject-reason")]
+    pub other_reject_reason: Option<String>,
+    #[serde(rename = "tx-size")]
+    pub tx_size: Option<u64>,
+    #[serde(rename = "tx-weight")]
+    pub tx_weight: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Fees {
+    #[serde(rename = "base")]
+    pub base: Option<f64>,
+    #[serde(rename = "modified")]
+    pub modified: Option<f64>,
+    #[serde(rename = "ancestor")]
+    pub ancestor: Option<f64>,
+    #[serde(rename = "descendant")]
+    pub descendant: Option<f64>,
 }
