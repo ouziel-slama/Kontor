@@ -135,41 +135,27 @@ async fn test_psbt_with_secret() -> Result<()> {
 
     // Assert deserialize swap witness script
     let swap_witness_data = &final_tx.input[0].witness;
-    let swap_witness_script = swap_witness_data
-        .witness_script()
-        .ok_or_else(|| anyhow::anyhow!("No witness script found"))?;
-    let swap_witness_instructions = swap_witness_script
-        .instructions()
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let [
-        Instruction::PushBytes(prefix),
-        Instruction::Op(OP_EQUALVERIFY),
-        Instruction::Op(OP_SHA256),
-        Instruction::PushBytes(hash),
-        Instruction::Op(OP_EQUALVERIFY),
-        Instruction::PushBytes(compressed_pub_key),
-        Instruction::Op(OP_CHECKSIG),
-    ] = swap_witness_instructions.as_slice()
-    else {
-        panic!("Invalid witness script format");
-    };
-    assert_eq!(prefix.as_bytes(), b"KNTR");
     assert_eq!(
-        hash.as_bytes(),
-        sha256::Hash::hash(&serialized_token_balance).as_byte_array()
-    );
-    assert_eq!(
-        compressed_pub_key.as_bytes(),
-        &seller_compressed_pubkey.to_bytes()
+        swap_witness_data.len(),
+        4,
+        "Swap witness data should have 4 elements"
     );
 
-    let accepted_witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
-    // Check the actual witness data that was pushed
+    let signature = swap_witness_data.nth(0).unwrap();
+    let token_balance = swap_witness_data.nth(1).unwrap();
+    let prefix = swap_witness_data.nth(2).unwrap();
+    let final_witness_script = swap_witness_data.nth(3).unwrap();
+
+    assert_eq!(signature, sig.to_vec(), "First element should be signature");
     assert_eq!(
-        accepted_witness.nth(2).unwrap(),
-        b"KNTR",
-        "Witness should have KNTR"
+        token_balance, serialized_token_balance,
+        "Second element should be token balance"
+    );
+    assert_eq!(prefix, b"KNTR", "Third element should be prefix KNTR");
+    assert_eq!(
+        final_witness_script,
+        witness_script.as_bytes(),
+        "Fourth element should be witness script"
     );
 
     Ok(())
@@ -242,6 +228,10 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -286,41 +276,30 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
 
     // Assert deserialize swap witness script
     let swap_witness_data = &final_tx.input[0].witness;
-    let swap_witness_script = swap_witness_data
-        .witness_script()
-        .ok_or_else(|| anyhow::anyhow!("No witness script found"))?;
-    let swap_witness_instructions = swap_witness_script
-        .instructions()
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let [
-        Instruction::PushBytes(prefix),
-        Instruction::Op(OP_EQUALVERIFY),
-        Instruction::Op(OP_SHA256),
-        Instruction::PushBytes(hash),
-        Instruction::Op(OP_EQUALVERIFY),
-        Instruction::PushBytes(compressed_pub_key),
-        Instruction::Op(OP_CHECKSIG),
-    ] = swap_witness_instructions.as_slice()
-    else {
-        panic!("Invalid witness script format");
-    };
-    assert_eq!(prefix.as_bytes(), b"KNTR");
     assert_eq!(
-        hash.as_bytes(),
-        sha256::Hash::hash(&serialized_token_balance).as_byte_array()
-    );
-    assert_eq!(
-        compressed_pub_key.as_bytes(),
-        &seller_compressed_pubkey.to_bytes()
+        swap_witness_data.len(),
+        4,
+        "Swap witness data should have 4 elements"
     );
 
-    let malformed_witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
-    // Check the actual witness data that was pushed
+    let signature = swap_witness_data.nth(0).unwrap();
+    let token_balance = swap_witness_data.nth(1).unwrap();
+    let prefix = swap_witness_data.nth(2).unwrap();
+    let final_witness_script = swap_witness_data.nth(3).unwrap();
+
+    assert_eq!(signature, sig.to_vec(), "First element should be signature");
     assert_eq!(
-        malformed_witness.nth(2).unwrap(),
-        b"KNR",
-        "Witness should have KNR prefix instead of KNTR"
+        token_balance, serialized_token_balance,
+        "Second element should be token balance"
+    );
+    assert_eq!(
+        prefix, b"KNR",
+        "Third element should be incorrect prefix KNR"
+    );
+    assert_eq!(
+        final_witness_script,
+        witness_script.as_bytes(),
+        "Fourth element should be witness script"
     );
 
     Ok(())
@@ -391,6 +370,10 @@ async fn test_psbt_without_secret() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Witness program hash mismatch)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -436,7 +419,8 @@ async fn test_psbt_without_secret() -> Result<()> {
 
     // In this test, we're using the seller's address script_pubkey instead of a witness script
     // So we should verify that the witness data contains the seller's address script_pubkey
-    let witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
+    let witness = &final_tx.input[0].witness;
+    assert_eq!(witness.len(), 4, "Witness data should have 4 elements");
     // The witness should contain:
     // 1. Signature
     // 2. Serialized token balance
@@ -461,29 +445,6 @@ async fn test_psbt_without_secret() -> Result<()> {
         witness.nth(3).unwrap(),
         seller_address.script_pubkey().as_bytes(),
         "Fourth element should be seller's address script_pubkey"
-    );
-
-    // Also verify the witness data in the final transaction
-    let final_witness = &final_tx.input[0].witness;
-    assert_eq!(
-        final_witness.nth(0).unwrap(),
-        sig.to_vec(),
-        "Final tx first element should be signature"
-    );
-    assert_eq!(
-        final_witness.nth(1).unwrap(),
-        serialized_token_balance,
-        "Final tx second element should be token balance"
-    );
-    assert_eq!(
-        final_witness.nth(2).unwrap(),
-        b"KNTR",
-        "Final tx third element should be KNTR prefix"
-    );
-    assert_eq!(
-        final_witness.nth(3).unwrap(),
-        seller_address.script_pubkey().as_bytes(),
-        "Final tx fourth element should be seller's address script_pubkey"
     );
 
     Ok(())
@@ -553,6 +514,10 @@ async fn test_psbt_without_token_balance() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -596,12 +561,13 @@ async fn test_psbt_without_token_balance() -> Result<()> {
         .unwrap()
     );
 
+    let witness = &final_tx.input[0].witness;
+    assert_eq!(witness.len(), 3, "Witness data should have 3 elements");
     // In this test, we're using a witness without the token balance
     // So we should verify that the witness data contains:
     // 1. Signature
     // 2. "KNTR" prefix
     // 3. Witness script
-    let witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
     assert_eq!(
         witness.nth(0).unwrap(),
         sig.to_vec(),
@@ -616,24 +582,6 @@ async fn test_psbt_without_token_balance() -> Result<()> {
         witness.nth(2).unwrap(),
         witness_script.as_bytes(),
         "Third element should be witness script"
-    );
-
-    // Also verify the witness data in the final transaction
-    let final_witness = &final_tx.input[0].witness;
-    assert_eq!(
-        final_witness.nth(0).unwrap(),
-        sig.to_vec(),
-        "Final tx first element should be signature"
-    );
-    assert_eq!(
-        final_witness.nth(1).unwrap(),
-        b"KNTR",
-        "Final tx second element should be KNTR prefix"
-    );
-    assert_eq!(
-        final_witness.nth(2).unwrap(),
-        witness_script.as_bytes(),
-        "Final tx third element should be witness script"
     );
 
     Ok(())
@@ -703,6 +651,10 @@ async fn test_psbt_without_prefix() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -746,12 +698,13 @@ async fn test_psbt_without_prefix() -> Result<()> {
         .unwrap()
     );
 
+    let witness = &final_tx.input[0].witness;
+    assert_eq!(witness.len(), 3, "Witness data should have 3 elements");
     // In this test, we're using a witness without the KNTR prefix
     // So we should verify that the witness data contains:
     // 1. Signature
     // 2. Serialized token balance
     // 3. Witness script
-    let witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
     assert_eq!(
         witness.nth(0).unwrap(),
         sig.to_vec(),
@@ -766,24 +719,6 @@ async fn test_psbt_without_prefix() -> Result<()> {
         witness.nth(2).unwrap(),
         witness_script.as_bytes(),
         "Third element should be witness script"
-    );
-
-    // Also verify the witness data in the final transaction
-    let final_witness = &final_tx.input[0].witness;
-    assert_eq!(
-        final_witness.nth(0).unwrap(),
-        sig.to_vec(),
-        "Final tx first element should be signature"
-    );
-    assert_eq!(
-        final_witness.nth(1).unwrap(),
-        serialized_token_balance,
-        "Final tx second element should be token balance"
-    );
-    assert_eq!(
-        final_witness.nth(2).unwrap(),
-        witness_script.as_bytes(),
-        "Final tx third element should be witness script"
     );
 
     Ok(())
@@ -864,6 +799,10 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Witness program hash mismatch)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -907,13 +846,14 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
         .unwrap()
     );
 
+    let witness = &final_tx.input[0].witness;
+    assert_eq!(witness.len(), 4, "Witness data should have 4 elements");
     // In this test, we're using a witness with a malformed secret
     // So we should verify that the witness data contains:
     // 1. Signature
     // 2. Serialized token balance
     // 3. "KNTR" prefix
     // 4. Witness script (with malformed secret hash)
-    let witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
     assert_eq!(
         witness.nth(0).unwrap(),
         sig.to_vec(),
@@ -946,29 +886,6 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
         actual_witness_script,
         expected_witness_script.as_bytes(),
         "Fourth element should be witness script with malformed secret"
-    );
-
-    // Also verify the witness data in the final transaction
-    let final_witness = &final_tx.input[0].witness;
-    assert_eq!(
-        final_witness.nth(0).unwrap(),
-        sig.to_vec(),
-        "Final tx first element should be signature"
-    );
-    assert_eq!(
-        final_witness.nth(1).unwrap(),
-        serialized_token_balance,
-        "Final tx second element should be token balance"
-    );
-    assert_eq!(
-        final_witness.nth(2).unwrap(),
-        b"KNTR",
-        "Final tx third element should be KNTR prefix"
-    );
-    assert_eq!(
-        final_witness.nth(3).unwrap(),
-        expected_witness_script.as_bytes(),
-        "Final tx fourth element should be witness script with malformed secret"
     );
 
     Ok(())
@@ -1044,6 +961,10 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -1087,13 +1008,14 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
         .unwrap()
     );
 
+    let witness = &final_tx.input[0].witness;
+    assert_eq!(witness.len(), 4, "Witness data should have 4 elements");
     // In this test, we're using a witness with a malformed token name
     // So we should verify that the witness data contains:
     // 1. Signature
     // 2. Serialized token balance with wrong token name
     // 3. "KNTR" prefix
     // 4. Witness script
-    let witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
     assert_eq!(
         witness.nth(0).unwrap(),
         sig.to_vec(),
@@ -1120,29 +1042,6 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
         witness.nth(3).unwrap(),
         witness_script.as_bytes(),
         "Fourth element should be witness script"
-    );
-
-    // Also verify the witness data in the final transaction
-    let final_witness = &final_tx.input[0].witness;
-    assert_eq!(
-        final_witness.nth(0).unwrap(),
-        sig.to_vec(),
-        "Final tx first element should be signature"
-    );
-    assert_eq!(
-        final_witness.nth(1).unwrap(),
-        expected_token_balance,
-        "Final tx second element should be token balance with wrong token name"
-    );
-    assert_eq!(
-        final_witness.nth(2).unwrap(),
-        b"KNTR",
-        "Final tx third element should be KNTR prefix"
-    );
-    assert_eq!(
-        final_witness.nth(3).unwrap(),
-        witness_script.as_bytes(),
-        "Final tx fourth element should be witness script"
     );
 
     Ok(())
@@ -1218,6 +1117,10 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
         !result[1].allowed.unwrap(),
         "Swap transaction was unexpectedly accepted"
     );
+    assert_eq!(
+        result[1].reject_reason.as_ref().unwrap(),
+        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+    );
 
     // Assert deserialize attached op_return data
     let attach_op_return_script = &attach_tx.output[2].script_pubkey; // OP_RETURN is the third output
@@ -1261,13 +1164,14 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
         .unwrap()
     );
 
+    let witness = &final_tx.input[0].witness;
+    assert_eq!(witness.len(), 4, "Witness data should have 4 elements");
     // In this test, we're using a witness with insufficient funds
     // So we should verify that the witness data contains:
     // 1. Signature
     // 2. Serialized token balance with insufficient funds
     // 3. "KNTR" prefix
     // 4. Witness script
-    let witness = seller_psbt.inputs[0].final_script_witness.as_ref().unwrap();
     assert_eq!(
         witness.nth(0).unwrap(),
         sig.to_vec(),
@@ -1296,29 +1200,6 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
         "Fourth element should be witness script"
     );
 
-    // Also verify the witness data in the final transaction
-    let final_witness = &final_tx.input[0].witness;
-    assert_eq!(
-        final_witness.nth(0).unwrap(),
-        sig.to_vec(),
-        "Final tx first element should be signature"
-    );
-    assert_eq!(
-        final_witness.nth(1).unwrap(),
-        expected_token_balance,
-        "Final tx second element should be token balance with wrong token name"
-    );
-    assert_eq!(
-        final_witness.nth(2).unwrap(),
-        b"KNTR",
-        "Final tx third element should be KNTR prefix"
-    );
-    assert_eq!(
-        final_witness.nth(3).unwrap(),
-        witness_script.as_bytes(),
-        "Final tx fourth element should be witness script"
-    );
-
     Ok(())
 }
 
@@ -1335,7 +1216,7 @@ fn build_signed_attach_tx(
     let input_vout = 0;
     let input_amount = Amount::from_sat(10000);
 
-    let script_address = Address::p2wsh(&witness_script, Network::Bitcoin);
+    let script_address: Address = Address::p2wsh(&witness_script, Network::Bitcoin);
 
     let mut op_return_script = ScriptBuf::new();
     op_return_script.push_opcode(OP_RETURN);
@@ -1534,7 +1415,7 @@ fn build_signed_buyer_psbt(
                 },
                 // Buyer receives the asset
                 TxOut {
-                    value: Amount::from_sat(1000),
+                    value: Amount::from_sat(0),
                     script_pubkey: buyer_op_return_script, // OP_RETURN with data pointing to the attached UTXO
                 },
                 // Buyer's change
@@ -1554,7 +1435,7 @@ fn build_signed_buyer_psbt(
                     value: Amount::from_sat(10000),
                 }),
                 sighash_type: Some(PsbtSighashType::from(EcdsaSighashType::All)),
-                ..Default::default() // can i do this for all the crap
+                ..Default::default()
             },
         ],
         outputs: vec![Output::default(), Output::default(), Output::default()],
