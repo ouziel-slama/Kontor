@@ -6,6 +6,7 @@ use bitcoin::hashes::{Hash, sha256};
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::{Instruction, PushBytesBuf};
 use bitcoin::secp256k1::All;
+use bitcoin::sighash::SighashCache;
 use bitcoin::{
     Amount, OutPoint, ScriptBuf, Txid, Witness,
     absolute::LockTime,
@@ -208,8 +209,8 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
 
     let final_tx = buyer_psbt.extract_tx()?;
 
-    let raw_attach_tx_hex = hex::encode(bitcoin::consensus::encode::serialize(&attach_tx));
-    let raw_swap_tx_hex = hex::encode(bitcoin::consensus::encode::serialize(&final_tx));
+    let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
+    let raw_swap_tx_hex = hex::encode(serialize_tx(&final_tx));
 
     let result = client
         .test_mempool_accept(&[raw_attach_tx_hex, raw_swap_tx_hex])
@@ -1230,19 +1231,19 @@ fn build_signed_attach_tx(
     };
 
     // Sign the input as normal P2WPKH
-    let mut sighash_cache = bitcoin::sighash::SighashCache::new(&create_tx);
+    let mut sighash_cache = SighashCache::new(&create_tx);
     let sighash = sighash_cache
         .p2wpkh_signature_hash(
             0,
             &seller_address.script_pubkey(),
             input_amount,
-            bitcoin::sighash::EcdsaSighashType::All,
+            EcdsaSighashType::All,
         )
         .expect("Failed to compute sighash");
 
     let msg = secp256k1::Message::from(sighash);
     let sig = secp.sign_ecdsa(&msg, &seller_child_key.private_key);
-    let sig = bitcoin::ecdsa::Signature::sighash_all(sig);
+    let sig = Signature::sighash_all(sig);
 
     // Create witness data for P2WPKH
     let mut witness = Witness::new();
@@ -1318,7 +1319,7 @@ fn build_seller_psbt_and_sig(
     };
 
     // Sign seller's PSBT with the witness script and secret data
-    let mut sighash_cache = bitcoin::sighash::SighashCache::new(&seller_psbt.unsigned_tx);
+    let mut sighash_cache = SighashCache::new(&seller_psbt.unsigned_tx);
     let (msg, sighash_type) = seller_psbt.sighash_ecdsa(0, &mut sighash_cache)?;
 
     let sig = secp.sign_ecdsa(&msg, &seller_child_key.private_key);
@@ -1414,11 +1415,11 @@ fn build_signed_buyer_psbt(
     };
 
     // Sign buyer's input
-    let mut sighash_cache = bitcoin::sighash::SighashCache::new(&buyer_psbt.unsigned_tx); // long import chains
+    let mut sighash_cache = SighashCache::new(&buyer_psbt.unsigned_tx);
     let (msg, sighash_type) = buyer_psbt.sighash_ecdsa(1, &mut sighash_cache)?;
 
     let sig = secp.sign_ecdsa(&msg, &buyer_child_key.private_key);
-    let sig = bitcoin::ecdsa::Signature {
+    let sig = Signature {
         signature: sig,
         sighash_type: sighash_type,
     };
