@@ -1557,7 +1557,6 @@ dependencies = [
  "axum-server",
  "backon",
  "base64 0.22.1",
- "bincode",
  "bip39",
  "bitcoin",
  "clap",

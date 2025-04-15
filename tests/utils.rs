@@ -34,14 +34,14 @@ pub fn generate_address_from_mnemonic_p2wpkh(
     // Derive first child key using a proper derivation path
     let path = DerivationPath::from_str("m/84'/0'/0'/0/0").expect("Invalid derivation path");
     let child_key = master_key
-        .derive_priv(&secp, &path)
+        .derive_priv(secp, &path)
         .expect("Failed to derive child key");
 
     // Get the private key
     let private_key = PrivateKey::new(child_key.private_key, Network::Bitcoin);
 
     // Get the public key
-    let public_key = BitcoinPublicKey::from_private_key(&secp, &private_key);
+    let public_key = BitcoinPublicKey::from_private_key(secp, &private_key);
     let compressed_pubkey = bitcoin::CompressedPublicKey(public_key.inner);
 
     // Create a P2WPKH address
