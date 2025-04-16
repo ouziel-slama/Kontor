@@ -80,4 +80,10 @@ pub struct Config {
         help = "Full path to the buyer's key file"
     )]
     pub buyer_key_path: PathBuf,
+    #[clap(
+        long,
+        env = "TAPROOT_KEY_PATH",
+        help = "Full path to the taproot key file"
+    )]
+    pub taproot_key_path: PathBuf,
 }

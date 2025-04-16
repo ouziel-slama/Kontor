@@ -82,6 +82,7 @@ pub struct GetBlockchainInfoResult {
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct TestMempoolAcceptResult {
     pub txid: Txid,
+    pub wtxid: Txid,
     pub allowed: bool,
     #[serde(rename = "reject-reason")]
     pub reject_reason: Option<String>,
