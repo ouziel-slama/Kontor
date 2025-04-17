@@ -124,7 +124,7 @@ async fn test_psbt_with_secret() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -262,7 +262,7 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -402,7 +402,7 @@ async fn test_psbt_without_secret() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -543,7 +543,7 @@ async fn test_psbt_without_token_balance() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -677,7 +677,7 @@ async fn test_psbt_without_prefix() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -822,7 +822,7 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -981,7 +981,7 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -1134,7 +1134,7 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
     assert_eq!(
         data.as_bytes(),
         rmp_serde::to_vec(&OpReturnData::Swap {
-            destination: buyer_address.script_pubkey().to_hex_string()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         })
         .unwrap()
     );
@@ -1344,7 +1344,7 @@ fn build_signed_buyer_psbt(
     buyer_op_return_script.push_slice(b"KNTR");
 
     let buyer_op_return_data = OpReturnData::Swap {
-        destination: buyer_address.script_pubkey().to_hex_string(),
+        destination: buyer_address.script_pubkey().as_bytes().to_vec(),
     };
 
     let s = rmp_serde::to_vec(&buyer_op_return_data).unwrap();
