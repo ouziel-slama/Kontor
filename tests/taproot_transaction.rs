@@ -1,6 +1,6 @@
 use anyhow::Result;
-use bip39;
 use bip39::Mnemonic;
+use bitcoin::Network;
 use bitcoin::PrivateKey;
 use bitcoin::TapLeafHash;
 use bitcoin::TapSighashType;
@@ -15,8 +15,6 @@ use bitcoin::sighash::Prevouts;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
-// use bitcoin::taproot::{LeafVersion, TapLeafHash};
-use bitcoin::Network;
 use bitcoin::{
     Amount, OutPoint, ScriptBuf, Sequence, Txid, Witness,
     absolute::LockTime,
@@ -29,7 +27,6 @@ use bitcoin::{
     transaction::{Transaction, TxIn, TxOut, Version},
 };
 use clap::Parser;
-use hex;
 use kontor::witness_data::WitnessData;
 use kontor::{bitcoin_client::Client, config::Config, op_return::OpReturnData};
 use std::fs;
@@ -80,9 +77,6 @@ async fn test_taproot_transaction() -> Result<()> {
 
     let serialized_token_balance = rmp_serde::to_vec(&token_balance).unwrap();
 
-    // Get the x-only public key from the keypair
-    let (seller_x_only_pubkey, _parity) = keypair.x_only_public_key();
-
     // Create the tapscript with x-only public key
     let tap_script = Builder::new()
         .push_slice(b"KNTR")
@@ -90,7 +84,8 @@ async fn test_taproot_transaction() -> Result<()> {
         .push_opcode(OP_SHA256)
         .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
         .push_opcode(OP_EQUALVERIFY)
-        .push_slice(seller_x_only_pubkey.serialize()) // Use x-only public key
+        .push_x_only_key(&internal_key)
+        // .push_slice(internal_key.serialize()) // Use x-only public key  //.push_x_only_public_key(entire keypair!!!!) look at implementation
         .push_opcode(OP_CHECKSIG)
         .into_script();
 
@@ -98,7 +93,7 @@ async fn test_taproot_transaction() -> Result<()> {
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key)
+        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
         .expect("Failed to finalize Taproot tree");
 
     // Get the output key which commits to both the internal key and the script tree
@@ -189,6 +184,7 @@ async fn test_taproot_transaction() -> Result<()> {
     let control_block = taproot_spend_info
         .control_block(&(tap_script.clone(), LeafVersion::TapScript))
         .expect("Failed to create control block");
+    // taproot_spend_info.
 
     // Create the witness for script path spending
     let mut sighasher = SighashCache::new(&spend_tx);
@@ -214,7 +210,7 @@ async fn test_taproot_transaction() -> Result<()> {
     spend_tx.input[0]
         .witness
         .push(serialized_token_balance.clone());
-    spend_tx.input[0].witness.push(b"KNTR".to_vec());
+    spend_tx.input[0].witness.push(b"KNTR");
     spend_tx.input[0].witness.push(tap_script.as_bytes());
     spend_tx.input[0].witness.push(control_block.serialize());
 
@@ -228,6 +224,40 @@ async fn test_taproot_transaction() -> Result<()> {
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
     assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(result[1].allowed, "Spend transaction was rejected");
+
+    let witness = spend_tx.input[0].witness.clone();
+    // 1. Check the total number of witness elements first
+    assert_eq!(witness.len(), 5, "Witness should have exactly 5 elements");
+
+    // 2. Check each element individually
+    let signature = witness.to_vec()[0].clone();
+    assert!(!signature.is_empty(), "Signature should not be empty");
+
+    let token_balance_bytes = witness.to_vec()[1].clone();
+    assert_eq!(
+        token_balance_bytes, serialized_token_balance,
+        "Token balance in witness doesn't match expected value"
+    );
+
+    let kntr_bytes = witness.to_vec()[2].clone();
+    assert_eq!(
+        kntr_bytes, b"KNTR",
+        "KNTR string in witness doesn't match expected value"
+    );
+
+    let script_bytes = witness.to_vec()[3].clone();
+    assert_eq!(
+        script_bytes,
+        tap_script.as_bytes().to_vec(),
+        "Script in witness doesn't match expected script"
+    );
+
+    let control_block_bytes = witness.to_vec()[4].clone();
+    assert_eq!(
+        control_block_bytes,
+        control_block.serialize(),
+        "Control block in witness doesn't match expected control block"
+    );
 
     Ok(())
 }
@@ -256,14 +286,14 @@ fn generate_address_from_mnemonic(
     let path = DerivationPath::from_str(&format!("m/86'/0'/0'/0/{}", index))
         .expect("Invalid derivation path");
     let child_key = master_key
-        .derive_priv(&secp, &path)
+        .derive_priv(secp, &path)
         .expect("Failed to derive child key");
 
     // Get the private key
     let private_key = PrivateKey::new(child_key.private_key, Network::Bitcoin);
 
     // Get the public key
-    let public_key = BitcoinPublicKey::from_private_key(&secp, &private_key);
+    let public_key = BitcoinPublicKey::from_private_key(secp, &private_key);
 
     // Create a Taproot address
     let x_only_pubkey = public_key.inner.x_only_public_key().0;
