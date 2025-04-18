@@ -54,11 +54,12 @@ pub fn generate_address_from_mnemonic_p2wpkh(
     Ok((address, child_key, compressed_pubkey))
 }
 
-pub enum ScriptPublicKey<'a> {
-    Compressed(&'a CompressedPublicKey),
-    XOnly(&'a XOnlyPublicKey),
+pub enum PublicKey<'a> {
+    Segwit(&'a CompressedPublicKey),
+    Taproot(&'a XOnlyPublicKey),
 }
-pub fn build_witness_script( key: ScriptPublicKey, serialized_token_balance: &[u8]) -> ScriptBuf {
+
+pub fn build_witness_script(key: PublicKey, serialized_token_balance: &[u8]) -> ScriptBuf {
     // Create the tapscript with x-only public key
     let base_witness_script = Builder::new()
         .push_slice(b"KNTR")
@@ -68,10 +69,8 @@ pub fn build_witness_script( key: ScriptPublicKey, serialized_token_balance: &[u
         .push_opcode(OP_EQUALVERIFY);
 
     let witness_script = match key {
-        ScriptPublicKey::Compressed(compressed) => {
-            base_witness_script.push_slice(compressed.to_bytes())
-        }
-        ScriptPublicKey::XOnly(x_only) => base_witness_script.push_slice(x_only.serialize()),
+        PublicKey::Segwit(compressed) => base_witness_script.push_slice(compressed.to_bytes()),
+        PublicKey::Taproot(x_only) => base_witness_script.push_slice(x_only.serialize()),
     };
 
     witness_script.push_opcode(OP_CHECKSIG).into_script()

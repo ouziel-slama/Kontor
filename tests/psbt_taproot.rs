@@ -7,7 +7,7 @@ use bitcoin::TapLeafHash;
 use bitcoin::TapSighashType;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::bip32::{DerivationPath, Xpriv};
-use bitcoin::hashes::{Hash, sha256};
+use bitcoin::hashes::Hash;
 use bitcoin::key::{PublicKey as BitcoinPublicKey, TapTweak, TweakedKeypair};
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::psbt::Input;
@@ -29,18 +29,16 @@ use bitcoin::{
     address::{Address, KnownHrp},
     consensus::encode::serialize as serialize_tx,
     key::Secp256k1,
-    opcodes::all::{OP_CHECKSIG, OP_EQUALVERIFY, OP_SHA256},
-    script::Builder,
     secp256k1::{self},
     transaction::{Transaction, TxIn, TxOut, Version},
 };
 use clap::Parser;
+use kontor::test_utils;
 use kontor::witness_data::WitnessData;
 use kontor::{bitcoin_client::Client, config::Config, op_return::OpReturnData};
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
-mod utils;
 
 #[tokio::test]
 async fn test_taproot_transaction() -> Result<()> {
@@ -69,8 +67,8 @@ async fn test_taproot_transaction() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
 
@@ -240,8 +238,8 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
 
@@ -342,8 +340,8 @@ async fn test_taproot_transaction_without_tapscript() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
 
@@ -443,8 +441,8 @@ async fn test_taproot_transaction_with_wrong_token() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
 
@@ -552,8 +550,8 @@ async fn test_taproot_transaction_with_wrong_token_amount() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
     // Build the Taproot tree with the script
@@ -660,8 +658,8 @@ async fn test_taproot_transaction_without_token_balance() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
 
@@ -760,8 +758,8 @@ async fn test_taproot_transaction_without_control_block() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = utils::build_witness_script(
-        utils::ScriptPublicKey::XOnly(&internal_key),
+    let tap_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Taproot(&internal_key),
         &serialized_token_balance,
     );
 

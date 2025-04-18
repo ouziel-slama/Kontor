@@ -21,11 +21,11 @@ use bitcoin::{
     transaction::{Transaction, TxIn, TxOut, Version},
 };
 use clap::Parser;
+use kontor::test_utils;
 use kontor::{
     bitcoin_client::Client, config::Config, op_return::OpReturnData, witness_data::WitnessData,
 };
 use std::str::FromStr;
-mod utils;
 
 #[tokio::test]
 async fn test_psbt_with_secret() -> Result<()> {
@@ -34,10 +34,10 @@ async fn test_psbt_with_secret() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -163,10 +163,10 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -235,10 +235,10 @@ async fn test_psbt_without_secret() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -305,10 +305,10 @@ async fn test_psbt_without_token_balance() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (_serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -374,10 +374,10 @@ async fn test_psbt_without_prefix() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -443,10 +443,10 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -523,10 +523,10 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (_serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -602,10 +602,10 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, seller_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
     let (buyer_address, buyer_child_key, buyer_compressed_pubkey) =
-        utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
+        test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.buyer_key_path)?;
 
     let (_serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
@@ -760,8 +760,8 @@ fn build_serialized_token_and_witness_script(
     let mut serialized_token_balance = Vec::new();
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
-    let witness_script = utils::build_witness_script(
-        utils::ScriptPublicKey::Compressed(seller_compressed_pubkey),
+    let witness_script = test_utils::build_witness_script(
+        test_utils::PublicKey::Segwit(seller_compressed_pubkey),
         &serialized_token_balance,
     );
 
