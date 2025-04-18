@@ -9,5 +9,6 @@ pub mod op_return;
 pub mod reactor;
 pub mod retry;
 pub mod stopper;
+pub mod test_utils;
 pub mod utils;
 pub mod witness_data;
