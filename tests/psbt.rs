@@ -41,6 +41,7 @@ async fn test_psbt_with_secret() -> Result<()> {
 
     let (serialized_token_balance, witness_script) =
         build_serialized_token_and_witness_script(&seller_compressed_pubkey, 1000);
+
     let attach_tx = build_signed_attach_tx(
         &secp,
         &seller_address,
@@ -103,7 +104,7 @@ async fn test_psbt_with_secret() -> Result<()> {
     };
     assert_eq!(prefix.as_bytes(), b"KNTR");
     let attach_op_return_data: OpReturnData = ciborium::from_reader(data.as_bytes())?;
-    assert_eq!(attach_op_return_data, OpReturnData::A { o: 0 });
+    assert_eq!(attach_op_return_data, OpReturnData::A { output_index: 0 });
 
     // Assert deserialize swap op_return data
     let swap_op_return_script = &final_tx.output[1].script_pubkey; // OP_RETURN is the second output
@@ -123,7 +124,7 @@ async fn test_psbt_with_secret() -> Result<()> {
     assert_eq!(
         swap_op_return_data,
         OpReturnData::S {
-            d: buyer_address.script_pubkey().as_bytes().to_vec()
+            destination: buyer_address.script_pubkey().as_bytes().to_vec()
         }
     );
 
@@ -692,7 +693,7 @@ fn build_signed_attach_tx(
     op_return_script.push_opcode(OP_RETURN);
     op_return_script.push_slice(b"KNTR");
 
-    let op_return_data = OpReturnData::A { o: 0 };
+    let op_return_data = OpReturnData::A { output_index: 0 };
     let mut s = Vec::new();
     ciborium::into_writer(&op_return_data, &mut s).unwrap();
     op_return_script.push_slice(PushBytesBuf::try_from(s)?);
@@ -757,18 +758,12 @@ fn build_serialized_token_and_witness_script(
         name: "token_name".to_string(),
     };
     let mut serialized_token_balance = Vec::new();
-    ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap(); // RETURN RESULT 
+    ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
-    // let serialized_token_balance = rmp_serde::to_vec(&token_balance).unwrap();
-    let witness_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_slice(seller_compressed_pubkey.to_bytes())
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let witness_script = utils::build_witness_script(
+        utils::ScriptPublicKey::Compressed(seller_compressed_pubkey),
+        &serialized_token_balance,
+    );
 
     (serialized_token_balance, witness_script)
 }
@@ -842,7 +837,7 @@ fn build_signed_buyer_psbt(
     buyer_op_return_script.push_slice(b"KNTR");
 
     let buyer_op_return_data = OpReturnData::S {
-        d: buyer_address.script_pubkey().as_bytes().to_vec(),
+        destination: buyer_address.script_pubkey().as_bytes().to_vec(),
     };
 
     let mut s = Vec::new();

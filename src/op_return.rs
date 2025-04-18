@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum OpReturnData {
-    A { o: u32 },     // attach
-    S { d: Vec<u8> }, // swap
+    A {
+        #[serde(rename = "o")]
+        output_index: u32,
+    }, // attach
+    S {
+        #[serde(rename = "d")]
+        destination: Vec<u8>,
+    }, // swap
 }

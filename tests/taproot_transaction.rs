@@ -32,6 +32,7 @@ use kontor::{bitcoin_client::Client, config::Config, op_return::OpReturnData};
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
+mod utils;
 
 #[tokio::test]
 async fn test_taproot_transaction() -> Result<()> {
@@ -79,22 +80,16 @@ async fn test_taproot_transaction() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        // .push_slice(internal_key.serialize()) // Use x-only public key  //.push_x_only_public_key(entire keypair!!!!) look at implementation
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
 
     // Get the output key which commits to both the internal key and the script tree
@@ -112,7 +107,7 @@ async fn test_taproot_transaction() -> Result<()> {
     op_return_script.push_opcode(OP_RETURN);
     op_return_script.push_slice(b"KNTR");
 
-    let op_return_data = OpReturnData::A { o: 0 };
+    let op_return_data = OpReturnData::A { output_index: 0 };
     let mut s = Vec::new();
     ciborium::into_writer(&op_return_data, &mut s).unwrap();
     op_return_script.push_slice(PushBytesBuf::try_from(s)?);

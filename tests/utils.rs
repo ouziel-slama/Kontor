@@ -1,12 +1,16 @@
 use anyhow::Result;
 use bip39::Mnemonic;
 use bitcoin::address::Address;
+use bitcoin::hashes::{Hash, sha256};
 use bitcoin::key::PublicKey as BitcoinPublicKey;
+use bitcoin::opcodes::all::{OP_CHECKSIG, OP_EQUALVERIFY, OP_SHA256};
+use bitcoin::script::Builder;
 use bitcoin::{
     Network, PrivateKey,
     bip32::{DerivationPath, Xpriv},
     key::{CompressedPublicKey, Secp256k1},
 };
+use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
@@ -48,4 +52,27 @@ pub fn generate_address_from_mnemonic_p2wpkh(
     let address = Address::p2wpkh(&compressed_pubkey, Network::Bitcoin);
 
     Ok((address, child_key, compressed_pubkey))
+}
+
+pub enum ScriptPublicKey<'a> {
+    Compressed(&'a CompressedPublicKey),
+    XOnly(&'a XOnlyPublicKey),
+}
+pub fn build_witness_script( key: ScriptPublicKey, serialized_token_balance: &[u8]) -> ScriptBuf {
+    // Create the tapscript with x-only public key
+    let base_witness_script = Builder::new()
+        .push_slice(b"KNTR")
+        .push_opcode(OP_EQUALVERIFY)
+        .push_opcode(OP_SHA256)
+        .push_slice(sha256::Hash::hash(serialized_token_balance).as_byte_array())
+        .push_opcode(OP_EQUALVERIFY);
+
+    let witness_script = match key {
+        ScriptPublicKey::Compressed(compressed) => {
+            base_witness_script.push_slice(compressed.to_bytes())
+        }
+        ScriptPublicKey::XOnly(x_only) => base_witness_script.push_slice(x_only.serialize()),
+    };
+
+    witness_script.push_opcode(OP_CHECKSIG).into_script()
 }

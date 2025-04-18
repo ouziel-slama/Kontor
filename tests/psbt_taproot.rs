@@ -40,6 +40,7 @@ use kontor::{bitcoin_client::Client, config::Config, op_return::OpReturnData};
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
+mod utils;
 
 #[tokio::test]
 async fn test_taproot_transaction() -> Result<()> {
@@ -68,21 +69,16 @@ async fn test_taproot_transaction() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
     // Get the output key which commits to both the internal key and the script tree
     let output_key = taproot_spend_info.output_key();
@@ -190,7 +186,7 @@ async fn test_taproot_transaction() -> Result<()> {
     };
     assert_eq!(prefix.as_bytes(), b"KNTR");
     let attach_op_return_data: OpReturnData = ciborium::from_reader(data.as_bytes())?;
-    assert_eq!(attach_op_return_data, OpReturnData::A { o: 0 });
+    assert_eq!(attach_op_return_data, OpReturnData::A { output_index: 0 });
 
     // Assert deserialize swap op_return data
     let swap_op_return_script = &final_tx.output[1].script_pubkey; // OP_RETURN is the second output
@@ -210,7 +206,7 @@ async fn test_taproot_transaction() -> Result<()> {
     assert_eq!(
         swap_op_return_data,
         OpReturnData::S {
-            d: buyer_address.script_pubkey().as_bytes().to_vec(),
+            destination: buyer_address.script_pubkey().as_bytes().to_vec(),
         }
     );
 
@@ -244,15 +240,10 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
@@ -298,7 +289,7 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
         &seller_psbt,
     )?;
 
-    // Extract the transaction (no finalize needed since we set all witnesses manually)
+    // Extract the transaction
     let final_tx = buyer_psbt.extract_tx()?;
 
     let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
@@ -351,21 +342,16 @@ async fn test_taproot_transaction_without_tapscript() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
     // Get the output key which commits to both the internal key and the script tree
     let output_key = taproot_spend_info.output_key();
@@ -404,7 +390,7 @@ async fn test_taproot_transaction_without_tapscript() -> Result<()> {
         &seller_psbt,
     )?;
 
-    // Extract the transaction (no finalize needed since we set all witnesses manually)
+    // Extract the transaction
     let final_tx = buyer_psbt.extract_tx()?;
 
     let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
@@ -457,21 +443,16 @@ async fn test_taproot_transaction_with_wrong_token() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
     // Get the output key which commits to both the internal key and the script tree
     let output_key = taproot_spend_info.output_key();
@@ -519,7 +500,7 @@ async fn test_taproot_transaction_with_wrong_token() -> Result<()> {
         &seller_psbt,
     )?;
 
-    // Extract the transaction (no finalize needed since we set all witnesses manually)
+    // Extract the transaction
     let final_tx = buyer_psbt.extract_tx()?;
 
     let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
@@ -571,21 +552,15 @@ async fn test_taproot_transaction_with_wrong_token_amount() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
-
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
     // Get the output key which commits to both the internal key and the script tree
     let output_key = taproot_spend_info.output_key();
@@ -633,7 +608,7 @@ async fn test_taproot_transaction_with_wrong_token_amount() -> Result<()> {
         &seller_psbt,
     )?;
 
-    // Extract the transaction (no finalize needed since we set all witnesses manually)
+    // Extract the transaction
     let final_tx = buyer_psbt.extract_tx()?;
 
     let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
@@ -685,21 +660,16 @@ async fn test_taproot_transaction_without_token_balance() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
     // Get the output key which commits to both the internal key and the script tree
     let output_key = taproot_spend_info.output_key();
@@ -738,7 +708,7 @@ async fn test_taproot_transaction_without_token_balance() -> Result<()> {
         &seller_psbt,
     )?;
 
-    // Extract the transaction (no finalize needed since we set all witnesses manually)
+    // Extract the transaction
     let final_tx = buyer_psbt.extract_tx()?;
 
     let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
@@ -790,21 +760,16 @@ async fn test_taproot_transaction_without_control_block() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     // Create the tapscript with x-only public key
-    let tap_script = Builder::new()
-        .push_slice(b"KNTR")
-        .push_opcode(OP_EQUALVERIFY)
-        .push_opcode(OP_SHA256)
-        .push_slice(sha256::Hash::hash(&serialized_token_balance).as_byte_array())
-        .push_opcode(OP_EQUALVERIFY)
-        .push_x_only_key(&internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
+    let tap_script = utils::build_witness_script(
+        utils::ScriptPublicKey::XOnly(&internal_key),
+        &serialized_token_balance,
+    );
 
     // Build the Taproot tree with the script
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone()) // Add script at depth 0
         .expect("Failed to add leaf")
-        .finalize(&secp, internal_key) // does this need to be the whole keypair then?
+        .finalize(&secp, internal_key)
         .expect("Failed to finalize Taproot tree");
     // Get the output key which commits to both the internal key and the script tree
     let output_key = taproot_spend_info.output_key();
@@ -843,7 +808,7 @@ async fn test_taproot_transaction_without_control_block() -> Result<()> {
         &seller_psbt,
     )?;
 
-    // Extract the transaction (no finalize needed since we set all witnesses manually)
+    // Extract the transaction
     let final_tx = buyer_psbt.extract_tx()?;
 
     let raw_attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
@@ -919,7 +884,7 @@ fn build_signed_attach_tx(
     op_return_script.push_opcode(OP_RETURN);
     op_return_script.push_slice(b"KNTR");
 
-    let op_return_data = OpReturnData::A { o: 0 };
+    let op_return_data = OpReturnData::A { output_index: 0 };
     let mut s = Vec::new();
     ciborium::into_writer(&op_return_data, &mut s).unwrap();
     op_return_script.push_slice(PushBytesBuf::try_from(s)?);
@@ -1128,7 +1093,7 @@ fn build_signed_buyer_psbt(
 
                         // Create transfer data pointing to output 2 (buyer's address)
                         let transfer_data = OpReturnData::S {
-                            d: buyer_address.script_pubkey().as_bytes().to_vec(),
+                            destination: buyer_address.script_pubkey().as_bytes().to_vec(),
                         };
                         let mut transfer_bytes = Vec::new();
                         ciborium::into_writer(&transfer_data, &mut transfer_bytes).unwrap();
