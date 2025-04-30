@@ -135,7 +135,7 @@ async fn test_psbt_inscription() -> Result<()> {
         // Verify the opcodes
         assert!(op_false.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_if, OP_IF, "Expected OP_IF");
-        assert_eq!(kon.as_bytes(), b"KON", "Expected KON identifier");
+        assert_eq!(kon.as_bytes(), b"kon", "Expected kon identifier");
         assert!(op_0.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_endif, OP_ENDIF, "Expected OP_ENDIF");
         assert_eq!(*op_checksig, OP_CHECKSIG, "Expected OP_CHECKSIG");
@@ -306,7 +306,7 @@ async fn test_inscription_invalid_token_data() -> Result<()> {
         // Verify the opcodes
         assert!(op_false.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_if, OP_IF, "Expected OP_IF");
-        assert_eq!(kon.as_bytes(), b"KON", "Expected KON identifier");
+        assert_eq!(kon.as_bytes(), b"kon", "Expected kon identifier");
         assert!(op_0.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_endif, OP_ENDIF, "Expected OP_ENDIF");
         assert_eq!(*op_checksig, OP_CHECKSIG, "Expected OP_CHECKSIG");
@@ -465,7 +465,7 @@ async fn test_inscription_wrong_internal_key() -> Result<()> {
         // Verify the opcodes
         assert!(op_false.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_if, OP_IF, "Expected OP_IF");
-        assert_eq!(kon.as_bytes(), b"KON", "Expected KON identifier");
+        assert_eq!(kon.as_bytes(), b"kon", "Expected kon identifier");
         assert!(op_0.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_endif, OP_ENDIF, "Expected OP_ENDIF");
         assert_eq!(*op_checksig, OP_CHECKSIG, "Expected OP_CHECKSIG");
@@ -605,7 +605,7 @@ async fn test_inscription_without_checksig() -> Result<()> {
         // Verify the opcodes
         assert!(op_false.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_if, OP_IF, "Expected OP_IF");
-        assert_eq!(kon.as_bytes(), b"KON", "Expected KON identifier");
+        assert_eq!(kon.as_bytes(), b"kon", "Expected kon identifier");
         assert!(op_0.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_endif, OP_ENDIF, "Expected OP_ENDIF");
 
@@ -762,7 +762,7 @@ async fn test_inscription_with_wrong_internal_key_without_checksig() -> Result<(
         // Verify the opcodes
         assert!(op_false.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_if, OP_IF, "Expected OP_IF");
-        assert_eq!(kon.as_bytes(), b"KON", "Expected KON identifier");
+        assert_eq!(kon.as_bytes(), b"kon", "Expected kon identifier");
         assert!(op_0.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_endif, OP_ENDIF, "Expected OP_ENDIF");
 

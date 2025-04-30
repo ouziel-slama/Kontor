@@ -76,7 +76,7 @@ pub enum PublicKey<'a> {
 pub fn build_witness_script(key: PublicKey, serialized_token_balance: &[u8]) -> ScriptBuf {
     // Create the tapscript with x-only public key
     let base_witness_script = Builder::new()
-        .push_slice(b"KON")
+        .push_slice(b"kon")
         .push_opcode(OP_EQUALVERIFY)
         .push_opcode(OP_SHA256)
         .push_slice(sha256::Hash::hash(serialized_token_balance).as_byte_array())
@@ -97,7 +97,7 @@ fn build_script_after_pubkey(
     Ok(base_witness_script
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
-        .push_slice(b"KON")
+        .push_slice(b"kon")
         .push_opcode(OP_0)
         .push_slice(PushBytesBuf::try_from(serialized_token_balance)?)
         .push_opcode(OP_ENDIF))
@@ -178,7 +178,7 @@ pub fn build_signed_taproot_attach_tx(
 ) -> Result<Transaction> {
     let mut op_return_script = ScriptBuf::new();
     op_return_script.push_opcode(OP_RETURN);
-    op_return_script.push_slice(b"KON");
+    op_return_script.push_slice(b"kon");
 
     let op_return_data = OpReturnData::A { output_index: 0 };
     let mut s = Vec::new();
@@ -402,7 +402,7 @@ pub fn build_signed_buyer_psbt_taproot(
                     script_pubkey: {
                         let mut op_return_script = ScriptBuf::new();
                         op_return_script.push_opcode(OP_RETURN);
-                        op_return_script.push_slice(b"KON");
+                        op_return_script.push_slice(b"kon");
 
                         // Create transfer data pointing to output 2 (buyer's address)
                         let transfer_data = OpReturnData::S {
@@ -522,7 +522,7 @@ pub fn build_signed_attach_tx_segwit(
 
     let mut op_return_script = ScriptBuf::new();
     op_return_script.push_opcode(OP_RETURN);
-    op_return_script.push_slice(b"KON");
+    op_return_script.push_slice(b"kon");
 
     let op_return_data = OpReturnData::A { output_index: 0 };
     let mut s = Vec::new();
@@ -646,7 +646,7 @@ pub fn build_signed_buyer_psbt_segwit(
 ) -> Result<Psbt> {
     let mut buyer_op_return_script = ScriptBuf::new();
     buyer_op_return_script.push_opcode(bitcoin::opcodes::all::OP_RETURN);
-    buyer_op_return_script.push_slice(b"KON");
+    buyer_op_return_script.push_slice(b"kon");
 
     let buyer_op_return_data = OpReturnData::S {
         destination: buyer_address.script_pubkey().as_bytes().to_vec(),

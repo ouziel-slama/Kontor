@@ -131,7 +131,7 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
                 script_pubkey: {
                     let mut op_return_script = ScriptBuf::new();
                     op_return_script.push_opcode(OP_RETURN);
-                    op_return_script.push_slice(b"KON");
+                    op_return_script.push_slice(b"kon");
 
                     let reveal_data = OpReturnData::A { output_index: 0 };
                     let mut reveal_bytes = Vec::new();
@@ -237,7 +237,7 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
         // Verify the opcodes
         assert!(op_false.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_if, OP_IF, "Expected OP_IF");
-        assert_eq!(kon.as_bytes(), b"KON", "Expected KON identifier");
+        assert_eq!(kon.as_bytes(), b"kon", "Expected kon identifier");
         assert!(op_0.is_empty(), "Expected empty push bytes");
         assert_eq!(*op_endif, OP_ENDIF, "Expected OP_ENDIF");
         assert_eq!(*op_checksig, OP_CHECKSIG, "Expected OP_CHECKSIG");
