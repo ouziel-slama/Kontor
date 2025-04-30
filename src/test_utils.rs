@@ -107,18 +107,15 @@ pub fn build_inscription_without_checksig(
     serialized_token_balance: Vec<u8>,
     key: PublicKey,
 ) -> Result<Builder> {
-    // First push the public key
     let base_witness_script = match key {
         PublicKey::Segwit(compressed) => Builder::new().push_slice(compressed.to_bytes()),
         PublicKey::Taproot(x_only) => Builder::new().push_slice(x_only.serialize()),
     };
 
-    // Then add the rest of the script
     build_script_after_pubkey(base_witness_script, serialized_token_balance)
 }
 
 pub fn build_inscription(serialized_token_balance: Vec<u8>, key: PublicKey) -> Result<ScriptBuf> {
-    // First push the public key and CHECKSIG
     let base_witness_script = match key {
         PublicKey::Segwit(compressed) => Builder::new()
             .push_slice(compressed.to_bytes())
@@ -128,7 +125,6 @@ pub fn build_inscription(serialized_token_balance: Vec<u8>, key: PublicKey) -> R
             .push_opcode(OP_CHECKSIG),
     };
 
-    // Then add the rest of the script
     let tap_script = build_script_after_pubkey(base_witness_script, serialized_token_balance)?;
     Ok(tap_script.into_script())
 }
