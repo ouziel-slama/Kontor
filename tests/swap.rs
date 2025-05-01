@@ -221,11 +221,8 @@ async fn test_psbt_inscription() -> Result<()> {
         signature,
         sighash_type,
     };
-    attach_reveal_tx.input[0].witness.push(signature.to_vec());
 
-    let mut attach_reveal_sigasher = SighashCache::new(&attach_reveal_tx);
-
-    let attach_reveal_sighash: TapSighash = attach_reveal_sigasher
+    let attach_reveal_sighash: TapSighash = reveal_sighasher
         .taproot_script_spend_signature_hash(
             1,
             &prevouts,
@@ -233,6 +230,7 @@ async fn test_psbt_inscription() -> Result<()> {
             sighash_type,
         )
         .expect("Failed to create sighash");
+    attach_reveal_tx.input[0].witness.push(signature.to_vec());
 
     let msg = Message::from_digest(attach_reveal_sighash.to_byte_array());
     let signature = secp.sign_schnorr(&msg, &keypair);
