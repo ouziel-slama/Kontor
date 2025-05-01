@@ -12,6 +12,7 @@ use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
+use bitcoin::XOnlyPublicKey;
 use bitcoin::absolute::LockTime;
 use bitcoin::hashes::Hash;
 use bitcoin::key::TapTweak;
@@ -259,7 +260,7 @@ async fn test_psbt_inscription() -> Result<()> {
     let instructions = script.instructions().collect::<Result<Vec<_>, _>>()?;
 
     if let [
-        Instruction::PushBytes(_key),
+        Instruction::PushBytes(key),
         _,
         _,
         _,
@@ -285,15 +286,16 @@ async fn test_psbt_inscription() -> Result<()> {
             let mut serialized_detach_data = Vec::new();
             ciborium::into_writer(&detach_data, &mut serialized_detach_data).unwrap();
 
+            let x_only_public_key = XOnlyPublicKey::from_slice(key.as_bytes())?;
             let detach_tap_script = test_utils::build_inscription(
                 serialized_detach_data,
-                test_utils::PublicKey::Taproot(&internal_key),
+                test_utils::PublicKey::Taproot(&x_only_public_key),
             )?;
 
             let detach_spend_info = TaprootBuilder::new()
                 .add_leaf(0, detach_tap_script)
                 .expect("Failed to add leaf")
-                .finalize(&secp, internal_key)
+                .finalize(&secp, x_only_public_key)
                 .expect("Failed to finalize Taproot tree");
 
             let detach_script_address_2 =
