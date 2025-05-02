@@ -737,3 +737,70 @@ pub fn build_signed_buyer_psbt_segwit(
 
     Ok(buyer_psbt)
 }
+
+pub fn sign_key_spend(
+    secp: &Secp256k1<All>,
+    key_spend_tx: &mut Transaction,
+    prevouts: &[TxOut],
+    keypair: &Keypair,
+    input_index: usize,
+) -> Result<()> {
+    let sighash_type = TapSighashType::Default;
+
+    let mut sighasher = SighashCache::new(key_spend_tx.clone());
+    let sighash = sighasher
+        .taproot_key_spend_signature_hash(input_index, &Prevouts::All(prevouts), sighash_type)
+        .expect("Failed to construct sighash");
+
+    let tweaked_sender = keypair.tap_tweak(secp, None);
+    let msg = Message::from_digest(sighash.to_byte_array());
+    let signature = secp.sign_schnorr(&msg, &tweaked_sender.to_inner());
+
+    let signature = bitcoin::taproot::Signature {
+        signature,
+        sighash_type,
+    };
+    key_spend_tx.input[input_index]
+        .witness
+        .push(signature.to_vec());
+    Ok(())
+}
+
+pub fn sign_script_spend(
+    secp: &Secp256k1<All>,
+    taproot_spend_info: &TaprootSpendInfo,
+    tap_script: &ScriptBuf,
+    script_spend_tx: &mut Transaction,
+    prevouts: &[TxOut],
+    keypair: &Keypair,
+    input_index: usize,
+) -> Result<()> {
+    let control_block = taproot_spend_info
+        .control_block(&(tap_script.clone(), LeafVersion::TapScript))
+        .expect("Failed to create control block");
+
+    let mut sighasher = SighashCache::new(script_spend_tx.clone());
+    let sighash = sighasher
+        .taproot_script_spend_signature_hash(
+            input_index,
+            &Prevouts::All(prevouts),
+            TapLeafHash::from_script(tap_script, LeafVersion::TapScript),
+            TapSighashType::Default,
+        )
+        .expect("Failed to create sighash");
+
+    let msg: Message = Message::from_digest(sighash.to_byte_array());
+    let signature = secp.sign_schnorr(&msg, keypair);
+
+    let signature = bitcoin::taproot::Signature {
+        signature,
+        sighash_type: TapSighashType::Default,
+    };
+
+    let mut witness = Witness::new();
+    witness.push(signature.to_vec());
+    witness.push(tap_script.as_bytes());
+    witness.push(control_block.serialize());
+    script_spend_tx.input[input_index].witness = witness;
+    Ok(())
+}
