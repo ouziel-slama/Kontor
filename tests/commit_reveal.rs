@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bitcoin::FeeRate;
 use bitcoin::secp256k1::Keypair;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
@@ -9,7 +10,7 @@ use bitcoin::{
 use clap::Parser;
 use kontor::api::compose::compose;
 
-use kontor::api::compose::ComposeParams;
+use kontor::api::compose::ComposeInputs;
 use kontor::config::TestConfig;
 use kontor::test_utils;
 use kontor::witness_data::TokenBalance;
@@ -50,19 +51,19 @@ async fn test_taproot_transaction() -> Result<()> {
     let mut serialized_token_balance = Vec::new();
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
-    let compose_params = ComposeParams::new(
-        &seller_address,
-        &internal_key,
-        vec![(out_point, utxo_for_output.clone())],
-        serialized_token_balance.as_slice(),
-        2,
-    );
+    let compose_params = ComposeInputs::builder()
+        .sender_address(&seller_address)
+        .internal_key(&internal_key)
+        .sender_utxos(vec![(out_point, utxo_for_output.clone())])
+        .script_data(serialized_token_balance.as_slice())
+        .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
+        .build();
 
-    let compose_return = compose(compose_params)?;
+    let compose_outputs = compose(compose_params)?;
 
-    let mut attach_tx = compose_return.commit_transaction;
-    let mut spend_tx = compose_return.reveal_transaction;
-    let tap_script = compose_return.first_tap_script;
+    let mut attach_tx = compose_outputs.commit_transaction;
+    let mut spend_tx = compose_outputs.reveal_transaction;
+    let tap_script = compose_outputs.tap_script;
 
     // Sign the attach transaction
     test_utils::sign_key_spend(&secp, &mut attach_tx, &[utxo_for_output], &keypair, 0)?;
