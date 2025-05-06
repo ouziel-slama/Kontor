@@ -1,11 +1,11 @@
 use anyhow::Result;
+use bitcoin::FeeRate;
 use bitcoin::secp256k1::Keypair;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{
     Amount, OutPoint, Txid, consensus::encode::serialize as serialize_tx, key::Secp256k1,
     transaction::TxOut,
 };
-use bitcoin::{FeeRate, Witness};
 use clap::Parser;
 use kontor::api::compose::{RevealInputs, compose, compose_reveal};
 
@@ -121,7 +121,7 @@ async fn test_taproot_transaction() -> Result<()> {
         0,
     )?;
 
-    let mut chained_reveal_tx = chained_reveal_tx.reveal_transaction;
+    let mut chained_reveal_tx = chained_reveal_tx.transaction;
 
     // 3. SIGN THE CHAINED REVEAL
     let reveal_tx_prevouts = vec![reveal_tx.output[0].clone()];

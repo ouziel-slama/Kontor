@@ -285,18 +285,14 @@ async fn test_psbt_inscription() -> Result<()> {
     let buyer_reveal_outputs = compose_reveal(reveal_inputs)?;
 
     // Create buyer's PSBT that combines with seller's PSBT
-    let mut buyer_psbt = buyer_reveal_outputs.reveal_psbt;
+    let mut buyer_psbt = buyer_reveal_outputs.psbt;
 
-    buyer_psbt.inputs.clear();
-    buyer_psbt.inputs.push(seller_detach_psbt.inputs[0].clone());
-    buyer_psbt.inputs.push(Input {
-        witness_utxo: Some(TxOut {
-            script_pubkey: buyer_address.script_pubkey(),
-            value: Amount::from_sat(10000),
-        }),
-        tap_internal_key: Some(buyer_internal_key),
-        ..Default::default()
+    buyer_psbt.inputs[0] = seller_detach_psbt.inputs[0].clone();
+    buyer_psbt.inputs[1].witness_utxo = Some(TxOut {
+        script_pubkey: buyer_address.script_pubkey(),
+        value: Amount::from_sat(10000),
     });
+    buyer_psbt.inputs[1].tap_internal_key = Some(buyer_internal_key);
 
     // Define the prevouts explicitly in the same order as inputs
     let prevouts = [

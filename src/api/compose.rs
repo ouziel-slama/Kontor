@@ -83,11 +83,9 @@ pub struct RevealInputs<'a> {
 
 #[derive(Builder)]
 pub struct RevealOutputs {
-    pub reveal_transaction: Transaction,
-    pub reveal_psbt: Psbt,
+    pub transaction: Transaction,
+    pub psbt: Psbt,
     pub chained_tap_script: Option<ScriptBuf>,
-    pub chained_reveal_transaction: Option<Transaction>,
-    pub chained_taproot_spend_info: Option<TaprootSpendInfo>,
 }
 
 pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
@@ -132,7 +130,7 @@ pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
     let compose_outputs = {
         let base_builder = ComposeOutputs::builder()
             .commit_transaction(commit_outputs.commit_transaction)
-            .reveal_transaction(reveal_outputs.reveal_transaction.clone()) // Need to clone here
+            .reveal_transaction(reveal_outputs.transaction.clone())
             .tap_script(commit_outputs.tap_script);
 
         match reveal_outputs.chained_tap_script {
@@ -232,22 +230,17 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
     }
 
     let mut chained_tap_script_opt: Option<ScriptBuf> = None;
-    let mut chained_taproot_spend_info_opt: Option<TaprootSpendInfo> = None;
 
     if let Some(chained_script_data) = params.chained_script_data {
         // if chained_script_data is provided, script_spendable_address output for the new commit
-        let (
-            chained_tap_script_for_return,
-            chained_taproot_spend_info_for_return,
-            chained_script_spendable_address,
-        ) = build_tap_script_and_script_address(params.internal_key, chained_script_data)?;
+        let (chained_tap_script_for_return, _, chained_script_spendable_address) =
+            build_tap_script_and_script_address(params.internal_key, chained_script_data)?;
 
         reveal_transaction.output.push(TxOut {
             value: Amount::from_sat(envelope),
             script_pubkey: chained_script_spendable_address.script_pubkey(),
         });
         chained_tap_script_opt = Some(chained_tap_script_for_return);
-        chained_taproot_spend_info_opt = Some(chained_taproot_spend_info_for_return);
     }
 
     if let Some(op_return_data) = params.op_return_data {
@@ -379,15 +372,12 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
     let psbt = Psbt::from_unsigned_tx(reveal_transaction.clone()).unwrap();
 
     let base_builder = RevealOutputs::builder()
-        .reveal_transaction(reveal_transaction)
-        .reveal_psbt(psbt);
+        .transaction(reveal_transaction)
+        .psbt(psbt);
 
     // if the reveal tx also contains a commit, append the chained commit data
-    let reveal_outputs = match (chained_tap_script_opt, chained_taproot_spend_info_opt) {
-        (Some(chained_tap_script), Some(chained_taproot_spend_info)) => base_builder
-            .chained_tap_script(chained_tap_script)
-            .chained_taproot_spend_info(chained_taproot_spend_info)
-            .build(),
+    let reveal_outputs = match chained_tap_script_opt {
+        Some(chained_tap_script) => base_builder.chained_tap_script(chained_tap_script).build(),
         _ => base_builder.build(),
     };
 
