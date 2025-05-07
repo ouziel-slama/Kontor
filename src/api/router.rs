@@ -18,10 +18,7 @@ use tower_http::{
 use tracing::{Level, Span, error, field, info, span};
 
 use super::{
-    Env,
-    error::ErrorResponse,
-    handlers::{get_block, get_block_latest},
-    ws,
+    error::ErrorResponse, handlers::{get_block, get_block_latest, get_compose}, ws, Env
 };
 
 #[derive(Clone)]
@@ -90,6 +87,7 @@ pub fn new(context: Env) -> Router {
                 .route("/block/latest", get(get_block_latest)),
         )
         .route("/ws", any(ws::handler))
+        .route("/compose", get(get_compose))
         .layer(
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::new(

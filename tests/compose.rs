@@ -1,4 +1,5 @@
 use anyhow::Result;
+use base64::prelude::*;
 use bitcoin::FeeRate;
 use bitcoin::secp256k1::Keypair;
 use bitcoin::taproot::TaprootBuilder;
@@ -26,8 +27,11 @@ async fn test_taproot_transaction() -> Result<()> {
     let (seller_address, seller_child_key, _) =
         test_utils::generate_taproot_address_from_mnemonic(&secp, &config.taproot_key_path, 0)?;
 
+    println!("seller_address: {}", seller_address);
+
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
+    println!("internal_key: {}", internal_key);
 
     // UTXO loaded with 9000 sats
     let out_point = OutPoint {
@@ -49,14 +53,16 @@ async fn test_taproot_transaction() -> Result<()> {
 
     let mut serialized_token_balance = Vec::new();
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
+    let x = base64::engine::general_purpose::URL_SAFE.encode(&serialized_token_balance);
+    println!("x: {}", x);
 
     let compose_params = ComposeInputs::builder()
-        .sender_address(&seller_address)
-        .internal_key(&internal_key)
-        .sender_utxos(vec![(out_point, utxo_for_output.clone())])
-        .script_data(b"Hello, world!")
+        .address(seller_address.clone())
+        .x_only_public_key(internal_key)
+        .funding_utxos(vec![(out_point, utxo_for_output.clone())])
+        .script_data(b"Hello, world!".to_vec())
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
-        .chained_script_data(serialized_token_balance.as_slice())
+        .chained_script_data(serialized_token_balance)
         .build();
 
     let compose_outputs = compose(compose_params)?;
@@ -74,8 +80,8 @@ async fn test_taproot_transaction() -> Result<()> {
 
     let chained_reveal_tx = compose_reveal(
         RevealInputs::builder()
-            .internal_key(&internal_key)
-            .sender_address(&seller_address)
+            .x_only_public_key(internal_key)
+            .address(seller_address.clone())
             .commit_output((
                 OutPoint {
                     txid: reveal_tx.compute_txid(),
@@ -90,8 +96,8 @@ async fn test_taproot_transaction() -> Result<()> {
                 },
                 reveal_tx.output[1].clone(),
             )])
-            .tap_script(&chained_tap_script)
-            .taproot_spend_info(&chained_reveal_taproot_spend_info)
+            .tap_script(chained_tap_script.clone())
+            .taproot_spend_info(chained_reveal_taproot_spend_info)
             .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
             // .op_return_recipient(&internal_key)
             .build(),
