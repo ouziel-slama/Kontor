@@ -61,7 +61,8 @@ impl ComposeInputs {
 
         let chained_script_data_bytes = query
             .chained_script_data
-            .and_then(|chained_data| base64.decode(chained_data).ok());
+            .map(|chained_data| base64.decode(chained_data))
+            .transpose()?;
 
         Ok(Self {
             address,
@@ -171,25 +172,30 @@ impl RevealInputs {
                 .map(|ids| get_utxos(bitcoin_client, ids)),
         )
         .await
-        .and_then(Result::ok);
+        .transpose()?;
 
-        let reveal_output = query.reveal_output.and_then(|output| {
-            let output_split = output.split(':').collect::<Vec<&str>>();
-            let value = u64::from_str(output_split[0]).ok()?;
-            let script_pubkey = ScriptBuf::from_hex(output_split[1]).ok()?;
-            Some(TxOut {
-                value: Amount::from_sat(value),
-                script_pubkey,
+        let reveal_output = query
+            .reveal_output
+            .map(|output| -> Result<_> {
+                let output_split = output.split(':').collect::<Vec<&str>>();
+                let value = u64::from_str(output_split[0])?;
+                let script_pubkey = ScriptBuf::from_hex(output_split[1])?;
+                Ok(TxOut {
+                    value: Amount::from_sat(value),
+                    script_pubkey,
+                })
             })
-        });
+            .transpose()?;
 
         let chained_script_data_bytes = query
             .chained_script_data
-            .and_then(|chained_data| base64.decode(chained_data).ok());
+            .map(|chained_data| base64.decode(chained_data))
+            .transpose()?;
 
         let op_return_data_bytes = query
             .op_return_data
-            .and_then(|op_return_data| base64.decode(op_return_data).ok());
+            .map(|op_return_data| base64.decode(op_return_data))
+            .transpose()?;
 
         Ok(Self {
             address,
