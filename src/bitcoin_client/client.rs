@@ -174,3 +174,13 @@ impl Client {
         self.call("testmempoolaccept", vec![raw_txs.into()]).await
     }
 }
+
+pub trait BitcoinRpc: Send + Sync + Clone + 'static {
+    fn get_blockchain_info(&self) -> impl std::future::Future<Output = Result<GetBlockchainInfoResult, Error>> + std::marker::Send;
+}
+
+impl BitcoinRpc for Client {
+    async fn get_blockchain_info(&self) -> Result<GetBlockchainInfoResult, Error> {
+        self.get_blockchain_info().await
+    }
+}

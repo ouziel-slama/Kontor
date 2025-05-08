@@ -12,7 +12,7 @@ use tokio::{
     select,
     sync::{
         Semaphore,
-        mpsc::{self, Sender},
+        mpsc::{self, Sender, Receiver},
     },
     task::JoinHandle,
     time::sleep,
@@ -25,6 +25,77 @@ use crate::{
     block::{Block, Tx},
     retry::{new_backoff_unlimited, retry},
 };
+
+
+pub fn run_producer<C: bitcoin_client::client::BitcoinRpc>(
+    start_height: u64,
+    bitcoin: C,
+    cancel_token: CancellationToken,
+) -> (
+    JoinHandle<()>,
+    Receiver<(u64, u64)>,
+) {
+
+    let (tx, rx) = mpsc::channel(10);
+
+    let producer = tokio::spawn({
+        let cancel_token = cancel_token.clone();
+        let bitcoin = bitcoin.clone();
+
+        async move {
+            let mut height = start_height;
+            let mut target_height = height - 1;
+            loop {
+                if cancel_token.is_cancelled() {
+                    info!("Producer cancelled");
+                    break;
+                }
+
+                if target_height < height {
+                    match retry(
+                        || bitcoin.get_blockchain_info(),
+                        "get blockchain info",
+                        new_backoff_unlimited(),
+                        cancel_token.clone(),
+                    )
+                    .await
+                    {
+                        Ok(info) => {
+                            target_height = info.blocks;
+                        }
+                        Err(e) => {
+                            info!(
+                                "Producer cancelled while fetching blockchain info: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+
+                if target_height < height {
+                    select! {
+                        _ = sleep(Duration::from_secs(10)) => {}
+                        _ = cancel_token.cancelled() => {}
+                    }
+
+                    continue;
+                }
+
+                if tx.send((target_height, height)).await.is_err() {
+                    info!("Producer send channel closed, exiting");
+                    break;
+                }
+
+                height += 1;
+            }
+
+            info!("Producer exiting");
+        }
+    });
+
+    (producer, rx)
+}
+
 
 #[derive(Debug)]
 pub struct Fetcher<T: Tx> {
@@ -59,65 +130,12 @@ impl<T: Tx + 'static> Fetcher<T> {
         self.handle = Some(tokio::spawn({
             let bitcoin = self.bitcoin.clone();
             let cancel_token = self.cancel_token.clone();
-            let (tx_1, mut rx_1) = mpsc::channel(10);
             let (tx_2, mut rx_2) = mpsc::channel(10);
             let (tx_3, mut rx_3) = mpsc::channel(10);
             let f = self.f;
             let tx = self.tx.clone();
             async move {
-                let producer = tokio::spawn({
-                    let cancel_token = cancel_token.clone();
-                    let bitcoin = bitcoin.clone();
-                    async move {
-                        let mut height = start_height;
-                        let mut target_height = height - 1;
-                        loop {
-                            if cancel_token.is_cancelled() {
-                                info!("Producer cancelled");
-                                break;
-                            }
-
-                            if target_height < height {
-                                match retry(
-                                    || bitcoin.get_blockchain_info(),
-                                    "get blockchain info",
-                                    new_backoff_unlimited(),
-                                    cancel_token.clone(),
-                                )
-                                .await
-                                {
-                                    Ok(info) => {
-                                        target_height = info.blocks;
-                                    }
-                                    Err(e) => {
-                                        info!(
-                                            "Producer cancelled while fetching blockchain info: {}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-
-                            if target_height < height {
-                                select! {
-                                    _ = sleep(Duration::from_secs(10)) => {}
-                                    _ = cancel_token.cancelled() => {}
-                                }
-
-                                continue;
-                            }
-
-                            if tx_1.send((target_height, height)).await.is_err() {
-                                info!("Producer send channel closed, exiting");
-                                break;
-                            }
-
-                            height += 1;
-                        }
-
-                        info!("Producer exiting");
-                    }
-                });
+                let (producer, mut rx_1) = run_producer(start_height, bitcoin.clone(), cancel_token.clone());
 
                 let fetcher = tokio::spawn({
                     let cancel_token = cancel_token.clone();
@@ -174,7 +192,7 @@ impl<T: Tx + 'static> Fetcher<T> {
                         }
 
                         rx_1.close();
-                        while rx_1.recv().await.is_some() {}
+                        while rx_1.recv().await.is_some() {} // drain messages to free up blocked senders
                         info!("Fetcher exited");
                     }
                 });
