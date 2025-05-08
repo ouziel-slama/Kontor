@@ -27,9 +27,9 @@ use crate::{
 };
 
 
-fn run_producer(
+pub fn run_producer<C: bitcoin_client::client::BitcoinRpc>(
     start_height: u64,
-    bitcoin: bitcoin_client::Client,
+    bitcoin: C,
     cancel_token: CancellationToken,
 ) -> (
     JoinHandle<()>,
