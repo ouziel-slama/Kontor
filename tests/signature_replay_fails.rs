@@ -61,6 +61,7 @@ async fn test_signature_replay_failse() -> Result<()> {
         .funding_utxos(vec![(out_point, utxo_for_output.clone())])
         .script_data(serialized_token_balance.clone())
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
+        .envelope(546)
         .build();
 
     let compose_outputs = compose(compose_params)?;
@@ -129,6 +130,7 @@ async fn test_signature_replay_failse() -> Result<()> {
         .funding_utxos(vec![(buyer_out_point, buyer_utxo_for_output.clone())])
         .script_data(serialized_token_balance)
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
+        .envelope(546)
         .build();
 
     let buyer_compose = compose(compose_params)?;
@@ -223,6 +225,7 @@ async fn test_psbt_signature_replay_fails() -> Result<()> {
         .script_data(serialized_token_balance)
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .chained_script_data(serialized_detach_data.clone())
+        .envelope(546)
         .build();
 
     let compose_outputs = compose(compose_params)?;
@@ -411,6 +414,7 @@ async fn test_psbt_signature_replay_fails() -> Result<()> {
         })
         .op_return_data(transfer_bytes)
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
+        .envelope(546)
         .build();
     let buyer_reveal_outputs = compose_reveal(reveal_inputs)?;
 

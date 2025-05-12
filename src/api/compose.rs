@@ -546,21 +546,31 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
     Ok(reveal_outputs)
 }
 
-fn build_tap_script_and_script_address(
+pub fn build_tap_script_and_script_address(
     x_only_public_key: XOnlyPublicKey,
     data: Vec<u8>,
 ) -> Result<(ScriptBuf, TaprootSpendInfo, Address)> {
     let secp = Secp256k1::new();
-    let tap_script = Builder::new()
+
+    let mut builder = Builder::new()
         .push_slice(x_only_public_key.serialize())
         .push_opcode(OP_CHECKSIG)
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
         .push_slice(b"kon")
-        .push_opcode(OP_0)
-        .push_slice(PushBytesBuf::try_from(data)?)
-        .push_opcode(OP_ENDIF)
-        .into_script();
+        .push_opcode(OP_0);
+
+    const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
+
+    if data.is_empty() {
+        return Err(anyhow!("script data cannot be empty"));
+    }
+
+    for chunk in data.chunks(MAX_SCRIPT_ELEMENT_SIZE) {
+        builder = builder.push_slice(PushBytesBuf::try_from(chunk.to_vec())?);
+    }
+
+    let tap_script = builder.push_opcode(OP_ENDIF).into_script();
 
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone())
