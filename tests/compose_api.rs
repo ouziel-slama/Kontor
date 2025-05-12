@@ -1,8 +1,7 @@
 use anyhow::{Result, anyhow};
 use axum::{Router, http::StatusCode, routing::get};
 use axum_test::{TestResponse, TestServer};
-use base64::engine::general_purpose::URL_SAFE as base64;
-use base64::prelude::*;
+
 use bitcoin::opcodes::all::{OP_CHECKSIG, OP_ENDIF, OP_IF};
 use bitcoin::opcodes::{OP_0, OP_FALSE};
 use bitcoin::script::{Builder, PushBytesBuf};
@@ -77,10 +76,7 @@ async fn test_compose() -> Result<()> {
         },
     };
 
-    let mut serialized_token_balance = Vec::new();
-    ciborium::into_writer(&token_data, &mut serialized_token_balance).unwrap();
-
-    let token_data_base64 = base64.encode(serialized_token_balance.clone());
+    let token_data_base64 = test_utils::base64_serialize(&token_data);
 
     let server = TestServer::new(app)?;
 
@@ -90,7 +86,7 @@ async fn test_compose() -> Result<()> {
             seller_address,
             internal_key,
             "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8:0",
-            token_data_base64,
+            urlencoding::encode(&token_data_base64),
             "2",
         ))
         .await;
@@ -104,6 +100,9 @@ async fn test_compose() -> Result<()> {
 
     let tap_script = compose_outputs.tap_script;
 
+    let mut derived_token_data = Vec::new();
+    ciborium::into_writer(&token_data, &mut derived_token_data).unwrap();
+
     let derived_tap_script = Builder::new()
         .push_slice(internal_key.serialize())
         .push_opcode(OP_CHECKSIG)
@@ -111,7 +110,7 @@ async fn test_compose() -> Result<()> {
         .push_opcode(OP_IF)
         .push_slice(b"kon")
         .push_opcode(OP_0)
-        .push_slice(PushBytesBuf::try_from(serialized_token_balance)?)
+        .push_slice(PushBytesBuf::try_from(derived_token_data)?)
         .push_opcode(OP_ENDIF)
         .into_script();
 
@@ -180,7 +179,7 @@ async fn test_compose() -> Result<()> {
         .test_mempool_accept(&[commit_tx_hex, reveal_tx_hex])
         .await?;
 
-        assert_eq!(result.len(), 2, "Expected exactly two transaction results");
+    assert_eq!(result.len(), 2, "Expected exactly two transaction results");
     assert!(result[0].allowed, "Commit transaction was rejected");
     assert!(result[1].allowed, "Reveal transaction was rejected");
     Ok(())
@@ -207,12 +206,9 @@ async fn test_compose_all_fields() -> Result<()> {
         },
     };
 
-    let mut serialized_token_balance = Vec::new();
-    ciborium::into_writer(&token_data, &mut serialized_token_balance).unwrap();
+    let token_data_base64 = test_utils::base64_serialize(&token_data);
 
-    let token_data_base64 = base64.encode(serialized_token_balance.clone());
-
-    let chained_script_data_base64 = base64.encode(b"Hello, World!");
+    let chained_script_data_base64 = test_utils::base64_serialize(&b"Hello, World!");
 
     let server = TestServer::new(app)?;
 
@@ -222,11 +218,11 @@ async fn test_compose_all_fields() -> Result<()> {
             seller_address,
             internal_key,
             "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8:0",
-            token_data_base64,
+            urlencoding::encode(&token_data_base64),
             "2",
             "true",
             "600",
-            chained_script_data_base64,
+            urlencoding::encode(&chained_script_data_base64),
         ))
         .await;
 
@@ -239,6 +235,9 @@ async fn test_compose_all_fields() -> Result<()> {
 
     let tap_script = compose_outputs.tap_script;
 
+    let mut derived_token_data = Vec::new();
+    ciborium::into_writer(&token_data, &mut derived_token_data).unwrap();
+
     let derived_tap_script = Builder::new()
         .push_slice(internal_key.serialize())
         .push_opcode(OP_CHECKSIG)
@@ -246,7 +245,7 @@ async fn test_compose_all_fields() -> Result<()> {
         .push_opcode(OP_IF)
         .push_slice(b"kon")
         .push_opcode(OP_0)
-        .push_slice(PushBytesBuf::try_from(serialized_token_balance)?)
+        .push_slice(PushBytesBuf::try_from(derived_token_data)?)
         .push_opcode(OP_ENDIF)
         .into_script();
 
@@ -276,6 +275,9 @@ async fn test_compose_all_fields() -> Result<()> {
 
     let chained_tap_script = compose_outputs.chained_tap_script.unwrap();
 
+    let mut derived_chained_tap_script = Vec::new();
+    ciborium::into_writer(&b"Hello, World!", &mut derived_chained_tap_script).unwrap();
+
     let derived_chained_tap_script = Builder::new()
         .push_slice(internal_key.serialize())
         .push_opcode(OP_CHECKSIG)
@@ -283,7 +285,7 @@ async fn test_compose_all_fields() -> Result<()> {
         .push_opcode(OP_IF)
         .push_slice(b"kon")
         .push_opcode(OP_0)
-        .push_slice(b"Hello, World!")
+        .push_slice(PushBytesBuf::try_from(derived_chained_tap_script)?)
         .push_opcode(OP_ENDIF)
         .into_script();
 
@@ -382,7 +384,7 @@ async fn test_compose_missing_params() -> Result<()> {
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
 
-    let chained_script_data_base64 = base64.encode(b"Hello, World!");
+    let chained_script_data_base64 = test_utils::base64_serialize(&b"Hello, World!");
 
     let server = TestServer::new(app)?;
 
@@ -392,18 +394,19 @@ async fn test_compose_missing_params() -> Result<()> {
             seller_address,
             internal_key,
             "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8:0",
-        
             "2",
             "true",
             "600",
-            chained_script_data_base64,
+            urlencoding::encode(&chained_script_data_base64),
         ))
         .await;
 
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
     let error_body = response.text();
-    assert_eq!(error_body, "Failed to deserialize query string: missing field `script_data`");
-
+    assert_eq!(
+        error_body,
+        "Failed to deserialize query string: missing field `script_data`"
+    );
 
     Ok(())
 }
@@ -421,18 +424,13 @@ async fn test_compose_nonexistent_utxo() -> Result<()> {
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
 
-    let token_data = WitnessData::Attach {
+    let token_data_base64 = test_utils::base64_serialize(&WitnessData::Attach {
         output_index: 0,
         token_balance: TokenBalance {
             value: 1000,
             name: "Test Token".to_string(),
         },
-    };
-
-    let mut serialized_token_balance = Vec::new();
-    ciborium::into_writer(&token_data, &mut serialized_token_balance).unwrap();
-
-    let token_data_base64 = base64.encode(serialized_token_balance.clone());
+    });
 
     let server = TestServer::new(app)?;
 
@@ -442,7 +440,7 @@ async fn test_compose_nonexistent_utxo() -> Result<()> {
             seller_address,
             internal_key,
             "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e7:0",
-            token_data_base64,
+            urlencoding::encode(&token_data_base64),
             "2",
         ))
         .await;
@@ -451,7 +449,7 @@ async fn test_compose_nonexistent_utxo() -> Result<()> {
 
     let error_body = response.text();
     assert!(error_body.contains("No funding transactions found"));
-   
+
     Ok(())
 }
 
@@ -466,21 +464,16 @@ async fn test_compose_invalid_address() -> Result<()> {
     let (seller_address, seller_child_key, _) =
         legacy_test_utils::generate_address_from_mnemonic_p2wpkh(&secp, &config.seller_key_path)?;
 
-        let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
+    let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
 
-    let token_data = WitnessData::Attach {
+    let token_data_base64 = test_utils::base64_serialize(&WitnessData::Attach {
         output_index: 0,
         token_balance: TokenBalance {
             value: 1000,
             name: "Test Token".to_string(),
         },
-    };
-
-    let mut serialized_token_balance = Vec::new();
-    ciborium::into_writer(&token_data, &mut serialized_token_balance).unwrap();
-
-    let token_data_base64 = base64.encode(serialized_token_balance.clone());
+    });
 
     let server = TestServer::new(app)?;
 
@@ -490,7 +483,7 @@ async fn test_compose_invalid_address() -> Result<()> {
             seller_address,
             internal_key,
             "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8:0",
-            token_data_base64,
+            urlencoding::encode(&token_data_base64),
             "2",
         ))
         .await;
@@ -515,18 +508,13 @@ async fn test_compose_insufficient_funds() -> Result<()> {
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
 
-    let token_data = WitnessData::Attach {
+    let token_data_base64 = test_utils::base64_serialize(&WitnessData::Attach {
         output_index: 0,
         token_balance: TokenBalance {
             value: 1000,
             name: "Test Token".to_string(),
         },
-    };
-
-    let mut serialized_token_balance = Vec::new();
-    ciborium::into_writer(&token_data, &mut serialized_token_balance).unwrap();
-
-    let token_data_base64 = base64.encode(serialized_token_balance.clone());
+    });
 
     let server = TestServer::new(app)?;
 
@@ -536,7 +524,7 @@ async fn test_compose_insufficient_funds() -> Result<()> {
             seller_address,
             internal_key,
             "01587d31f4144ab80432d8a48641ff6a0db29dc397ced675823791368e6eac7b:0",
-            token_data_base64,
+            urlencoding::encode(&token_data_base64),
             "4",
         ))
         .await;
@@ -548,4 +536,3 @@ async fn test_compose_insufficient_funds() -> Result<()> {
 
     Ok(())
 }
-

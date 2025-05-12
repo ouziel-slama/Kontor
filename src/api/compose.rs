@@ -16,7 +16,7 @@ use futures_util::future::OptionFuture;
 
 use bon::Builder;
 
-use base64::engine::general_purpose::URL_SAFE as base64;
+use base64::engine::general_purpose::STANDARD as base64;
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
