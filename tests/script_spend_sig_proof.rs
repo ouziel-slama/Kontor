@@ -110,7 +110,7 @@ async fn test_taproot_transaction_seller_sig() -> Result<()> {
     assert!(result[0].allowed, "Commit transaction was rejected");
     assert!(result[1].allowed, "Reveal transaction was rejected");
 
-    let (buyer_address, buyer_child_key, _) =
+    let (buyer_address, _, _) =
         test_utils::generate_taproot_address_from_mnemonic(&secp, &config.taproot_key_path, 1)?;
 
     let buyer_out_point = OutPoint {
