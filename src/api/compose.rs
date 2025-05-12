@@ -558,7 +558,7 @@ fn build_tap_script_and_script_address(
         .push_opcode(OP_IF)
         .push_slice(b"kon")
         .push_opcode(OP_0)
-        .push_slice(PushBytesBuf::try_from(data)?) // chunk - 520 bytes per line -- 519???
+        .push_slice(PushBytesBuf::try_from(data)?)
         .push_opcode(OP_ENDIF)
         .into_script();
 

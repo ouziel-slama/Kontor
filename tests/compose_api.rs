@@ -190,7 +190,6 @@ async fn test_compose() -> Result<()> {
 async fn test_compose_all_fields() -> Result<()> {
     let bitcoin_client = Client::new_from_config(Config::try_parse()?)?;
 
-    // Arrange
     let app = create_test_app(bitcoin_client.clone()).await?;
     let config = TestConfig::try_parse()?;
     let secp = Secp256k1::new();
@@ -374,7 +373,6 @@ async fn test_compose_all_fields() -> Result<()> {
 async fn test_compose_missing_params() -> Result<()> {
     let bitcoin_client = Client::new_from_config(Config::try_parse()?)?;
 
-    // Arrange
     let app = create_test_app(bitcoin_client.clone()).await?;
     let config = TestConfig::try_parse()?;
     let secp = Secp256k1::new();
@@ -414,7 +412,6 @@ async fn test_compose_missing_params() -> Result<()> {
 async fn test_compose_nonexistent_utxo() -> Result<()> {
     let bitcoin_client = Client::new_from_config(Config::try_parse()?)?;
 
-    // Arrange
     let app = create_test_app(bitcoin_client.clone()).await?;
     let config = TestConfig::try_parse()?;
     let secp = Secp256k1::new();
@@ -462,7 +459,6 @@ async fn test_compose_nonexistent_utxo() -> Result<()> {
 async fn test_compose_invalid_address() -> Result<()> {
     let bitcoin_client = Client::new_from_config(Config::try_parse()?)?;
 
-    // Arrange
     let app = create_test_app(bitcoin_client.clone()).await?;
     let config = TestConfig::try_parse()?;
     let secp = Secp256k1::new();
@@ -510,7 +506,6 @@ async fn test_compose_invalid_address() -> Result<()> {
 async fn test_compose_insufficient_funds() -> Result<()> {
     let bitcoin_client = Client::new_from_config(Config::try_parse()?)?;
 
-    // Arrange
     let app = create_test_app(bitcoin_client.clone()).await?;
     let config = TestConfig::try_parse()?;
     let secp = Secp256k1::new();
