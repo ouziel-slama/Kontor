@@ -92,3 +92,45 @@ button:hover {
   color: #ff0000;
   margin-top: 1rem;
 }
+
+.transactions {
+  margin-top: 2rem;
+  text-align: left;
+}
+
+.transaction-details {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.transaction-details h4 {
+  margin: 1rem 0 0.5rem 0;
+  color: #495057;
+}
+
+.transaction-details ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.transaction-details li {
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  background-color: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+}
+
+.tap-script {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 1rem;
+  margin: 1rem 0;
+  word-break: break-all;
+  font-family: monospace;
+}

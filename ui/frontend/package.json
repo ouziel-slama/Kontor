@@ -12,6 +12,7 @@
   "dependencies": {
     "@stacks/connect": "^8.1.9",
     "@xverse/core": "^2.3.23",
+    "bitcoinjs-lib": "^6.1.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
