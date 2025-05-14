@@ -13,8 +13,12 @@
     "@stacks/connect": "^8.1.9",
     "@xverse/core": "^2.3.23",
     "bitcoinjs-lib": "^6.1.7",
+    "buffer": "^6.0.3",
+    "ecpair": "^3.0.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "sats-connect": "^3.5.0",
+    "tiny-secp256k1": "^2.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
@@ -27,6 +31,7 @@
     "globals": "^16.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vite-plugin-node-polyfills": "^0.23.0"
   }
 }

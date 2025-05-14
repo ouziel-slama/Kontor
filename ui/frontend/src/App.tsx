@@ -1,7 +1,18 @@
 import { useState } from 'react'
-import { request } from '@stacks/connect'
 import './App.css'
 import type { AddressEntry, GetAddressesResult } from '@stacks/connect/dist/types/methods'
+import {
+  request as satsConnectRequest,
+
+  type RpcResult,
+} from "sats-connect";
+
+import { request as connectRequest } from '@stacks/connect'
+
+
+import * as bitcoin from 'bitcoinjs-lib'
+
+import './App.css'
 
 
 interface ExtendedAddressEntry extends AddressEntry {
@@ -47,17 +58,136 @@ interface ComposeResult {
   chained_tap_script: string | null
 }
 
+const handleBroadcastTransaction = async () => {
+
+}
+
+// Add a function to sign the commit transaction using sign_message
+const signCommitTransaction = async (composeResult: ComposeResult, address: ExtendedAddressEntry, utxos: Utxo[]) => {
+  try {
+    // 1. Create a bitcoinjs-lib transaction from your compose result
+    const tx = new bitcoin.Transaction();
+    tx.version = composeResult.commit_transaction.version;
+    tx.locktime = composeResult.commit_transaction.lock_time;
+
+    // Add inputs
+    composeResult.commit_transaction.input.forEach(input => {
+      // Parse the previous output (txid:vout format)
+      const [txid, voutStr] = input.previous_output.split(':');
+      const vout = parseInt(voutStr, 10);
+
+      // Add the input to the transaction
+      tx.addInput(
+        Buffer.from(txid, 'hex').reverse(), // Bitcoin txids are byte-reversed
+        vout,
+        input.sequence
+      );
+    });
+
+    // Add outputs
+    composeResult.commit_transaction.output.forEach(output => {
+      tx.addOutput(
+        Buffer.from(output.script_pubkey, 'hex'),
+        output.value
+      );
+    });
+
+    // 2. Create a map of txid:vout to UTXO details for easy lookup
+    const utxoMap = utxos.reduce((map, utxo) => {
+      map[`${utxo.txid}:${utxo.vout}`] = utxo;
+      return map;
+    }, {} as Record<string, Utxo>);
+
+    // 3. For each input, create the signature hash and sign it
+    const signedTx = tx.clone();
+
+    // Create arrays to hold all the previous output scripts and values
+    const prevOutScripts = [];
+    const prevOutValues = [];
+
+    // Prepare data for all inputs
+    for (let i = 0; i < composeResult.commit_transaction.input.length; i++) {
+      const input = composeResult.commit_transaction.input[i];
+      const utxo = utxoMap[input.previous_output];
+
+      if (!utxo) {
+        throw new Error(`UTXO not found for input ${input.previous_output}`);
+      }
+
+      // For Taproot key spend, the script is P2TR with the x-only pubkey
+      const p2trScript = Buffer.from('5120' + address.publicKey, 'hex');
+      prevOutScripts.push(p2trScript);
+      prevOutValues.push(utxo.value);
+    }
+
+    // Sign each input
+    for (let inputIndex = 0; inputIndex < tx.ins.length; inputIndex++) {
+      // For Taproot key spend, create the hash for witness v1
+      const hashForSignature = tx.hashForWitnessV1(
+        inputIndex,
+        prevOutScripts,
+        prevOutValues,
+        bitcoin.Transaction.SIGHASH_DEFAULT // Taproot default sighash
+      );
+
+      // Convert the hash to hex for signing
+      const hashHex = hashForSignature.toString('hex');
+
+      // const signResult = signMessage({
+      //   message: hashHex,
+      // })
+      // const sign = signTransaction()
+
+      // const sign = await signMessage
+      let signResult: RpcResult<"signMessage">
+
+      try {
+
+        // Sign the hash using Xverse wallet's sign_message
+        signResult = await satsConnectRequest('signMessage', {
+          message: hashHex,
+          address: address.address,
+        });
+        if (signResult.status === 'error') {
+          throw new Error(`Error signing message: ${signResult.error.message}`);
+        }
+      } catch (error) {
+        console.error('Error signing message:', error);
+        throw error;
+      }
+
+      // The signature from Xverse will be in base64, convert it to buffer
+      const signature = Buffer.from(signResult.result.signature, 'base64');
+
+      // Add the signature to the transaction's witness
+      signedTx.ins[inputIndex].witness = [signature];
+    }
+
+    // Get the signed transaction hex
+    const signedTxHex = signedTx.toHex();
+
+    console.log('Signed transaction:', signedTxHex);
+    return { tx: signedTxHex };
+
+  } catch (error) {
+    console.error('Error signing transaction:', error);
+    throw error;
+  }
+};
+
 function WalletComponent() {
   const [address, setAddress] = useState<ExtendedAddressEntry | undefined>()
   const [utxos, setUtxos] = useState<Utxo[]>([])
   const [composeResult, setComposeResult] = useState<ComposeResult | undefined>()
   const [error, setError] = useState<string>('')
+  const [signedTx, setSignedTx] = useState<string>('');
+
 
 
   const handleGetAddresses = async () => {
     try {
       // Fetch addresses
-      const response: GetAddressesResult = await request('getAddresses')
+      const response: GetAddressesResult = await connectRequest('getAddresses')
       const paymentAddress = (response.addresses as ExtendedAddressEntry[]).find(
         addr => addr.addressType === 'p2tr'
       )
@@ -91,7 +221,20 @@ function WalletComponent() {
     }
   }
 
+  const handleSignTransaction = async () => {
+    if (!address || !composeResult || utxos.length === 0) {
+      setError('No address, transaction, or UTXOs to sign');
+      return;
+    }
 
+    try {
+      const result = await signCommitTransaction(composeResult, address, utxos);
+      setSignedTx(result.tx);
+    } catch (err) {
+      setError('Failed to sign transaction');
+      console.error(err);
+    }
+  };
 
   return (
     <div className="wallet-container">
@@ -190,6 +333,23 @@ function WalletComponent() {
           <button onClick={() => handleCompose(address, utxos)}>Compose Commit/Reveal Transactions</button>
         )
       }
+      {composeResult && (
+        <div className="sign-transaction">
+
+          <button onClick={handleSignTransaction}>Sign Commit Transaction</button>
+
+          {signedTx && (
+            <>
+              <div className="signed-transaction">
+                <h3>Signed Transaction:</h3>
+                <p className="tx-hex">{signedTx}</p>
+              </div>
+
+              <button onClick={handleBroadcastTransaction}>Broadcast Transaction</button>
+            </>
+          )}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
     </div>
   )
