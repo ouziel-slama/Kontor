@@ -9,7 +9,6 @@ impl Guest for Component {
     fn fib(n: u64) -> u64 {
         match n {
             0 | 1 => n,
-
             _ => Self::fib(n - 1) + Self::fib(n - 2),
         }
     }
