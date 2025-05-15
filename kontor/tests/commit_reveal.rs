@@ -66,10 +66,6 @@ async fn test_taproot_transaction() -> Result<()> {
     let mut spend_tx = compose_outputs.reveal_transaction;
     let tap_script = compose_outputs.tap_script;
 
-    println!("tap_script: {}", hex::encode(tap_script.as_bytes()));
-
-    println!("attach_tx: {}", attach_tx.compute_txid());
-    println!("spend_tx: {}", spend_tx.compute_txid());
     // Sign the attach transaction
     test_utils::sign_key_spend(&secp, &mut attach_tx, &[utxo_for_output], &keypair, 0)?;
 
@@ -119,10 +115,7 @@ async fn test_taproot_transaction() -> Result<()> {
     );
 
     let control_block_bytes = witness.to_vec()[2].clone();
-    println!(
-        "control_block_bytes: {}",
-        hex::encode(control_block_bytes.clone())
-    );
+
     assert_eq!(
         control_block_bytes,
         taproot_spend_info

@@ -87,6 +87,15 @@ impl ComposeInputs {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TapLeafScript {
+    #[serde(rename = "leafVersion")]
+    pub leaf_version: LeafVersion,
+    pub script: ScriptBuf,
+    #[serde(rename = "controlBlock")]
+    pub control_block: ScriptBuf,
+}
+
 #[derive(Debug, Serialize, Deserialize, Builder)]
 pub struct ComposeOutputs {
     pub commit_transaction: Transaction,
@@ -95,8 +104,10 @@ pub struct ComposeOutputs {
     pub reveal_transaction: Transaction,
     pub reveal_transaction_hex: String,
     pub reveal_psbt_hex: String,
+    pub tap_leaf_script: TapLeafScript,
     pub tap_script: ScriptBuf,
     pub chained_tap_script: Option<ScriptBuf>,
+    pub chained_tap_leaf_script: Option<TapLeafScript>,
 }
 
 #[derive(Builder)]
@@ -129,6 +140,7 @@ pub struct CommitOutputs {
     pub commit_transaction: Transaction,
     pub commit_transaction_hex: String,
     pub commit_psbt_hex: String,
+    pub tap_leaf_script: TapLeafScript,
     pub tap_script: ScriptBuf,
 }
 
@@ -238,6 +250,7 @@ pub struct RevealOutputs {
     pub psbt: Psbt,
     pub psbt_hex: String,
     pub chained_tap_script: Option<ScriptBuf>,
+    pub chained_tap_leaf_script: Option<TapLeafScript>,
 }
 
 pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
@@ -306,11 +319,19 @@ pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
             .reveal_transaction(reveal_outputs.transaction.clone())
             .reveal_transaction_hex(reveal_outputs.transaction_hex)
             .reveal_psbt_hex(reveal_outputs.psbt_hex)
+            .tap_leaf_script(commit_outputs.tap_leaf_script)
             .tap_script(commit_outputs.tap_script);
 
-        match reveal_outputs.chained_tap_script {
-            Some(chained_tap_script) => base_builder.chained_tap_script(chained_tap_script).build(),
-            None => base_builder.build(),
+        match (
+            reveal_outputs.chained_tap_script,
+            reveal_outputs.chained_tap_leaf_script,
+        ) {
+            (Some(chained_tap_script), Some(chained_tap_leaf_script)) => base_builder
+                .chained_tap_script(chained_tap_script)
+                .chained_tap_leaf_script(chained_tap_leaf_script)
+                .build(),
+
+            _ => base_builder.build(),
         }
     };
 
@@ -341,7 +362,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
 
     let mut outputs = Vec::new();
 
-    let (tap_script, _, script_spendable_address) =
+    let (tap_script, taproot_spend_info, script_spendable_address) =
         build_tap_script_and_script_address(params.x_only_public_key, params.script_data)?;
 
     outputs.push(TxOut {
@@ -395,7 +416,17 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
 
     let commit_outputs = CommitOutputs::builder()
         .commit_transaction(commit_transaction)
-        .tap_script(tap_script)
+        .tap_script(tap_script.clone())
+        .tap_leaf_script(TapLeafScript {
+            leaf_version: LeafVersion::TapScript,
+            script: tap_script.clone(),
+            control_block: ScriptBuf::from_bytes(
+                taproot_spend_info
+                    .control_block(&(tap_script, LeafVersion::TapScript))
+                    .unwrap()
+                    .serialize(),
+            ),
+        })
         .commit_transaction_hex(commit_transaction_hex)
         .commit_psbt_hex(commit_psbt_hex)
         .build();
@@ -586,7 +617,14 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
 
     // if the reveal tx also contains a commit, append the chained commit data
     let reveal_outputs = match chained_tap_script_opt {
-        Some(chained_tap_script) => base_builder.chained_tap_script(chained_tap_script).build(),
+        Some(chained_tap_script) => base_builder
+            .chained_tap_script(chained_tap_script.clone())
+            .chained_tap_leaf_script(TapLeafScript {
+                leaf_version: LeafVersion::TapScript,
+                script: chained_tap_script,
+                control_block: ScriptBuf::new(),
+            })
+            .build(),
         _ => base_builder.build(),
     };
 

@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import wasm from 'vite-plugin-wasm'
+import path from 'path'
+
 
 export default defineConfig({
   plugins: [
@@ -16,6 +18,7 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
+  envDir: path.resolve(__dirname, '../..'),
   optimizeDeps: {
     esbuildOptions: {
       target: 'esnext' // Changed from es2020 to esnext for top-level await support

@@ -58,6 +58,12 @@ interface Transaction {
   output: TransactionOutput[]
 }
 
+interface TapLeafScript {
+  leafVersion: number
+  script: string
+  controlBlock: string
+}
+
 interface ComposeResult {
   commit_transaction: Transaction
   commit_transaction_hex: string
@@ -66,6 +72,7 @@ interface ComposeResult {
   commit_psbt_hex: string
   reveal_psbt_hex: string
   tap_script: string
+  tap_leaf_script: TapLeafScript
   chained_tap_script: string | null
 }
 
@@ -96,25 +103,25 @@ const convertKebabToSnake = (obj: Record<string, any>): Record<string, any> => {
 async function signPsbt(
   psbtHex: string,
   sourceAddress: string,
-  scriptSpend: boolean
+  scriptLeafData?: TapLeafScript
 ): Promise<string> {
   const psbt = bitcoin.Psbt.fromHex(psbtHex);
   console.log("PSBT:", psbt);
 
-  if (scriptSpend) {
+  if (scriptLeafData) {
     psbt.updateInput(
       0,
       // https://github.com/bitcoinjs/bitcoinjs-lib/blob/248789d25b9833ed286c9ca4b9bfd93f099fd8a3/test/fixtures/psbt.json#L493
       {
-        tapLeafScript: [
-  
+        tapLeafScript: [{
+          leafVersion: scriptLeafData.leafVersion,
+          script: Buffer.from(scriptLeafData.script, 'hex'),
+          controlBlock: Buffer.from(scriptLeafData.controlBlock, 'hex')
+        }
         ]
       }
     )
   }
-  // FOR SCRIPT_SPEND, TAP_LEAF_SCRIPT
-  // set these, check the signature after adding
-  // 
 
   const res = await satsConnectRequest('signPsbt', {
     psbt: psbt.toBase64(),
@@ -136,7 +143,6 @@ async function signPsbt(
   console.log("Signed PSBT:", signedPsbt);
   const tx = signedPsbt.extractTransaction();
 
-  console.log("Xverse response:", tx, tx.getId());
 
   return tx.toHex();
 }
@@ -176,9 +182,11 @@ function WalletComponent() {
     }
   }
 
+  // useCallback 
+  // FIX ENV VAR
+  // Textbox for script data
   const handleCompose = async (address: ExtendedAddressEntry, utxos: Utxo[]) => {
     if (utxos.length > 0) {
-      console.log('Composing commit/reveal transactions')
       const kontorUrl = import.meta.env.VITE_KONTOR_URL
       const base64EncodedData = btoa('Hello, world!')
       const kontorResponse = await fetch(`${kontorUrl}/compose?address=${address.address}&x_only_public_key=${address.publicKey}&funding_utxo_ids=${utxos.map(utxo => utxo.txid + ':' + utxo.vout).join(',')}&sat_per_vbyte=2&script_data=${base64EncodedData}`)
@@ -189,9 +197,12 @@ function WalletComponent() {
 
       const revealTx = bitcoin.Transaction.fromHex(kontorData.result.reveal_transaction_hex)
       console.log('kontor reveal tx id: ', revealTx.getId())
+
+      console.log('tap script: ', kontorData.result.tap_script)
       setComposeResult(kontorData.result)
     }
   }
+
 
   const handleSignTransaction = async () => {
     if (!address || !composeResult || utxos.length === 0) {
@@ -200,14 +211,10 @@ function WalletComponent() {
     }
 
     try {
-      // const utxoMap = utxos.reduce((map, utxo) => {
-      //   map[`${utxo.txid}:${utxo.vout}`] = { txid: utxo.txid, value: utxo.value };
-      //   return map;
-      // }, {} as Record<string, { txid: string, value: number }>);
-      const commit_sign_result = await signPsbt(composeResult.commit_psbt_hex, address.address, false);
-      const reveal_sign_result = await signPsbt(composeResult.reveal_psbt_hex, address.address, true);
+
+      const commit_sign_result = await signPsbt(composeResult.commit_psbt_hex, address.address);
+      const reveal_sign_result = await signPsbt(composeResult.reveal_psbt_hex, address.address, composeResult.tap_leaf_script);
       console.log('reveal_sign_result', reveal_sign_result)
-      // const result = await signTaprootKeyPathTransaction(composeResult.commit_transaction_hex, address.address, address.publicKey, utxoMap);
       setSignedTx([commit_sign_result, reveal_sign_result].join(','));
     } catch (err) {
       setError('Failed to sign transaction');
