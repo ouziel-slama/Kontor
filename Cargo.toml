@@ -1,3 +1,3 @@
 [workspace]
-members = ["kontor", "macro"]
+members = ["contracts/fib", "kontor", "macro"]
 resolver = "2"
