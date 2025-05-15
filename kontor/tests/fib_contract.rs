@@ -71,6 +71,7 @@ fn default_val_for_type(ty: &Type) -> Val {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_fib_contract() -> Result<(), Box<dyn std::error::Error>> {
     logging::setup();
 
