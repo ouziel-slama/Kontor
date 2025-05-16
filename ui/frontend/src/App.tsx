@@ -7,16 +7,12 @@ import {
 
 import { request as connectRequest } from '@stacks/connect'
 
-
 import * as bitcoin from 'bitcoinjs-lib'
 
 import './App.css'
 
 import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
-
-
-
 
 interface ExtendedAddressEntry extends AddressEntry {
   purpose: string
