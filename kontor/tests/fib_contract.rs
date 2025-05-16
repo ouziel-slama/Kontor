@@ -84,7 +84,7 @@ async fn test_fib_contract() -> Result<()> {
 
     let n = 8;
     let s = format!("fib({})", n);
-    let call = WaveParser::new(s.as_str()).parse_raw_func_call()?;
+    let call = WaveParser::new(&s).parse_raw_func_call()?;
 
     let path = Path::new("../target/wasm32-unknown-unknown/debug/fib.wasm");
     let wasm = read(path).await?;
@@ -98,7 +98,7 @@ async fn test_fib_contract() -> Result<()> {
     let mut results = func
         .results(&store)
         .iter()
-        .map(default_val_for_type)
+        .map(default_val_for_type).
         .collect::<Vec<_>>();
     func.call_async(&mut store, &params, &mut results).await?;
     assert_eq!(results[0], Val::U64(21));
