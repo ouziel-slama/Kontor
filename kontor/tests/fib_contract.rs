@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use tokio::fs::read;
 use wasmtime::{
     Engine, Store,
@@ -93,7 +93,7 @@ async fn test_fib_contract() -> Result<()> {
 
     let func = instance
         .get_func(&mut store, call.name())
-        .ok_or(anyhow!("can't find fib"))?;
+        .expect("fib should exist in instance");
     let params = call.to_wasm_params(func.params(&store).iter().map(|(_, t)| t))?;
     let mut results = func
         .results(&store)
