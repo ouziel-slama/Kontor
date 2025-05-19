@@ -26,6 +26,8 @@ use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 
+use crate::config::TestConfig;
+
 pub enum PublicKey<'a> {
     Segwit(&'a CompressedPublicKey),
     Taproot(&'a XOnlyPublicKey),
@@ -72,9 +74,11 @@ pub fn build_inscription(serialized_token_balance: Vec<u8>, key: PublicKey) -> R
 
 pub fn generate_taproot_address_from_mnemonic(
     secp: &Secp256k1<secp256k1::All>,
-    path: &Path,
+    config: &TestConfig,
     index: u32,
 ) -> Result<(Address, Xpriv, CompressedPublicKey), anyhow::Error> {
+    let network = Network::from_str(&config.network).expect("Invalid network");
+    let path = config.taproot_key_path.clone();
     let mnemonic = fs::read_to_string(path)
         .expect("Failed to read mnemonic file")
         .trim()
@@ -87,8 +91,7 @@ pub fn generate_taproot_address_from_mnemonic(
     let seed = mnemonic.to_seed("");
 
     // Create master key
-    let master_key =
-        Xpriv::new_master(Network::Bitcoin, &seed).expect("Failed to create master key");
+    let master_key = Xpriv::new_master(network, &seed).expect("Failed to create master key");
 
     // Derive first child key using a proper derivation path
     let path = DerivationPath::from_str(&format!("m/86'/0'/0'/0/{}", index))
@@ -98,7 +101,7 @@ pub fn generate_taproot_address_from_mnemonic(
         .expect("Failed to derive child key");
 
     // Get the private key
-    let private_key = PrivateKey::new(child_key.private_key, Network::Bitcoin);
+    let private_key = PrivateKey::new(child_key.private_key, network);
 
     // Get the public key
     let public_key = BitcoinPublicKey::from_private_key(secp, &private_key);
@@ -106,7 +109,7 @@ pub fn generate_taproot_address_from_mnemonic(
 
     // Create a Taproot address
     let x_only_pubkey = public_key.inner.x_only_public_key().0;
-    let address = Address::p2tr(secp, x_only_pubkey, None, KnownHrp::Mainnet);
+    let address = Address::p2tr(secp, x_only_pubkey, None, KnownHrp::from(network));
 
     Ok((address, child_key, compressed_pubkey))
 }

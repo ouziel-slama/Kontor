@@ -52,6 +52,7 @@ impl ComposeInputs {
     pub async fn from_query(query: ComposeQuery, bitcoin_client: &Client) -> Result<Self> {
         let address =
             Address::from_str(&query.address)?.require_network(bitcoin::Network::Bitcoin)?;
+        println!("address***************************: {}", address);
         let address_type = address.address_type();
 
         if let Some(address_type) = address_type {
@@ -254,6 +255,7 @@ pub struct RevealOutputs {
 }
 
 pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
+    println!("compose!!!!!!!!!!!!!!!!!!!!!!!!:");
     // Build the commit tx
     let commit_outputs = compose_commit(CommitInputs {
         address: params.address.clone(),
