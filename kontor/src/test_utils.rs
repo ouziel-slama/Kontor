@@ -23,7 +23,6 @@ use bitcoin::{
 };
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
 use std::str::FromStr;
 
 use crate::config::TestConfig;

@@ -179,7 +179,6 @@ impl Client {
     pub async fn create_wallet(&self, name: &str) -> Result<CreateWalletResult, Error> {
         let params = vec![name.into()];
         let result: CreateWalletResult = self.call("createwallet", params).await?;
-        println!("Created wallet: {:?}", result);
         Ok(result)
     }
 
@@ -216,10 +215,6 @@ impl Client {
         &self,
         address: &str,
         amount: Amount,
-        comment: Option<String>,
-        subtractfeefromamount: Option<bool>,
-        fee_rate: Option<f64>,
-        avoid_reuse: Option<bool>,
     ) -> Result<String, Error> {
         let params = vec![address.into(), amount.to_sat().into()];
         self.call("sendtoaddress", params).await

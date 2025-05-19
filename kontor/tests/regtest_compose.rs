@@ -19,12 +19,12 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
     // Initialize regtest client
     let mut config = Config::try_parse()?;
     config.bitcoin_rpc_url = "http://127.0.0.1:18443".to_string();
+    config.bitcoin_rpc_user = "regtest_user".to_string();
+    config.bitcoin_rpc_password = "regtest_password".to_string();
 
     let client = Client::new_from_config(config.clone())?;
     let mut test_config = TestConfig::try_parse()?;
     test_config.network = "regtest".to_string();
-
-    println!("Setting up regtest environment...");
 
     // Set up wallet if needed - this will ensure we have funds
     regtest_utils::ensure_wallet_setup(&client).await?;
@@ -35,14 +35,12 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
     let (seller_address, seller_child_key, _) =
         test_utils::generate_taproot_address_from_mnemonic(&secp, &test_config, 0)?;
 
-    println!("Generated taproot address: {}", seller_address);
-
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
 
     // Get a UTXO from the regtest wallet - use a smaller amount (5000 sats)
     let (out_point, utxo_for_output) =
-        regtest_utils::get_regtest_utxo(&client, &seller_address).await?;
+        regtest_utils::make_regtest_utxo(&client, &seller_address).await?;
 
     // Create token balance data
     let token_value = 500;
@@ -63,10 +61,7 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
         .envelope(546)
         .build();
 
-    println!("compose_params!!!!!!!!!!!!!!!!!!!!!!!!:");
-
     let compose_outputs = compose(compose_params)?;
-    println!("compose_outputs!!!!!!!!!!!!!!!!!!!!!!!!:");
 
     let mut attach_tx = compose_outputs.commit_transaction;
     let mut spend_tx = compose_outputs.reveal_transaction;
