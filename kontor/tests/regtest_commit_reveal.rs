@@ -1,6 +1,6 @@
 use anyhow::Result;
 use bitcoin::{
-    FeeRate,
+    FeeRate, Network,
     consensus::encode::serialize as serialize_tx,
     key::{Keypair, Secp256k1},
     taproot::{LeafVersion, TaprootBuilder},
@@ -24,7 +24,7 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
 
     let client = Client::new_from_config(config.clone())?;
     let mut test_config = TestConfig::try_parse()?;
-    test_config.network = "regtest".to_string();
+    test_config.network = Network::Regtest;
 
     // Set up wallet if needed - this will ensure we have funds
     regtest_utils::ensure_wallet_setup(&client).await?;

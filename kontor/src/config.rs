@@ -95,7 +95,7 @@ pub struct TestConfig {
     #[clap(
         long,
         env = "NETWORK",
-        help = "Network to use (mainnet, testnet, regtest)"
+        help = "Network to use (bitcoin, testnet, regtest)"
     )]
-    pub network: String,
+    pub network: bitcoin::Network,
 }
