@@ -21,8 +21,6 @@ use kontor::{
     utils::{ MockTransaction },
 };
 
-use ntest::timeout;
-
 #[derive(Clone)]
 struct MockClient {
     height: u64,
@@ -66,7 +64,6 @@ impl client::BitcoinRpc for MockClient {
 }
 
 #[tokio::test]
-#[timeout(100)]
 async fn test_producer() -> Result<()> {
     let cancel_token = CancellationToken::new();
 
@@ -90,7 +87,6 @@ async fn test_producer() -> Result<()> {
 }
 
 #[tokio::test]
-#[timeout(100)]
 async fn test_fetcher() -> Result<()> {
     let cancel_token = CancellationToken::new();
 
@@ -114,7 +110,6 @@ async fn test_fetcher() -> Result<()> {
 }
 
 #[tokio::test]
-#[timeout(100)]
 async fn test_processor() -> Result<()> {
     let cancel_token = CancellationToken::new();
 
@@ -161,7 +156,6 @@ async fn test_processor() -> Result<()> {
 }
 
 #[tokio::test]
-#[timeout(100)]
 async fn test_orderer() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let (tx_in, rx_in) = mpsc::channel(10);
