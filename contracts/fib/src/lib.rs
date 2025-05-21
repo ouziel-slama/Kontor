@@ -15,6 +15,15 @@ impl Guest for Component {
             }
         }
     }
+
+    fn api_twice(address: u64, n: u64) -> u64 {
+        let m = Monoid::new(address);
+        Self::twice(m, n)
+    }
+
+    fn twice(m: Monoid, n: u64) -> u64 {
+        m.mappend(n, n)
+    }
 }
 
 bindings::export!(Component with_types_in bindings);

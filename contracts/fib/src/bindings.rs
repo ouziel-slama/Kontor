@@ -104,15 +104,36 @@ pub unsafe fn _export_fib_cabi<T: Guest>(arg0: i64) -> i64 {
     let result0 = T::fib(arg0 as u64);
     _rt::as_i64(result0)
 }
+#[doc(hidden)]
+#[allow(non_snake_case)]
+pub unsafe fn _export_api_twice_cabi<T: Guest>(arg0: i64, arg1: i64) -> i64 {
+    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+    let result0 = T::api_twice(arg0 as u64, arg1 as u64);
+    _rt::as_i64(result0)
+}
+#[doc(hidden)]
+#[allow(non_snake_case)]
+pub unsafe fn _export_twice_cabi<T: Guest>(arg0: i32, arg1: i64) -> i64 {
+    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+    let result0 = T::twice(unsafe { Monoid::from_handle(arg0 as u32) }, arg1 as u64);
+    _rt::as_i64(result0)
+}
 pub trait Guest {
     fn fib(n: u64) -> u64;
+    fn api_twice(address: u64, n: u64) -> u64;
+    fn twice(m: Monoid, n: u64) -> u64;
 }
 #[doc(hidden)]
 macro_rules! __export_world_fib_cabi {
     ($ty:ident with_types_in $($path_to_types:tt)*) => {
         const _ : () = { #[unsafe (export_name = "fib")] unsafe extern "C" fn
         export_fib(arg0 : i64,) -> i64 { unsafe { $($path_to_types)*::
-        _export_fib_cabi::<$ty > (arg0) } } };
+        _export_fib_cabi::<$ty > (arg0) } } #[unsafe (export_name = "api-twice")] unsafe
+        extern "C" fn export_api_twice(arg0 : i64, arg1 : i64,) -> i64 { unsafe {
+        $($path_to_types)*:: _export_api_twice_cabi::<$ty > (arg0, arg1) } } #[unsafe
+        (export_name = "twice")] unsafe extern "C" fn export_twice(arg0 : i32, arg1 :
+        i64,) -> i64 { unsafe { $($path_to_types)*:: _export_twice_cabi::<$ty > (arg0,
+        arg1) } } };
     };
 }
 #[doc(hidden)]
@@ -257,14 +278,15 @@ pub(crate) use __export_fib_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 301] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xb3\x01\x01A\x02\x01\
-A\x0b\x03\0\x06monoid\x03\x01\x01i\0\x01@\x01\x07addressw\0\x01\x03\0\x13[constr\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 353] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe7\x01\x01A\x02\x01\
+A\x0f\x03\0\x06monoid\x03\x01\x01i\0\x01@\x01\x07addressw\0\x01\x03\0\x13[constr\
 uctor]monoid\x01\x02\x01h\0\x01@\x01\x04self\x03\0w\x03\0\x14[method]monoid.mzer\
 o\x01\x04\x01@\x03\x04self\x03\x01xw\x01yw\0w\x03\0\x16[method]monoid.mappend\x01\
-\x05\x01@\x01\x01nw\0w\x04\0\x03fib\x01\x06\x04\0\x11component:fib/fib\x04\0\x0b\
-\x09\x01\0\x03fib\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-compone\
-nt\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+\x05\x01@\x01\x01nw\0w\x04\0\x03fib\x01\x06\x01@\x02\x07addressw\x01nw\0w\x04\0\x09\
+api-twice\x01\x07\x01@\x02\x01m\x01\x01nw\0w\x04\0\x05twice\x01\x08\x04\0\x11com\
+ponent:fib/fib\x04\0\x0b\x09\x01\0\x03fib\x03\0\0\0G\x09producers\x01\x0cprocess\
+ed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {
