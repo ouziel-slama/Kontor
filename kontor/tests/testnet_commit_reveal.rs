@@ -69,13 +69,12 @@ async fn test_taproot_transaction() -> Result<()> {
     let compose_outputs = compose(compose_params)?;
 
     let mut attach_tx = compose_outputs.commit_transaction;
-    println!("attach_tx: {:#?}", attach_tx);
     let mut spend_tx = compose_outputs.reveal_transaction;
     let tap_script = compose_outputs.tap_script;
 
     // Sign the attach transaction
     test_utils::sign_key_spend(&secp, &mut attach_tx, &[utxo_for_output], &keypair, 0)?;
-    println!("attach_tx after signing: {:#?}", attach_tx);
+
     let spend_tx_prevouts = vec![attach_tx.output[0].clone()];
 
     // sign the script_spend input for the spend transaction
@@ -98,11 +97,10 @@ async fn test_taproot_transaction() -> Result<()> {
     let attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
     let spend_tx_hex = hex::encode(serialize_tx(&spend_tx));
 
-    println!("attach_tx_hex: {:#?}", attach_tx_hex);
     let result = client
         .test_mempool_accept(&[attach_tx_hex, spend_tx_hex])
         .await?;
-    println!("result: {:#?}", result);
+
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
     assert!(result[0].allowed, "Attach transaction was rejected");
     assert!(result[1].allowed, "Spend transaction was rejected");
