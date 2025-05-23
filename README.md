@@ -35,6 +35,8 @@ rpcthreads=11
 rpcworkqueue=32
 zmqpubsequence=tcp://127.0.0.1:28332
 zmqpubsequencehwm=0
+zmqpubrawtx=tcp://127.0.0.1:28332
+zmqpubrawtxhwm=0
 ```
 You can set `rpcthreads` to a higher or lower value depending on your system's resources.
 
