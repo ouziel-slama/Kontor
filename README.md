@@ -35,6 +35,8 @@ rpcthreads=11
 rpcworkqueue=32
 zmqpubsequence=tcp://127.0.0.1:28332
 zmqpubsequencehwm=0
+zmqpubrawtx=tcp://127.0.0.1:28332
+zmqpubrawtxhwm=0
 ```
 You can set `rpcthreads` to a higher or lower value depending on your system's resources.
 
@@ -60,7 +62,7 @@ export BITCOIN_RPC_URL="http://127.0.0.1:8332"
 export BITCOIN_RPC_USER="rpc"
 export BITCOIN_RPC_PASSWORD="rpc"
 
-export ZMQ_PUB_SEQUENCE_ADDRESS="tcp://127.0.0.1:28332"
+export ZMQ_ADDRESS="tcp://127.0.0.1:28332"
 
 export API_PORT="8443"
 
