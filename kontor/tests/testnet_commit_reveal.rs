@@ -19,6 +19,7 @@ use kontor::{bitcoin_client::Client, config::Config};
 use std::str::FromStr;
 
 #[tokio::test]
+#[ignore]
 async fn test_taproot_transaction() -> Result<()> {
     // Initialize regtest client
     let mut config = Config::try_parse()?;

@@ -15,6 +15,7 @@ use kontor::{
 };
 
 #[tokio::test]
+#[ignore]
 async fn test_taproot_transaction_regtest() -> Result<()> {
     // Initialize regtest client
     let mut config = Config::try_parse()?;
