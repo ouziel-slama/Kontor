@@ -11,6 +11,7 @@ pub mod events;
 pub mod messages;
 pub mod reconciler;
 pub mod rpc;
+pub mod queries;
 pub mod zmq;
 
 pub async fn run<T: Tx + 'static>(

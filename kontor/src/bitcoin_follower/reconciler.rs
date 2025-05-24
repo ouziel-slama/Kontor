@@ -15,11 +15,12 @@ use tracing::{error, info, warn};
 use crate::{
     bitcoin_client,
     bitcoin_follower::rpc,
+    bitcoin_follower::queries::{select_block_at_height},
     block::{Block, Tx},
     config::Config,
     database::{
         self,
-        queries::{select_block_at_height, select_block_latest, select_block_with_hash},
+        queries::{select_block_latest, select_block_with_hash},
     },
     retry::{new_backoff_unlimited, retry},
 };
@@ -196,26 +197,8 @@ pub async fn get_last_matching_block_height(
     let mut prev_block_hash = block_prev_hash;
     let mut subtrahend = 1;
     loop {
-        let prev_block_row = retry(
-            async || match select_block_at_height(
-                &*reader.connection().await?,
-                block_height - subtrahend,
-            )
-            .await
-            {
-                Ok(Some(row)) => Ok(row),
-                Ok(None) => Err(anyhow!(
-                    "Block at height not found: {}",
-                    block_height - subtrahend
-                )),
-                Err(e) => Err(e),
-            },
-            "read block at height",
-            new_backoff_unlimited(),
-            cancel_token.clone(),
-        )
-        .await?;
-
+        let prev_block_row = select_block_at_height(reader,
+                block_height - subtrahend, cancel_token.clone()).await?;
         if prev_block_row.hash == prev_block_hash {
             break;
         }
@@ -383,26 +366,8 @@ async fn handle_zmq_event<T: Tx + 'static>(
                 )
                 .await?;
 
-                let prev_block_row = retry(
-                    async || match select_block_at_height(
-                        &*env.reader.connection().await?,
-                        block_row.height - 1,
-                    )
-                    .await
-                    {
-                        Ok(Some(row)) => Ok(row),
-                        Ok(None) => Err(anyhow!(
-                            "Block at height not found: {}",
-                            block_row.height - 1
-                        )),
-                        Err(e) => Err(e),
-                    },
-                    "get block at height",
-                    new_backoff_unlimited(),
-                    env.cancel_token.clone(),
-                )
-                .await?;
-
+                let prev_block_row = select_block_at_height(&env.reader,
+                        block_row.height - 1, env.cancel_token.clone()).await?;
                 state.zmq_latest_block_height = Some(prev_block_row.height);
                 vec![Event::Rollback(prev_block_row.height)]
             } else {
@@ -610,3 +575,4 @@ pub async fn run<T: Tx + 'static>(
         info!("Exited");
     }))
 }
+
