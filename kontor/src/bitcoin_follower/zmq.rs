@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 use zmq::Socket;
 
 use crate::{
-    bitcoin_client,
+    bitcoin_client::client::BitcoinRpc,
     bitcoin_follower::messages::{RAWTX, SEQUENCE},
     block::{Block, Tx},
     retry::{new_backoff_limited, notify, retry},
@@ -99,7 +99,7 @@ fn run_socket(
     })
 }
 
-pub async fn process_data_message<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc>(
+pub async fn process_data_message<T: Tx + 'static, C: BitcoinRpc>(
     data_message: DataMessage,
     cancel_token: CancellationToken,
     bitcoin: C,
@@ -185,7 +185,7 @@ pub async fn process_data_message<T: Tx + 'static, C: bitcoin_client::client::Bi
     }
 }
 
-pub async fn run<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc>(
+pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     addr: &str,
     cancel_token: CancellationToken,
     bitcoin: C,

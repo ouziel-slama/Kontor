@@ -44,7 +44,7 @@ async fn test_no_reorg() -> Result<()> {
     let result = get_last_matching_block_height(
         cancel_token,
         &*reader.connection().await?,
-        &bitcoin,
+        bitcoin,
         block.height,
         block.prev_hash,
     )
@@ -91,7 +91,7 @@ async fn test_single_block_reorg() -> Result<()> {
     let result = get_last_matching_block_height(
         cancel_token,
         &*reader.connection().await?,
-        &bitcoin,
+        bitcoin,
         block.height,
         block.prev_hash,
     )
@@ -148,7 +148,7 @@ async fn test_multi_block_reorg() -> Result<()> {
     let result = get_last_matching_block_height(
         cancel_token,
         &*reader.connection().await?,
-        &bitcoin,
+        bitcoin,
         block.height,
         block.prev_hash,
     )

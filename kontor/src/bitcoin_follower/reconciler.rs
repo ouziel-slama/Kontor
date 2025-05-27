@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    bitcoin_client,
+    bitcoin_client::client::BitcoinRpc,
     bitcoin_follower::queries::{select_block_at_height, select_block_with_hash},
     bitcoin_follower::rpc,
     block::{Block, Tx},
@@ -27,7 +27,7 @@ use super::{
     zmq,
 };
 
-struct Env<T: Tx, C: bitcoin_client::client::BitcoinRpc> {
+struct Env<T: Tx, C: BitcoinRpc> {
     pub cancel_token: CancellationToken,
     pub reader: database::Reader,
     pub bitcoin: C,
@@ -37,7 +37,7 @@ struct Env<T: Tx, C: bitcoin_client::client::BitcoinRpc> {
     pub zmq_tx: UnboundedSender<ZmqEvent<T>>,
 }
 
-impl<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc> Env<T, C> {
+impl<T: Tx + 'static, C: BitcoinRpc> Env<T, C> {
     pub fn new(
         cancel_token: CancellationToken,
         reader: database::Reader,
@@ -85,7 +85,7 @@ impl<T: Tx> State<T> {
     }
 }
 
-async fn zmq_runner<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc>(
+async fn zmq_runner<T: Tx + 'static, C: BitcoinRpc>(
     addr: String,
     cancel_token: CancellationToken,
     bitcoin: C,
@@ -179,7 +179,7 @@ pub fn handle_new_mempool_transactions<T: Tx>(
     Event::MempoolUpdate { removed, added }
 }
 
-pub async fn get_last_matching_block_height<C: bitcoin_client::client::BitcoinRpc>(
+pub async fn get_last_matching_block_height<C: BitcoinRpc>(
     cancel_token: CancellationToken,
     conn: &Connection,
     bitcoin: C,
@@ -209,7 +209,7 @@ pub async fn get_last_matching_block_height<C: bitcoin_client::client::BitcoinRp
     Ok(block_height - subtrahend)
 }
 
-async fn handle_zmq_event<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc>(
+async fn handle_zmq_event<T: Tx + 'static, C: BitcoinRpc>(
     env: &mut Env<T, C>,
     state: &mut State<T>,
     zmq_event: ZmqEvent<T>,
@@ -370,7 +370,7 @@ async fn handle_zmq_event<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc
     })
 }
 
-async fn handle_rpc_event<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc>(
+async fn handle_rpc_event<T: Tx + 'static, C: BitcoinRpc>(
     env: &mut Env<T, C>,
     state: &mut State<T>,
     (target_height, block): (u64, Block<T>),
@@ -435,7 +435,7 @@ async fn handle_rpc_event<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc
     Ok(events)
 }
 
-pub async fn run<T: Tx + 'static, C: bitcoin_client::client::BitcoinRpc>(
+pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     starting_block_height: u64,
     addr: Option<String>,
     cancel_token: CancellationToken,
