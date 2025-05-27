@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bitcoin::{BlockHash, Transaction, Txid};
+use futures_util::future::OptionFuture;
 use indexmap::{IndexMap, IndexSet, map::Entry};
 use libsql::Connection;
 use tokio::{
@@ -455,19 +456,18 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
 
     let runner_cancel_token = CancellationToken::new();
 
-    let mut runner_handle = None;
-    if let Some(a) = addr {
-        runner_handle = Some(
-            zmq_runner(
-                a,
-                runner_cancel_token.clone(),
-                bitcoin.clone(),
-                f,
-                env.zmq_tx.clone(),
-            )
-            .await,
-        );
-    } else {
+    let runner_handle = OptionFuture::from(addr.map(|a| {
+        zmq_runner(
+            a,
+            runner_cancel_token.clone(),
+            bitcoin.clone(),
+            f,
+            env.zmq_tx.clone(),
+        )
+    }))
+    .await;
+
+    if runner_handle.is_none() {
         warn!("No ZMQ connection");
         env.fetcher.start(start_height);
     }
