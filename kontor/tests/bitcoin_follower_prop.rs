@@ -1,22 +1,14 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use bitcoin::{
-    self,
-    BlockHash,
-    hashes::Hash,
-};
+use bitcoin::{self, BlockHash, hashes::Hash};
 
-use kontor::{
-    bitcoin_follower::rpc::run_orderer,
-    block::{ Block },
-    utils::{ MockTransaction },
-};
+use kontor::{bitcoin_follower::rpc::run_orderer, block::Block, utils::MockTransaction};
 
 use proptest::prelude::*;
 
 fn gen_block(height: u64) -> Block<MockTransaction> {
-    Block{
+    Block {
         height,
 
         // only height is relevant for orderer, using dummy values for the rest
@@ -27,7 +19,9 @@ fn gen_block(height: u64) -> Block<MockTransaction> {
 }
 
 fn arb_vec_numbers(max: u64) -> impl Strategy<Value = Vec<u64>> {
-    (1..(max+1)).prop_map(|l| (1..(l+1)).collect::<Vec<u64>>()).prop_shuffle()
+    (1..(max + 1))
+        .prop_map(|l| (1..(l + 1)).collect::<Vec<u64>>())
+        .prop_shuffle()
 }
 
 fn arb_vec_blocks(max: u64) -> impl Strategy<Value = Vec<Block<MockTransaction>>> {

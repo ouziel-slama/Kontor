@@ -2,9 +2,9 @@ pub mod events;
 
 use tokio::{select, sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
 
 use bitcoin::BlockHash;
+use tracing::{debug, error, info, warn};
 
 use crate::{
     bitcoin_follower::events::Event,

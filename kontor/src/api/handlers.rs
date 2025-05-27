@@ -18,7 +18,6 @@ use super::{
     result::Result,
 };
 
-
 use serde::Deserialize;
 
 #[derive(Deserialize)]
