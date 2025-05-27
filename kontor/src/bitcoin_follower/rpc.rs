@@ -21,12 +21,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
-    bitcoin_client,
+    bitcoin_client::client::BitcoinRpc,
     block::{Block, Tx},
     retry::{new_backoff_unlimited, retry},
 };
 
-pub fn run_producer<C: bitcoin_client::client::BitcoinRpc>(
+pub fn run_producer<C: BitcoinRpc>(
     start_height: u64,
     bitcoin: C,
     cancel_token: CancellationToken,
@@ -85,7 +85,7 @@ pub fn run_producer<C: bitcoin_client::client::BitcoinRpc>(
     (producer, rx)
 }
 
-pub fn run_fetcher<C: bitcoin_client::client::BitcoinRpc>(
+pub fn run_fetcher<C: BitcoinRpc>(
     mut rx_in: Receiver<(u64, u64)>,
     bitcoin: C,
     cancel_token: CancellationToken,
@@ -270,20 +270,16 @@ pub fn run_orderer<T: Tx + 'static>(
 }
 
 #[derive(Debug)]
-pub struct Fetcher<T: Tx> {
+pub struct Fetcher<T: Tx, C: BitcoinRpc> {
     handle: Option<JoinHandle<()>>,
     cancel_token: CancellationToken,
-    bitcoin: bitcoin_client::Client,
+    bitcoin: C,
     f: fn(Transaction) -> Option<T>,
     tx: Sender<(u64, Block<T>)>,
 }
 
-impl<T: Tx + 'static> Fetcher<T> {
-    pub fn new(
-        bitcoin: bitcoin_client::Client,
-        f: fn(Transaction) -> Option<T>,
-        tx: Sender<(u64, Block<T>)>,
-    ) -> Self {
+impl<T: Tx + 'static, C: BitcoinRpc> Fetcher<T, C> {
+    pub fn new(bitcoin: C, f: fn(Transaction) -> Option<T>, tx: Sender<(u64, Block<T>)>) -> Self {
         Self {
             handle: None,
             cancel_token: CancellationToken::new(),
