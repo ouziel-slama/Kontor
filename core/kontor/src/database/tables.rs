@@ -8,5 +8,7 @@ pub async fn initialize_database(conn: &libsql::Connection) -> Result<(), libsql
     conn.execute(CREATE_BLOCKS_TABLE, ()).await?;
     conn.query("PRAGMA journal_mode = WAL;", ()).await?;
     conn.query("PRAGMA synchronous = NORMAL;", ()).await?;
+    conn.load_extension_enable()?;
+    conn.load_extension("sqlean/crypto.dylib", None)?;
     Ok(())
 }
