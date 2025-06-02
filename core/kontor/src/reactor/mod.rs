@@ -21,27 +21,18 @@ struct Reactor {
     writer: database::Writer,
     cancel_token: CancellationToken,
 
-    option_last_height: Option<u64>,
+    last_height: u64,
     option_last_hash: Option<BlockHash>,
 }
 
 impl Reactor {
-    pub fn new(
+    pub async fn new(
+        starting_block_height: u64,
         reader: database::Reader,
         writer: database::Writer,
         cancel_token: CancellationToken,
     ) -> Self {
-        Self {
-            reader,
-            writer,
-            cancel_token,
-            option_last_height: None,
-            option_last_hash: None,
-        }
-    }
-
-    async fn init(&mut self, starting_block_height: u64) {
-        let conn = &*self.reader.connection().await.unwrap();
+        let conn = &*reader.connection().await.unwrap();
         match select_block_latest(conn).await.unwrap() {
             Some(block) => {
                 if block.height < starting_block_height {
@@ -56,15 +47,27 @@ impl Reactor {
                     block.height, block.hash
                 );
 
-                self.option_last_height = Some(block.height);
-                self.option_last_hash = Some(block.hash);
+                Self {
+                    reader,
+                    writer,
+                    cancel_token,
+                    last_height: block.height,
+                    option_last_hash: Some(block.hash),
+                }
             }
             None => {
                 info!(
                     "No previous blocks found, starting from height {}",
                     starting_block_height
                 );
-                self.option_last_height = Some(starting_block_height);
+
+                Self {
+                    reader,
+                    writer,
+                    cancel_token,
+                    last_height: starting_block_height - 1,
+                    option_last_hash: None,
+                }
             }
         }
     }
@@ -73,7 +76,7 @@ impl Reactor {
         rollback_to_height(&self.writer.connection(), height)
             .await
             .unwrap();
-        self.option_last_height = Some(height);
+        self.last_height = height;
 
         if let Some(block) =
             select_block_at_height(&self.reader.connection().await.unwrap(), height)
@@ -92,12 +95,11 @@ impl Reactor {
         let hash = block.hash;
         let prev_hash = block.prev_hash;
 
-        let last_height = self.option_last_height.unwrap();
-        if height != last_height + 1 {
+        if height != self.last_height + 1 {
             error!(
                 "Order exception, received block at height {}, expected height {}",
                 height,
-                last_height + 1
+                self.last_height + 1
             );
             self.cancel_token.cancel();
             return;
@@ -113,7 +115,7 @@ impl Reactor {
             }
         }
 
-        self.option_last_height = Some(height);
+        self.last_height = height;
         self.option_last_hash = Some(hash);
 
         insert_block(&self.writer.connection(), BlockRow { height, hash })
@@ -129,11 +131,9 @@ pub fn run<T: Tx + 'static>(
     writer: database::Writer,
     mut rx: Receiver<Event<T>>,
 ) -> JoinHandle<()> {
-    let mut reactor = Reactor::new(reader, writer, cancel_token.clone());
-
     tokio::spawn({
         async move {
-            reactor.init(starting_block_height).await;
+            let mut reactor = Reactor::new(starting_block_height, reader, writer, cancel_token.clone()).await;
 
             loop {
                 select! {
