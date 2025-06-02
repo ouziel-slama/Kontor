@@ -10,7 +10,7 @@ impl Guest for Contract {
             0 | 1 => n,
             _ => {
                 let m = Monoid::new(0);
-                m.mappend(Self::fib(n - 1), Self::fib(n - 2))
+                sum(m.mzero(), m.mappend(Self::fib(n - 1), Self::fib(n - 2)))
             }
         }
     }
