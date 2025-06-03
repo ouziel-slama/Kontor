@@ -20,7 +20,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
-        90,
+        91,
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
@@ -127,7 +127,7 @@ async fn test_reactor_unexpected_block() -> Result<()> {
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
-        80,
+        81,
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
@@ -163,7 +163,7 @@ async fn test_reactor_deduced_rollback() -> Result<()> {
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
-        90,
+        91,
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),

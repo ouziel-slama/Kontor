@@ -8,3 +8,7 @@
 **/*.db-wal
 **/*.key
 **/.vscode
+**/*.dylib
+**/*.so
+!/core/kontor/sqlean*/**/*.so
+!/core/kontor/sqlean*/**/*.dylib

@@ -1,5 +1,5 @@
 [workspace]
-members = ["fib"]
+members = ["fib", "sum"]
 resolver = "2"
 
 [workspace.dependencies]
