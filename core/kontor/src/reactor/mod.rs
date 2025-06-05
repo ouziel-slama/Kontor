@@ -24,6 +24,7 @@ struct Reactor {
     reader: database::Reader,
     writer: database::Writer,
     cancel_token: CancellationToken,
+    ctrl_tx: Sender<Signal>,
 
     last_height: u64,
     option_last_hash: Option<BlockHash>,
@@ -34,12 +35,13 @@ impl Reactor {
         starting_block_height: u64,
         reader: database::Reader,
         writer: database::Writer,
+        ctrl_tx: Sender<Signal>,
         cancel_token: CancellationToken,
     ) -> Self {
         let conn = &*reader.connection().await.unwrap();
         match select_block_latest(conn).await.unwrap() {
             Some(block) => {
-                if block.height < starting_block_height {
+                if block.height < starting_block_height - 1 {
                     panic!(
                         "Latest block has height {}, less than start height {}",
                         block.height, starting_block_height
@@ -55,6 +57,7 @@ impl Reactor {
                     reader,
                     writer,
                     cancel_token,
+                    ctrl_tx,
                     last_height: block.height,
                     option_last_hash: Some(block.hash),
                 }
@@ -69,6 +72,7 @@ impl Reactor {
                     reader,
                     writer,
                     cancel_token,
+                    ctrl_tx,
                     last_height: starting_block_height - 1,
                     option_last_hash: None,
                 }
@@ -92,6 +96,16 @@ impl Reactor {
         } else {
             warn!("Rollback to height {}, no previous block found", height);
         }
+
+        if self
+            .ctrl_tx
+            .send(Signal::Seek((self.last_height + 1, self.option_last_hash)))
+            .await
+            .is_err()
+        {
+            info!("Ctrl channel closed, exiting");
+            return;
+        }
     }
 
     async fn handle_block<T: Tx + 'static>(&mut self, block: Block<T>) {
@@ -99,7 +113,16 @@ impl Reactor {
         let hash = block.hash;
         let prev_hash = block.prev_hash;
 
-        if height != self.last_height + 1 {
+        if height < self.last_height + 1 {
+            warn!(
+                "Rollback required; received block at height {} below expected height {}",
+                height,
+                self.last_height + 1,
+            );
+
+            self.rollback(height - 1).await;
+            return;
+        } else if height > self.last_height + 1 {
             error!(
                 "Order exception, received block at height {}, expected height {}",
                 height,
@@ -116,7 +139,17 @@ impl Reactor {
                          not matching last hash {}",
                     height, prev_hash, last_hash
                 );
+
+                // roll back 2 steps since we know both the received block and the
+                // last one stored must be bad.
+                self.rollback(height - 2).await;
+                return;
             }
+        } else {
+            info!(
+                "Initial block received at height {} (hash {})",
+                height, hash
+            );
         }
 
         self.last_height = height;
@@ -138,8 +171,14 @@ pub fn run<T: Tx + 'static>(
 ) -> JoinHandle<()> {
     tokio::spawn({
         async move {
-            let mut reactor =
-                Reactor::new(starting_block_height, reader, writer, cancel_token.clone()).await;
+            let mut reactor = Reactor::new(
+                starting_block_height,
+                reader,
+                writer,
+                ctrl.clone(),
+                cancel_token.clone(),
+            )
+            .await;
 
             if ctrl
                 .send(Signal::Seek((

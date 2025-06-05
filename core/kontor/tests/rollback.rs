@@ -1,29 +1,47 @@
 use anyhow::Result;
 use clap::Parser;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::{self, hashes::Hash, BlockHash, Network, Txid};
 
 use kontor::{
     bitcoin_client::{client, error, types},
-    bitcoin_follower::{self, queries::select_block_at_height},
+    bitcoin_follower::{
+        self,
+        events::{Event, Signal},
+        queries::select_block_at_height,
+        reconciler::{self, handle_control_signal, Env, State},
+    },
     config::Config,
     database::{queries::insert_block, types::BlockRow},
     reactor,
     utils::{new_test_db, MockTransaction},
 };
 
+// TODO: implement forking of the mock blockchain to allow us to trigger rollbacks
+// at arbitrary heights while Fetcher is running.
+#[derive(Clone)]
+struct Fork {
+    _trigger_height: u64,
+    _start_height: u64,
+    _branch: Vec<bitcoin::Block>,
+}
+
 #[derive(Clone)]
 struct MockClient {
-    blocks: Vec<bitcoin::Block>,
+    blocks: Arc<Mutex<Vec<bitcoin::Block>>>,
+    _fork: Arc<Mutex<Option<Fork>>>,
     expect_get_raw_transaction_txid: Option<Txid>,
 }
 
 impl MockClient {
     fn new(blocks: Vec<bitcoin::Block>) -> Self {
         MockClient {
-            blocks,
+            blocks: Mutex::new(blocks).into(),
+            _fork: Mutex::new(None).into(),
             expect_get_raw_transaction_txid: None,
         }
     }
@@ -66,10 +84,11 @@ fn new_block_chain(n: u64, time: u32) -> Vec<bitcoin::Block> {
 
 impl client::BitcoinRpc for MockClient {
     async fn get_blockchain_info(&self) -> Result<types::GetBlockchainInfoResult, error::Error> {
+        let len = self.blocks.lock().unwrap().len() as u64;
         Ok(types::GetBlockchainInfoResult {
             chain: Network::Bitcoin,
-            blocks: self.blocks.len() as u64,
-            headers: self.blocks.len() as u64,
+            blocks: len,
+            headers: len,
             difficulty: 1.0,
             median_time: 1,
             verification_progress: 1.0,
@@ -83,12 +102,13 @@ impl client::BitcoinRpc for MockClient {
     }
 
     async fn get_block_hash(&self, height: u64) -> Result<BlockHash, error::Error> {
-        Ok(self.blocks[height as usize - 1].block_hash())
+        let blocks = self.blocks.lock().unwrap();
+        Ok(blocks[height as usize - 1].block_hash())
     }
 
     async fn get_block(&self, hash: &BlockHash) -> Result<bitcoin::Block, error::Error> {
-        Ok(self
-            .blocks
+        let blocks = self.blocks.lock().unwrap();
+        Ok(blocks
             .iter()
             .find(|b| &b.block_hash() == hash)
             .unwrap()
@@ -134,7 +154,6 @@ fn block_row(height: u64, b: &bitcoin::Block) -> BlockRow {
 
 #[tokio::test]
 async fn test_follower_reactor_fetching() -> Result<()> {
-    panic!("foo");
     let cancel_token = CancellationToken::new();
     let (tx, rx) = mpsc::channel(1);
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
@@ -201,7 +220,7 @@ async fn test_follower_reactor_fetching() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_follower_reactor_rollback() -> Result<()> {
+async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let (tx, rx) = mpsc::channel(1);
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
@@ -259,6 +278,7 @@ async fn test_follower_reactor_rollback() -> Result<()> {
     ));
 
     // by reading out the two last blocks first we ensure that the rollback has been enacted
+    sleep(Duration::from_millis(10)).await; // short delay to hopefully avoid a read retry
     let block = select_block_at_height(conn, 4, cancel_token.clone()).await?;
     assert_eq!(block.height, 4);
     assert_eq!(block.hash, blocks[4 - 1].block_hash());
@@ -278,6 +298,62 @@ async fn test_follower_reactor_rollback() -> Result<()> {
     for handle in handles {
         let _ = handle.await;
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_follower_handle_control_signal() -> Result<()> {
+    let cancel_token = CancellationToken::new();
+    let (reader, _writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
+
+    let blocks = new_block_chain(5, 123);
+    let client = MockClient::new(blocks.clone());
+
+    fn f(_tx: bitcoin::Transaction) -> Option<MockTransaction> {
+        Some(MockTransaction::new(123))
+    }
+
+    // start-up at block height 3
+    let mut env = Env::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let mut state = State::new();
+    let res = handle_control_signal(&mut env, &mut state, Signal::Seek((3, None)))
+        .await
+        .unwrap();
+    assert_eq!(res, vec![]);
+    assert_eq!(state.rpc_latest_block_height, Some(2));
+    assert_eq!(state.target_block_height, Some(5));
+    assert_eq!(state.mode, reconciler::Mode::Rpc);
+    assert_eq!(env.fetcher.running(), true);
+
+    // start-up at block height 3 with mismatching hash for last block at 2
+    let mut env = Env::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let mut state = State::new();
+    let res = handle_control_signal(
+        &mut env,
+        &mut state,
+        Signal::Seek((3, Some(BlockHash::from_byte_array([0x00; 32])))), // not matching
+    )
+    .await
+    .unwrap();
+    assert_eq!(res, vec![Event::Rollback(1)]);
+    assert_eq!(env.fetcher.running(), false);
+
+    // start-up at block height 3 with matching hash for last block at 2
+    let mut env = Env::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let mut state = State::new();
+    let res = handle_control_signal(
+        &mut env,
+        &mut state,
+        Signal::Seek((3, Some(blocks[2 - 1].block_hash()))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(res, vec![]);
+    assert_eq!(state.rpc_latest_block_height, Some(2));
+    assert_eq!(state.target_block_height, Some(5));
+    assert_eq!(state.mode, reconciler::Mode::Rpc);
+    assert_eq!(env.fetcher.running(), true);
 
     Ok(())
 }
