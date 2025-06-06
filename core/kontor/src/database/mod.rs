@@ -1,4 +1,3 @@
-pub mod checkpoint_queries;
 mod connection;
 pub mod init;
 mod pool;

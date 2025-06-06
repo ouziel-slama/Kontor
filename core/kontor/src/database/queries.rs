@@ -103,7 +103,7 @@ ORDER BY height DESC LIMIT 1
 
     if let Some(row) = rows.next().await? {
         Ok(Some(ContractStateRow {
-            id: Some(row.get(0)?),
+            id: row.get(0)?,
             contract_id: row.get(1)?,
             tx_id: row.get(2)?,
             height: row.get(3)?,

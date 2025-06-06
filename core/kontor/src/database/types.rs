@@ -9,6 +9,7 @@ pub struct BlockRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointRow {
+    pub id: i64,
     pub height: u64,
     pub hash: String,
 }
@@ -23,7 +24,7 @@ pub struct TransactionRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractStateRow {
-    pub id: Option<i64>,  // Optional because it's auto-generated on insert
+    pub id: i64,  // Optional because it's auto-generated on insert
     pub contract_id: String,
     pub tx_id: i64,
     pub height: u64,
