@@ -69,25 +69,27 @@ impl SumService {
             .validate(true)
             .encode()?;
         let component = Component::from_binary(engine, &component_bytes)?;
-        
-        let service = Arc::new(Self { 
+
+        let service = Arc::new(Self {
             engine: engine.clone(),
-            component 
+            component,
         });
         Ok(service)
     }
-    
+
     async fn call_sum(&self, x: u64, y: u64) -> Result<u64> {
         let host_ctx = HostCtx::new();
         let mut store = Store::new(&self.engine, host_ctx);
         let mut linker = Linker::<HostCtx>::new(&self.engine);
         Contract::add_to_linker(&mut linker, |s| s)?;
-        
+
         let s = format!("sum({}, {})", x, y);
         let call = WaveParser::new(&s).parse_raw_func_call()?;
-        
-        let instance = linker.instantiate_async(&mut store, &self.component).await?;
-        
+
+        let instance = linker
+            .instantiate_async(&mut store, &self.component)
+            .await?;
+
         let func = instance
             .get_func(&mut store, call.name())
             .ok_or_else(|| anyhow::anyhow!("sum function not found in instance"))?;
@@ -98,7 +100,7 @@ impl SumService {
             .map(default_val_for_type)
             .collect::<Vec<_>>();
         func.call_async(&mut store, &params, &mut results).await?;
-        
+
         match &results[0] {
             Val::U64(value) => Ok(*value),
             _ => Err(anyhow::anyhow!("Expected u64 result from sum function")),
@@ -208,7 +210,9 @@ async fn test_fib_contract() -> Result<()> {
          -> Box<dyn std::future::Future<Output = Result<(u64,), wasmtime::Error>> + Send> {
             Box::new(async move {
                 let sum_service = store_context.data().sum_service.clone();
-                let result = sum_service.call_sum(x, y).await
+                let result = sum_service
+                    .call_sum(x, y)
+                    .await
                     .map_err(|e| wasmtime::Error::msg(format!("Sum WASM call failed: {}", e)))?;
                 Ok((result,))
             })

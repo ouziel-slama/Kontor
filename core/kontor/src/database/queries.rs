@@ -14,7 +14,6 @@ pub async fn insert_block(conn: &Connection, block: BlockRow) -> Result<()> {
 }
 
 pub async fn rollback_to_height(conn: &Connection, height: u64) -> Result<u64> {
-    // CASCADE
     let num_rows = conn
         .execute("DELETE FROM blocks WHERE height > ?", [height])
         .await?;
@@ -64,7 +63,6 @@ pub async fn select_block_with_hash(
     })
 }
 
-// Contract state
 pub async fn insert_contract_state(
     conn: &Connection,
     contract_id: &str,
@@ -89,14 +87,11 @@ pub async fn get_latest_contract_state(
     contract_id: &str,
     path: &str,
 ) -> Result<Option<ContractStateRow>> {
-    // rust template strings
     let mut rows = conn
         .query(
-            r#"
-SELECT id, contract_id, tx_id, height, path, value, deleted 
-FROM contract_state WHERE contract_id = ? AND path = ? 
-ORDER BY height DESC LIMIT 1
-"#,
+            "SELECT id, contract_id, tx_id, height, path, value, deleted 
+            FROM contract_state WHERE contract_id = ? AND path = ? 
+            ORDER BY height DESC LIMIT 1",
             params![contract_id, path],
         )
         .await?;
@@ -116,42 +111,6 @@ ORDER BY height DESC LIMIT 1
     }
 }
 
-// MAKE QUERY FROM DOC
-
-// do we want this?
-// pub async fn get_contract_state_at_height(
-//     conn: &Connection,
-//     contract_id: &str,
-//     height: u64,
-// ) -> Result<Option<ContractStateRow>> {
-//     // DOUBLE CHECK NOTION DOC -- finding height exactly then getting rest of row
-//     // format these
-//     let mut rows = conn
-//         .query(
-//             "SELECT id, contract_id, tx_id, height, path, value, deleted
-//          FROM contract_state
-//          WHERE contract_id = ? AND height <= ? // deleted is false
-//          HAVING height = MAX(height)",
-//             params![contract_id, height],
-//         )
-//         .await?;
-
-//     if let Some(row) = rows.next().await? {
-//         Ok(Some(ContractStateRow {
-//             id: Some(row.get(0)?),
-//             contract_id: row.get(1)?,
-//             tx_id: row.get(2)?,
-//             height: row.get(3)?,
-//             path: row.get(4)?,
-//             value: row.get(5)?,
-//             deleted: row.get(6)?,
-//         }))
-//     } else {
-//         Ok(None)
-//     }
-// }
-
-// Transactions
 pub async fn insert_transaction(conn: &Connection, height: u64, txid: &str) -> Result<i64> {
     conn.execute(
         "INSERT INTO transactions (height, txid) VALUES (?, ?)",
@@ -198,7 +157,6 @@ pub async fn get_transaction_by_txid(
     }
 }
 
-// do we want this?
 pub async fn get_transactions_at_height(
     conn: &Connection,
     height: u64,

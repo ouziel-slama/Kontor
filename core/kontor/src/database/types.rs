@@ -16,7 +16,7 @@ pub struct CheckpointRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionRow {
-    pub id: Option<i64>,  // Optional because it's auto-generated on insert
+    pub id: Option<i64>,
     pub tx_index: u32,
     pub txid: String,
     pub block_index: u64,
@@ -24,11 +24,11 @@ pub struct TransactionRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractStateRow {
-    pub id: i64,  // Optional because it's auto-generated on insert
+    pub id: Option<i64>,
     pub contract_id: String,
     pub tx_id: i64,
     pub height: u64,
     pub path: String,
-    pub value: Option<Vec<u8>>,  // BLOB can be NULL
+    pub value: Option<Vec<u8>>,
     pub deleted: bool,
 }
