@@ -162,7 +162,7 @@ pub async fn get_transaction_by_txid(
 pub async fn get_transactions_at_height(
     conn: &Connection,
     height: u64,
-) -> Result<Vec<(i64, String)>, Error> {
+) -> Result<Vec<TransactionRow>, Error> {
     let mut rows = conn
         .query(
             "SELECT id, txid, height FROM transactions WHERE height = ?",
