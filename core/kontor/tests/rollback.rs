@@ -244,16 +244,28 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
 
     let mut blocks = new_block_chain(3, 123);
     let conn = &writer.connection();
-    assert!(insert_block(conn, block_row(1, &blocks[1-1])).await.is_ok());
-    assert!(insert_block(conn, block_row(2, &blocks[2-1])).await.is_ok());
-    assert!(insert_block(conn, block_row(3, &blocks[3-1])).await.is_ok());
+    assert!(
+        insert_block(conn, block_row(1, &blocks[1 - 1]))
+            .await
+            .is_ok()
+    );
+    assert!(
+        insert_block(conn, block_row(2, &blocks[2 - 1]))
+            .await
+            .is_ok()
+    );
+    assert!(
+        insert_block(conn, block_row(3, &blocks[3 - 1]))
+            .await
+            .is_ok()
+    );
 
-    let initial_block_3_hash = blocks[3-1].block_hash();
+    let initial_block_3_hash = blocks[3 - 1].block_hash();
 
     // remove last block (height 3), generate 3 new blocks with different
     // timestamp (and thus hashes) and append them to the chain.
     _ = blocks.pop();
-    let more_blocks = gen_blocks(2, 5, 234, blocks[2-1].block_hash());
+    let more_blocks = gen_blocks(2, 5, 234, blocks[2 - 1].block_hash());
     blocks.extend(more_blocks.iter().cloned());
 
     let client = MockClient::new(blocks.clone());
@@ -295,7 +307,7 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
     ));
 
     sleep(Duration::from_millis(10)).await; // short delay to hopefully avoid a read retry
-                                            //
+
     // by reading out the two last blocks first we ensure that the rollback has been enacted
     let block = select_block_at_height(conn, 4, cancel_token.clone()).await?;
     assert_eq!(block.height, 4);
@@ -329,10 +341,10 @@ async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
     let blocks = new_block_chain(5, 123);
 
     // fork replaces all but the first block (height 1)
-    let fork = Fork{
+    let fork = Fork {
         trigger_height: 4,
         start_height: 2,
-        branch: gen_blocks(1, 5, 234, blocks[1-1].block_hash()),
+        branch: gen_blocks(1, 5, 234, blocks[1 - 1].block_hash()),
     };
 
     let client = MockClient::new_with_fork(blocks.clone(), fork.clone());
