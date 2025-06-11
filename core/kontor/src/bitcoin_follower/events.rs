@@ -20,3 +20,9 @@ pub enum Event<T: Tx> {
     Block((u64, Block<T>)),
     Rollback(u64),
 }
+
+#[derive(Debug, PartialEq)]
+pub enum Signal {
+    // Seek to given block height and, if provided, require hash to match the block before.
+    Seek((u64, Option<BlockHash>)),
+}
