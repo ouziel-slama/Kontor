@@ -1,6 +1,8 @@
+use base64::{Engine, engine::general_purpose};
 use bitcoin::BlockHash;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockRow {
@@ -16,13 +18,6 @@ pub struct CheckpointRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct TransactionRow {
-    pub id: Option<i64>,
-    pub height: u64,
-    pub txid: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ContractStateRow {
     pub id: Option<i64>,
     pub contract_id: String,
@@ -32,4 +27,129 @@ pub struct ContractStateRow {
     pub value: Option<Vec<u8>>,
     #[builder(default = false)]
     pub deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct BlockTransactionCursor {
+    pub tx_index: i32,
+}
+
+impl BlockTransactionCursor {
+    pub fn encode(&self) -> String {
+        general_purpose::STANDARD.encode(self.tx_index.to_string().as_bytes())
+    }
+
+    pub fn decode(cursor: &str) -> Result<Self, Error> {
+        let decoded_bytes = general_purpose::STANDARD
+            .decode(cursor)
+            .map_err(|_| Error::InvalidCursor)?;
+        let tx_index = String::from_utf8(decoded_bytes).map_err(|_| Error::InvalidCursor)?;
+        Ok(BlockTransactionCursor {
+            tx_index: tx_index.parse::<i32>().map_err(|_| Error::InvalidCursor)?,
+        })
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("LibSQL error: {0}")]
+    LibSQL(#[from] libsql::Error),
+    #[error("Row deserialization error: {0}")]
+    RowDeserialization(#[from] serde::de::value::Error),
+    #[error("Invalid cursor format")]
+    InvalidCursor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct TransactionRow {
+    pub id: Option<i64>,
+    pub txid: String,
+    pub height: u64,
+    pub tx_index: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionResponse {
+    pub txid: String,
+    pub height: u64,
+    pub tx_index: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionCursor {
+    pub height: u64,
+    pub tx_index: i32,
+}
+
+impl TransactionCursor {
+    pub fn encode(&self) -> String {
+        let cursor_str = format!("{}:{}", self.height, self.tx_index);
+        general_purpose::STANDARD.encode(cursor_str.as_bytes())
+    }
+
+    pub fn decode(cursor: &str) -> Result<Self, Error> {
+        let decoded_bytes = general_purpose::STANDARD
+            .decode(cursor)
+            .map_err(|_| Error::InvalidCursor)?;
+
+        let cursor_str = String::from_utf8(decoded_bytes).map_err(|_| Error::InvalidCursor)?;
+
+        let parts: Vec<&str> = cursor_str.split(':').collect();
+        if parts.len() != 2 {
+            return Err(Error::InvalidCursor);
+        }
+
+        let height = parts[0].parse::<u64>().map_err(|_| Error::InvalidCursor)?;
+        let tx_index = parts[1].parse::<i32>().map_err(|_| Error::InvalidCursor)?;
+
+        Ok(TransactionCursor { height, tx_index })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginationMeta {
+    pub next_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u64>,
+    pub has_more: bool,
+    pub latest_height: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionListResponse {
+    pub data: Vec<TransactionResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u64>,
+    pub has_more: bool,
+    pub latest_height: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_height: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginationQuery {
+    pub cursor: Option<String>,
+    pub offset: Option<u64>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionQuery {
+    pub cursor: Option<String>,
+    pub offset: Option<u64>,
+    pub limit: Option<u32>,
+    pub height: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionPaginationQuery {
+    pub cursor: Option<String>,
+    pub offset: Option<u64>,
+    pub limit: Option<u32>,
 }

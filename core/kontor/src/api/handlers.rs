@@ -3,8 +3,14 @@ use axum::extract::{Path, Query, State};
 use crate::{
     bitcoin_client::types::TestMempoolAcceptResult,
     database::{
-        queries::{select_block_at_height, select_block_latest},
-        types::BlockRow,
+        queries::{
+            get_transaction_by_txid, get_transactions_paginated, select_block_at_height,
+            select_block_latest,
+        },
+        types::{
+            BlockRow, TransactionListResponse, TransactionPaginationQuery, TransactionQuery,
+            TransactionRow,
+        },
     },
 };
 
@@ -87,4 +93,49 @@ pub async fn get_compose_reveal(
     let outputs = compose_reveal(inputs).map_err(|e| HttpError::BadRequest(e.to_string()))?;
 
     Ok(outputs.into())
+}
+
+pub async fn get_transactions(
+    Path(height): Path<Option<u64>>,
+    Query(query): Query<TransactionQuery>,
+    State(env): State<Env>,
+) -> Result<TransactionListResponse> {
+    let limit = query.limit.unwrap_or(20).min(1000);
+
+    if query.cursor.is_some() && query.offset.is_some() {
+        return Err(HttpError::BadRequest(
+            "Cannot specify both cursor and offset parameters".to_string(),
+        )
+        .into());
+    }
+
+    let (transactions, meta) = get_transactions_paginated(
+        &*env.reader.connection().await?,
+        height,       // height filter (None for /transactions, Some(height) for block-specific)
+        query.cursor, // cursor string
+        query.offset, // offset
+        limit,
+    )
+    .await?;
+
+    Ok(TransactionListResponse {
+        data: transactions,
+        next_cursor: meta.next_cursor,
+        next_offset: meta.next_offset,
+        has_more: meta.has_more,
+        latest_height: meta.latest_height,
+        total_count: meta.total_count,
+        block_height: height,
+    }
+    .into())
+}
+
+pub async fn get_transaction(
+    Path(txid): Path<String>,
+    State(env): State<Env>,
+) -> Result<TransactionRow> {
+    match get_transaction_by_txid(&*env.reader.connection().await?, &txid).await? {
+        Some(transaction) => Ok(transaction.into()),
+        None => Err(HttpError::NotFound(format!("transaction: {}", txid)).into()),
+    }
 }

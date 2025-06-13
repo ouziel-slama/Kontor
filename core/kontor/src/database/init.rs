@@ -20,7 +20,8 @@ const LIB_FILE_EXT: &str = "so";
 pub const CREATE_BLOCKS_TABLE: &str = "
     CREATE TABLE IF NOT EXISTS blocks (
         height INTEGER PRIMARY KEY,
-        hash TEXT NOT NULL
+        hash TEXT NOT NULL,
+        UNIQUE (height, hash)
     )";
 
 pub const CREATE_CHECKPOINTS_TABLE: &str = "
@@ -36,8 +37,17 @@ pub const CREATE_TRANSACTIONS_TABLE: &str = "
         id INTEGER PRIMARY KEY,
         txid TEXT NOT NULL UNIQUE,
         height INTEGER NOT NULL,
+        tx_index INTEGER NOT NULL,
+        UNIQUE (height, tx_index),
         FOREIGN KEY (height) REFERENCES blocks(height) ON DELETE CASCADE
     )";
+
+pub const CREATE_TRANSACTION_INDEXES: &str = "
+    CREATE INDEX IF NOT EXISTS idx_transactions_height_tx_index 
+    ON transactions(height DESC, tx_index DESC);
+    CREATE INDEX IF NOT EXISTS idx_transactions_txid 
+    ON transactions(txid);
+";
 
 pub const CREATE_CONTRACT_STATE_TABLE: &str = "
     CREATE TABLE IF NOT EXISTS contract_state (
@@ -65,6 +75,7 @@ pub async fn initialize_database(config: &Config, conn: &libsql::Connection) -> 
     conn.execute(CREATE_BLOCKS_TABLE, ()).await?;
     conn.execute(CREATE_CHECKPOINTS_TABLE, ()).await?;
     conn.execute(CREATE_TRANSACTIONS_TABLE, ()).await?;
+    conn.execute(CREATE_TRANSACTION_INDEXES, ()).await?;
     conn.execute(CREATE_CONTRACT_STATE_TABLE, ()).await?;
     conn.execute(CREATE_CONTRACT_STATE_INDEX, ()).await?;
     conn.execute(CREATE_CONTRACT_STATE_TRIGGER, ()).await?;

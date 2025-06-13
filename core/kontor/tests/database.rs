@@ -90,6 +90,7 @@ async fn test_contract_state_operations() -> Result<()> {
     let tx = TransactionRow::builder()
         .height(height)
         .txid("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string())
+        .tx_index(0)
         .build();
     let tx_id = insert_transaction(&conn, tx).await?;
 
@@ -137,6 +138,7 @@ async fn test_contract_state_operations() -> Result<()> {
     let tx2 = TransactionRow::builder()
         .height(height2)
         .txid(txid2.to_string())
+        .tx_index(2)
         .build();
     let tx_id2 = insert_transaction(&conn, tx2).await?;
 
@@ -175,14 +177,17 @@ async fn test_transaction_operations() -> Result<()> {
     let tx1 = TransactionRow::builder()
         .height(height)
         .txid("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string())
+        .tx_index(0)
         .build();
     let tx2 = TransactionRow::builder()
         .height(height)
         .txid("123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0".to_string())
+        .tx_index(1)
         .build();
     let tx3 = TransactionRow::builder()
         .height(height)
         .txid("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321".to_string())
+        .tx_index(2)
         .build();
 
     // Insert multiple transactions at the same height
@@ -236,6 +241,7 @@ async fn test_transaction_operations() -> Result<()> {
     let tx4 = TransactionRow::builder()
         .height(height2)
         .txid("aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string())
+        .tx_index(0)
         .build();
 
     let tx_id4 = insert_transaction(&conn, tx4).await?;
