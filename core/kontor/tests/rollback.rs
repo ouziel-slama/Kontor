@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use clap::Parser;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -8,12 +8,14 @@ use tokio_util::sync::CancellationToken;
 use bitcoin::{self, BlockHash, Network, Txid, hashes::Hash};
 
 use kontor::{
-    bitcoin_client::{client, error, types},
+    bitcoin_client::{client::BitcoinRpc, error, types},
     bitcoin_follower::{
         self,
         events::Event,
+        info,
         queries::select_block_at_height,
         reconciler::{self, Reconciler},
+        rpc::Fetcher,
         seek::{SeekChannel, SeekMessage},
     },
     config::Config,
@@ -89,7 +91,7 @@ fn new_block_chain(n: u64, time: u32) -> Vec<bitcoin::Block> {
     gen_blocks(0, n, time, BlockHash::from_byte_array([0x00; 32]))
 }
 
-impl client::BitcoinRpc for MockClient {
+impl BitcoinRpc for MockClient {
     async fn get_blockchain_info(&self) -> Result<types::GetBlockchainInfoResult, error::Error> {
         let len = self.blocks.lock().unwrap().len() as u64;
         Ok(types::GetBlockchainInfoResult {
@@ -167,6 +169,25 @@ fn block_row(height: u64, b: &bitcoin::Block) -> BlockRow {
     BlockRow {
         height,
         hash: b.block_hash(),
+    }
+}
+
+#[derive(Clone)]
+struct MockInfo {}
+
+impl MockInfo {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl info::BlockchainInfo for MockInfo {
+    async fn get_blockchain_height(&self) -> Result<u64, Error> {
+        Ok(5)
+    }
+
+    async fn get_block_hash(&self, _height: u64) -> Result<BlockHash, Error> {
+        Ok(BlockHash::from_byte_array([0x00; 32]))
     }
 }
 
@@ -409,11 +430,23 @@ async fn test_follower_handle_control_signal() -> Result<()> {
         Some(MockTransaction::new(123))
     }
 
+    let info = MockInfo::new();
+
     // start-up at block height 3
-    let mut rec = Reconciler::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let (rpc_tx, rpc_rx) = mpsc::channel(1);
+    let fetcher = Fetcher::new(client.clone(), f, rpc_tx);
+    let (_zmq_tx, zmq_rx) = mpsc::unbounded_channel();
+    let mut rec = Reconciler::new(
+        cancel_token.clone(),
+        reader.clone(),
+        info.clone(),
+        fetcher,
+        rpc_rx,
+        zmq_rx,
+    );
     let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_seek(SeekMessage{
+        .handle_seek(SeekMessage {
             start_height: 3,
             last_hash: None,
             event_tx,
@@ -427,10 +460,20 @@ async fn test_follower_handle_control_signal() -> Result<()> {
     assert_eq!(rec.fetcher.running(), true);
 
     // start-up at block height 3 with mismatching hash for last block at 2
-    let mut rec = Reconciler::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let (rpc_tx, rpc_rx) = mpsc::channel(1);
+    let fetcher = Fetcher::new(client.clone(), f, rpc_tx);
+    let (_zmq_tx, zmq_rx) = mpsc::unbounded_channel();
+    let mut rec = Reconciler::new(
+        cancel_token.clone(),
+        reader.clone(),
+        info.clone(),
+        fetcher,
+        rpc_rx,
+        zmq_rx,
+    );
     let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_seek(SeekMessage{
+        .handle_seek(SeekMessage {
             start_height: 3,
             last_hash: Some(BlockHash::from_byte_array([0x00; 32])), // not matching
             event_tx,
@@ -441,10 +484,20 @@ async fn test_follower_handle_control_signal() -> Result<()> {
     assert_eq!(rec.fetcher.running(), false);
 
     // start-up at block height 3 with matching hash for last block at 2
-    let mut rec = Reconciler::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let (rpc_tx, rpc_rx) = mpsc::channel(1);
+    let fetcher = Fetcher::new(client.clone(), f, rpc_tx);
+    let (_zmq_tx, zmq_rx) = mpsc::unbounded_channel();
+    let mut rec = Reconciler::new(
+        cancel_token.clone(),
+        reader.clone(),
+        info.clone(),
+        fetcher,
+        rpc_rx,
+        zmq_rx,
+    );
     let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_seek(SeekMessage{
+        .handle_seek(SeekMessage {
             start_height: 3,
             last_hash: Some(blocks[2 - 1].block_hash()),
             event_tx,
