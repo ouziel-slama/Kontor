@@ -1,18 +1,14 @@
 pub mod events;
 
 use anyhow::Result;
-use tokio::{
-    select,
-    sync::mpsc::{Receiver, Sender},
-    task::JoinHandle,
-};
+use tokio::{select, sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::BlockHash;
 use tracing::{debug, info, warn};
 
 use crate::{
-    bitcoin_follower::events::{Event, Signal},
+    bitcoin_follower::{events::Event, seek::SeekChannel},
     block::{Block, Tx},
     database::{
         self,
@@ -21,23 +17,24 @@ use crate::{
     },
 };
 
-struct Reactor {
+struct Reactor<T: Tx> {
     reader: database::Reader,
     writer: database::Writer,
-    _cancel_token: CancellationToken, // currently not used due to relaxed error handling
-    ctrl_tx: Sender<Signal>,
+    cancel_token: CancellationToken, // currently not used due to relaxed error handling
+    ctrl: SeekChannel<T>,
+    event_rx: Option<Receiver<Event<T>>>,
 
     last_height: u64,
     option_last_hash: Option<BlockHash>,
 }
 
-impl Reactor {
+impl<T: Tx> Reactor<T> {
     pub async fn new(
         starting_block_height: u64,
         reader: database::Reader,
         writer: database::Writer,
-        ctrl_tx: Sender<Signal>,
-        _cancel_token: CancellationToken,
+        ctrl: SeekChannel<T>,
+        cancel_token: CancellationToken,
     ) -> Result<Self> {
         let conn = &*reader.connection().await?;
         match select_block_latest(conn).await? {
@@ -57,8 +54,9 @@ impl Reactor {
                 Ok(Self {
                     reader,
                     writer,
-                    _cancel_token,
-                    ctrl_tx,
+                    cancel_token,
+                    ctrl,
+                    event_rx: None,
                     last_height: block.height,
                     option_last_hash: Some(block.hash),
                 })
@@ -72,8 +70,9 @@ impl Reactor {
                 Ok(Self {
                     reader,
                     writer,
-                    _cancel_token,
-                    ctrl_tx,
+                    cancel_token,
+                    ctrl,
+                    event_rx: None,
                     last_height: starting_block_height - 1,
                     option_last_hash: None,
                 })
@@ -99,18 +98,16 @@ impl Reactor {
         }
 
         info!("Seek: start fetching from height {}", self.last_height + 1);
-        if self
-            .ctrl_tx
-            .send(Signal::Seek((self.last_height + 1, self.option_last_hash)))
-            .await
-            .is_err()
-        {
-            info!("Ctrl channel closed, exiting");
-            return;
-        }
+        let event_rx = self
+            .ctrl
+            .clone()
+            .seek(self.last_height + 1, self.option_last_hash)
+            .await;
+
+        self.event_rx = Some(event_rx);
     }
 
-    async fn handle_block<T: Tx + 'static>(&mut self, block: Block<T>) {
+    async fn handle_block(&mut self, block: Block<T>) {
         let height = block.height;
         let hash = block.hash;
         let prev_hash = block.prev_hash;
@@ -125,15 +122,12 @@ impl Reactor {
             self.rollback(height - 1).await;
             return;
         } else if height > self.last_height + 1 {
-            // Receiving a block at a higher height than expected can happen
-            // during a rollback so we can't crash here. For the time being
-            // we'll throw the block away and hope that we eventually get
-            // the expected block.
             warn!(
                 "Order exception, received block at height {}, expected height {}",
                 height,
                 self.last_height + 1
             );
+            self.cancel_token.cancel();
             return;
         }
 
@@ -164,6 +158,61 @@ impl Reactor {
             .await
             .unwrap();
     }
+
+    pub async fn run_event_handler(&mut self) {
+        let rx = self
+            .ctrl
+            .clone()
+            .seek(self.last_height + 1, self.option_last_hash)
+            .await;
+        self.event_rx = Some(rx);
+
+        loop {
+            let event_rx = self
+                .event_rx
+                .as_mut()
+                .expect("event channel must exist to run handler loop");
+
+            select! {
+                _ = self.cancel_token.cancelled() => {
+                    info!("Cancelled");
+                    break;
+                }
+                option_event = event_rx.recv() => {
+                    match option_event {
+                        Some(event) => {
+                            match event {
+                                Event::Block((target_height, block)) => {
+                                    info!("Block {}/{} {}", block.height,
+                                          target_height, block.hash);
+                                    self.handle_block(block).await;
+                                },
+                                Event::Rollback(height) => {
+                                    self.rollback(height).await;
+                                },
+                                Event::MempoolUpdate {removed, added} => {
+                                    debug!("MempoolUpdates removed {} added {}",
+                                           removed.len(), added.len());
+                                },
+                                Event::MempoolSet(txs) => {
+                                    info!("MempoolSet {}", txs.len());
+                                }
+                            }
+                        },
+                        None => {
+                            info!("Received None event, exiting");
+                            break;
+                        },
+                    }
+                }
+            }
+        }
+
+        if let Some(rx) = self.event_rx.as_mut() {
+            rx.close();
+            while rx.recv().await.is_some() {}
+        }
+    }
 }
 
 pub fn run<T: Tx + 'static>(
@@ -171,8 +220,7 @@ pub fn run<T: Tx + 'static>(
     cancel_token: CancellationToken,
     reader: database::Reader,
     writer: database::Writer,
-    ctrl: Sender<Signal>,
-    mut rx: Receiver<Event<T>>,
+    ctrl: SeekChannel<T>,
 ) -> JoinHandle<()> {
     tokio::spawn({
         async move {
@@ -186,56 +234,7 @@ pub fn run<T: Tx + 'static>(
             .await
             .expect("Failed to create Reactor, exiting");
 
-            if ctrl
-                .send(Signal::Seek((
-                    reactor.last_height + 1,
-                    reactor.option_last_hash,
-                )))
-                .await
-                .is_err()
-            {
-                info!("Ctrl channel closed, exiting");
-                return;
-            }
-
-            loop {
-                select! {
-                    _ = cancel_token.cancelled() => {
-                        info!("Cancelled");
-                        break;
-                    }
-                    option_event = rx.recv() => {
-                        match option_event {
-                            Some(event) => {
-                                match event {
-                                    Event::Block((target_height, block)) => {
-                                        info!("Block {}/{} {}", block.height,
-                                              target_height, block.hash);
-                                        reactor.handle_block(block).await;
-                                    },
-                                    Event::Rollback(height) => {
-                                        reactor.rollback(height).await;
-                                    },
-                                    Event::MempoolUpdate {removed, added} => {
-                                        debug!("MempoolUpdates removed {} added {}",
-                                               removed.len(), added.len());
-                                    },
-                                    Event::MempoolSet(txs) => {
-                                        info!("MempoolSet {}", txs.len());
-                                    }
-                                }
-                            },
-                            None => {
-                                info!("Received None event, exiting");
-                                break;
-                            },
-                        }
-                    }
-                }
-            }
-
-            rx.close();
-            while rx.recv().await.is_some() {}
+            reactor.run_event_handler().await;
 
             info!("Exited");
         }

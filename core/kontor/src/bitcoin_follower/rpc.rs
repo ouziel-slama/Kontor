@@ -195,7 +195,7 @@ pub fn run_processor<T: Tx + 'static>(
                                 );
                             },
                             None => {
-                                info!("Procesor received None message, exiting");
+                                info!("Processor received None message, exiting");
                                 break;
                             },
                         }
