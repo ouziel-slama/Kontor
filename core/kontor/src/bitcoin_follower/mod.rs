@@ -1,10 +1,6 @@
 use anyhow::Result;
 use bitcoin::Transaction;
-use events::{Event, Signal};
-use tokio::{
-    sync::mpsc::{Receiver, Sender},
-    task::JoinHandle,
-};
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -15,6 +11,7 @@ pub mod messages;
 pub mod queries;
 pub mod reconciler;
 pub mod rpc;
+pub mod seek;
 pub mod zmq;
 
 pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
@@ -23,19 +20,10 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     reader: Reader,
     bitcoin: C,
     f: fn(Transaction) -> Option<T>,
-    ctrl: Receiver<Signal>,
-    tx: Sender<Event<T>>,
+    ctrl: Receiver<seek::SeekMessage<T>>,
 ) -> Result<JoinHandle<()>> {
-    let handle = reconciler::run(
-        zmq_address,
-        cancel_token.clone(),
-        reader,
-        bitcoin,
-        f,
-        ctrl,
-        tx,
-    )
-    .await?;
+    let handle =
+        reconciler::run(zmq_address, cancel_token.clone(), reader, bitcoin, f, ctrl).await?;
 
     Ok(tokio::spawn(async move {
         if handle.await.is_err() {
