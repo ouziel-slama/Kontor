@@ -34,8 +34,9 @@ async fn main() -> Result<()> {
         })
         .await?,
     );
-    let (reactor_tx, reactor_rx) = mpsc::channel(10);
-    let (ctrl_tx, ctrl_rx) = mpsc::channel(1);
+
+    let (ctrl, ctrl_rx) = bitcoin_follower::seek::SeekChannel::create();
+
     handles.push(
         bitcoin_follower::run(
             Some(config.zmq_address),
@@ -44,7 +45,6 @@ async fn main() -> Result<()> {
             bitcoin,
             Some,
             ctrl_rx,
-            reactor_tx,
         )
         .await?,
     );
@@ -53,8 +53,7 @@ async fn main() -> Result<()> {
         cancel_token,
         reader,
         writer,
-        ctrl_tx,
-        reactor_rx,
+        ctrl,
     ));
     for handle in handles {
         let _ = handle.await;
