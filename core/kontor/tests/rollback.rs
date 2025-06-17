@@ -11,9 +11,10 @@ use kontor::{
     bitcoin_client::{client, error, types},
     bitcoin_follower::{
         self,
-        events::{Event, Signal},
+        events::Event,
         queries::select_block_at_height,
         reconciler::{self, Reconciler},
+        seek::{SeekChannel, SeekMessage},
     },
     config::Config,
     database::{queries::insert_block, types::BlockRow},
@@ -172,7 +173,6 @@ fn block_row(height: u64, b: &bitcoin::Block) -> BlockRow {
 #[tokio::test]
 async fn test_follower_reactor_fetching() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let blocks = new_block_chain(5, 123);
@@ -195,7 +195,7 @@ async fn test_follower_reactor_fetching() -> Result<()> {
         Some(MockTransaction::new(123))
     }
 
-    let (ctrl_tx, ctrl_rx) = mpsc::channel(1);
+    let (ctrl, ctrl_rx) = SeekChannel::create();
     handles.push(
         bitcoin_follower::run(
             None, // no ZMQ connection
@@ -204,7 +204,6 @@ async fn test_follower_reactor_fetching() -> Result<()> {
             client,
             f,
             ctrl_rx,
-            tx,
         )
         .await?,
     );
@@ -215,8 +214,7 @@ async fn test_follower_reactor_fetching() -> Result<()> {
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     ));
 
     let block = select_block_at_height(conn, 4, cancel_token.clone()).await?;
@@ -239,7 +237,6 @@ async fn test_follower_reactor_fetching() -> Result<()> {
 #[tokio::test]
 async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let mut blocks = new_block_chain(3, 123);
@@ -282,7 +279,7 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
         Some(MockTransaction::new(123))
     }
 
-    let (ctrl_tx, ctrl_rx) = mpsc::channel(1);
+    let (ctrl, ctrl_rx) = SeekChannel::create();
     handles.push(
         bitcoin_follower::run(
             None, // no ZMQ connection
@@ -291,7 +288,6 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
             client,
             f,
             ctrl_rx,
-            tx,
         )
         .await?,
     );
@@ -302,8 +298,7 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     ));
 
     sleep(Duration::from_millis(10)).await; // short delay to hopefully avoid a read retry
@@ -335,7 +330,6 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
 #[tokio::test]
 async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let blocks = new_block_chain(5, 123);
@@ -355,7 +349,7 @@ async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
         Some(MockTransaction::new(123))
     }
 
-    let (ctrl_tx, ctrl_rx) = mpsc::channel(1);
+    let (ctrl, ctrl_rx) = SeekChannel::create();
     handles.push(
         bitcoin_follower::run(
             None, // no ZMQ connection
@@ -364,7 +358,6 @@ async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
             client,
             f,
             ctrl_rx,
-            tx,
         )
         .await?,
     );
@@ -375,8 +368,7 @@ async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     ));
 
     sleep(Duration::from_millis(10)).await; // short delay to hopefully avoid a read retry
@@ -419,8 +411,13 @@ async fn test_follower_handle_control_signal() -> Result<()> {
 
     // start-up at block height 3
     let mut rec = Reconciler::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_control_signal(Signal::Seek((3, None)))
+        .handle_seek(SeekMessage{
+            start_height: 3,
+            last_hash: None,
+            event_tx,
+        })
         .await
         .unwrap();
     assert_eq!(res, vec![]);
@@ -431,10 +428,13 @@ async fn test_follower_handle_control_signal() -> Result<()> {
 
     // start-up at block height 3 with mismatching hash for last block at 2
     let mut rec = Reconciler::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_control_signal(
-            Signal::Seek((3, Some(BlockHash::from_byte_array([0x00; 32])))), // not matching
-        )
+        .handle_seek(SeekMessage{
+            start_height: 3,
+            last_hash: Some(BlockHash::from_byte_array([0x00; 32])), // not matching
+            event_tx,
+        })
         .await
         .unwrap();
     assert_eq!(res, vec![Event::Rollback(1)]);
@@ -442,8 +442,13 @@ async fn test_follower_handle_control_signal() -> Result<()> {
 
     // start-up at block height 3 with matching hash for last block at 2
     let mut rec = Reconciler::new(cancel_token.clone(), reader.clone(), client.clone(), f);
+    let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_control_signal(Signal::Seek((3, Some(blocks[2 - 1].block_hash()))))
+        .handle_seek(SeekMessage{
+            start_height: 3,
+            last_hash: Some(blocks[2 - 1].block_hash()),
+            event_tx,
+        })
         .await
         .unwrap();
     assert_eq!(res, vec![]);

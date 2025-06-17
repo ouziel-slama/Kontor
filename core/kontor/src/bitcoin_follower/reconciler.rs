@@ -17,13 +17,14 @@ use crate::{
     bitcoin_client::client::BitcoinRpc,
     bitcoin_follower::queries::{select_block_at_height, select_block_with_hash},
     bitcoin_follower::rpc,
+    bitcoin_follower::seek::SeekMessage,
     block::{Block, Tx},
     database,
     retry::{new_backoff_unlimited, retry},
 };
 
 use super::{
-    events::{Event, Signal, ZmqEvent},
+    events::{Event, ZmqEvent},
     zmq,
 };
 
@@ -65,6 +66,7 @@ pub struct Reconciler<T: Tx, C: BitcoinRpc> {
     pub zmq_tx: UnboundedSender<ZmqEvent<T>>,
 
     pub state: State<T>,
+    event_tx: Option<Sender<Event<T>>>,
 }
 
 impl<T: Tx + 'static, C: BitcoinRpc> Reconciler<T, C> {
@@ -87,6 +89,7 @@ impl<T: Tx + 'static, C: BitcoinRpc> Reconciler<T, C> {
             zmq_rx,
             zmq_tx,
             state,
+            event_tx: None,
         }
     }
 
@@ -313,24 +316,21 @@ impl<T: Tx + 'static, C: BitcoinRpc> Reconciler<T, C> {
         Ok(vec![])
     }
 
-    pub async fn handle_control_signal(&mut self, signal: Signal) -> Result<Vec<Event<T>>> {
-        match signal {
-            Signal::Seek((start_height, option_last_hash)) => {
-                self.seek(start_height, option_last_hash).await
-            }
-        }
+    pub async fn handle_seek(&mut self, msg: SeekMessage<T>) -> Result<Vec<Event<T>>> {
+        self.event_tx = Some(msg.event_tx);
+        self.seek(msg.start_height, msg.last_hash).await
     }
 
-    pub async fn run(&mut self, mut ctrl_rx: Receiver<Signal>, tx: Sender<Event<T>>) {
+    pub async fn run(&mut self, mut ctrl_rx: Receiver<SeekMessage<T>>) {
         loop {
             let result = select! {
-                option_signal = ctrl_rx.recv() => {
-                    match option_signal {
-                        Some(signal) => {
-                            self.handle_control_signal(signal).await
+                option_seek = ctrl_rx.recv() => {
+                    match option_seek {
+                        Some(msg) => {
+                            self.handle_seek(msg).await
                         },
                         None => {
-                            info!("Received None signal, exiting");
+                            info!("Received None seek message, exiting");
                             return;
                         }
                     }
@@ -366,11 +366,15 @@ impl<T: Tx + 'static, C: BitcoinRpc> Reconciler<T, C> {
 
             match result {
                 Ok(events) => {
-                    for event in events {
-                        if tx.send(event).await.is_err() {
-                            info!("Send channel closed, exiting");
-                            return;
+                    if let Some(tx) = &self.event_tx {
+                        for event in events {
+                            if tx.send(event).await.is_err() {
+                                info!("Send channel closed, exiting");
+                                return;
+                            }
                         }
+                    } else {
+                        warn!("Dropping events due to missing event channel");
                     }
                 }
                 Err(e) => {
@@ -484,8 +488,7 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     reader: database::Reader,
     bitcoin: C,
     f: fn(Transaction) -> Option<T>,
-    ctrl_rx: Receiver<Signal>,
-    tx: Sender<Event<T>>,
+    ctrl_rx: Receiver<SeekMessage<T>>,
 ) -> Result<JoinHandle<()>> {
     let mut reconciler = Reconciler::new(cancel_token.clone(), reader.clone(), bitcoin.clone(), f);
 
@@ -506,7 +509,7 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     }
 
     Ok(tokio::spawn(async move {
-        reconciler.run(ctrl_rx, tx).await;
+        reconciler.run(ctrl_rx).await;
 
         reconciler.stop().await;
 

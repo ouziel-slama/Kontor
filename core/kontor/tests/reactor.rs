@@ -1,16 +1,12 @@
 use anyhow::Result;
 use clap::Parser;
-use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::{BlockHash, hashes::Hash};
 
 use kontor::{
-    bitcoin_follower::{
-        events::{Event, Signal},
-        queries::select_block_at_height,
-    },
+    bitcoin_follower::{events::Event, queries::select_block_at_height, seek::SeekChannel},
     block::Block,
     config::Config,
     reactor,
@@ -20,8 +16,7 @@ use kontor::{
 #[tokio::test]
 async fn test_reactor_rollback_event() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
-    let (ctrl_tx, mut ctrl_rx) = mpsc::channel(1);
+    let (ctrl, mut ctrl_rx) = SeekChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -29,11 +24,12 @@ async fn test_reactor_rollback_event() -> Result<()> {
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     );
 
-    assert_eq!(ctrl_rx.recv().await.unwrap(), Signal::Seek((91, None)));
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 91);
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
@@ -85,10 +81,10 @@ async fn test_reactor_rollback_event() -> Result<()> {
 
     assert!(tx.send(Event::Rollback(91)).await.is_ok());
 
-    assert_eq!(
-        ctrl_rx.recv().await.unwrap(),
-        Signal::Seek((92, Some(BlockHash::from_byte_array([0x10; 32]))))
-    );
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 92);
+    assert_eq!(seek.last_hash, Some(BlockHash::from_byte_array([0x10; 32])));
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
@@ -119,7 +115,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
     );
 
     sleep(Duration::from_millis(10)).await; // short delay to hopefully avoid a read retry
-    //
+
     let block = select_block_at_height(conn, 92, cancel_token.clone()).await?;
     assert_eq!(block.height, 92);
     assert_eq!(block.hash, BlockHash::from_byte_array([0x21; 32]));
@@ -139,20 +135,20 @@ async fn test_reactor_rollback_event() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_unexpected_block() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
-    let (ctrl_tx, mut ctrl_rx) = mpsc::channel(1);
+    let (ctrl, mut ctrl_rx) = SeekChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
-    let _handle = reactor::run::<MockTransaction>(
+    let handle = reactor::run::<MockTransaction>(
         81,
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     );
 
-    assert_eq!(ctrl_rx.recv().await.unwrap(), Signal::Seek((81, None)));
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 81);
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
@@ -168,12 +164,10 @@ async fn test_reactor_unexpected_block() -> Result<()> {
         .is_ok()
     );
 
-    // TODO re-enable these checks once we have tightened up the handling of
-    // spurious blocks (currently the reactor will simply ignore them
-    // cancel_token.cancelled().await;
-    // assert!(cancel_token.is_cancelled());
+    cancel_token.cancelled().await;
+    assert!(cancel_token.is_cancelled());
 
-    // let _ = handle.await;
+    let _ = handle.await;
 
     Ok(())
 }
@@ -181,8 +175,7 @@ async fn test_reactor_unexpected_block() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
-    let (ctrl_tx, mut ctrl_rx) = mpsc::channel(1);
+    let (ctrl, mut ctrl_rx) = SeekChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -190,11 +183,12 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     );
 
-    assert_eq!(ctrl_rx.recv().await.unwrap(), Signal::Seek((91, None)));
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 91);
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
@@ -224,6 +218,13 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
         .is_ok()
     );
 
+    sleep(Duration::from_millis(10)).await; // short delay to hopefully avoid a read retry
+
+    let conn = &*reader.connection().await?;
+    let block = select_block_at_height(conn, 92, cancel_token.clone()).await?;
+    assert_eq!(block.height, 92);
+    assert_eq!(block.hash, BlockHash::from_byte_array([0x02; 32]));
+
     assert!(
         tx.send(Event::Block((
             100,
@@ -238,15 +239,11 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
         .is_ok()
     );
 
-    let conn = &*reader.connection().await?;
-    let block = select_block_at_height(conn, 92, cancel_token.clone()).await?;
-    assert_eq!(block.height, 92);
-    assert_eq!(block.hash, BlockHash::from_byte_array([0x02; 32]));
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 92);
+    assert_eq!(seek.last_hash, Some(BlockHash::from_byte_array([0x01; 32])));
 
-    assert_eq!(
-        ctrl_rx.recv().await.unwrap(),
-        Signal::Seek((92, Some(BlockHash::from_byte_array([0x01; 32]))))
-    );
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
@@ -278,8 +275,7 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel(1);
-    let (ctrl_tx, mut ctrl_rx) = mpsc::channel(1);
+    let (ctrl, mut ctrl_rx) = SeekChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -287,11 +283,12 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
         cancel_token.clone(),
         reader.clone(),
         writer.clone(),
-        ctrl_tx,
-        rx,
+        ctrl,
     );
 
-    assert_eq!(ctrl_rx.recv().await.unwrap(), Signal::Seek((91, None)));
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 91);
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
@@ -353,10 +350,10 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     // it doesn't seem worth having a special code-path for what should be
     // an exceptional case.
 
-    assert_eq!(
-        ctrl_rx.recv().await.unwrap(),
-        Signal::Seek((92, Some(BlockHash::from_byte_array([0x01; 32]))))
-    );
+    let seek = ctrl_rx.recv().await.unwrap();
+    assert_eq!(seek.start_height, 92);
+    assert_eq!(seek.last_hash, Some(BlockHash::from_byte_array([0x01; 32])));
+    let tx = seek.event_tx;
 
     assert!(
         tx.send(Event::Block((
