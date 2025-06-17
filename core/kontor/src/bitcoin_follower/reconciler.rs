@@ -321,7 +321,7 @@ impl<T: Tx + 'static, C: BitcoinRpc> Reconciler<T, C> {
         }
     }
 
-    pub async fn run_event_handler(&mut self, mut ctrl_rx: Receiver<Signal>, tx: Sender<Event<T>>) {
+    pub async fn run(&mut self, mut ctrl_rx: Receiver<Signal>, tx: Sender<Event<T>>) {
         loop {
             let result = select! {
                 option_signal = ctrl_rx.recv() => {
@@ -382,6 +382,14 @@ impl<T: Tx + 'static, C: BitcoinRpc> Reconciler<T, C> {
                     return;
                 }
             }
+        }
+    }
+
+    async fn stop(&mut self) {
+        self.rpc_rx.close();
+        while self.rpc_rx.recv().await.is_some() {}
+        if (self.fetcher.stop().await).is_err() {
+            error!("RPC fetcher panicked on join");
         }
     }
 }
@@ -498,22 +506,17 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     }
 
     Ok(tokio::spawn(async move {
-        reconciler.run_event_handler(ctrl_rx, tx).await;
+        reconciler.run(ctrl_rx, tx).await;
+
+        reconciler.stop().await;
 
         runner_cancel_token.cancel();
-
-        reconciler.rpc_rx.close();
-        while reconciler.rpc_rx.recv().await.is_some() {}
-
         if let Some(handle) = runner_handle {
             match handle.await {
                 Err(_) => error!("ZMQ runner panicked on join"),
                 Ok(Err(e)) => error!("ZMQ runner failed to start with error: {}", e),
                 Ok(Ok(_)) => (),
             }
-        }
-        if (reconciler.fetcher.stop().await).is_err() {
-            error!("RPC fetcher panicked on join");
         }
 
         info!("Exited");
