@@ -1,5 +1,6 @@
-use anyhow::{Error, Result};
+use anyhow::{Error, Result, anyhow};
 use clap::Parser;
+use libsql::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
@@ -13,14 +14,14 @@ use kontor::{
         self,
         events::Event,
         info,
-        queries::select_block_at_height,
         reconciler::{self, Reconciler},
         rpc::Fetcher,
         seek::{SeekChannel, SeekMessage},
     },
     config::Config,
-    database::{queries::insert_block, types::BlockRow},
+    database::{queries, types::BlockRow},
     reactor,
+    retry::{new_backoff_unlimited, retry},
     utils::{MockTransaction, new_test_db},
 };
 
@@ -193,6 +194,24 @@ impl info::BlockchainInfo for MockInfo {
     }
 }
 
+async fn select_block_at_height(
+    conn: &Connection,
+    height: u64,
+    cancel_token: CancellationToken,
+) -> Result<BlockRow> {
+    retry(
+        async || match queries::select_block_at_height(conn, height).await {
+            Ok(Some(row)) => Ok(row),
+            Ok(None) => Err(anyhow!("Block at height not found: {}", height)),
+            Err(e) => Err(e.into()),
+        },
+        "read block at height",
+        new_backoff_unlimited(),
+        cancel_token.clone(),
+    )
+    .await
+}
+
 #[tokio::test]
 async fn test_follower_reactor_fetching() -> Result<()> {
     let cancel_token = CancellationToken::new();
@@ -200,9 +219,21 @@ async fn test_follower_reactor_fetching() -> Result<()> {
 
     let blocks = new_block_chain(5, 123);
     let conn = &writer.connection();
-    assert!(insert_block(conn, block_row(1, &blocks[0])).await.is_ok());
-    assert!(insert_block(conn, block_row(2, &blocks[1])).await.is_ok());
-    assert!(insert_block(conn, block_row(3, &blocks[2])).await.is_ok());
+    assert!(
+        queries::insert_block(conn, block_row(1, &blocks[0]))
+            .await
+            .is_ok()
+    );
+    assert!(
+        queries::insert_block(conn, block_row(2, &blocks[1]))
+            .await
+            .is_ok()
+    );
+    assert!(
+        queries::insert_block(conn, block_row(3, &blocks[2]))
+            .await
+            .is_ok()
+    );
 
     let client = MockClient::new(blocks.clone());
 
@@ -264,17 +295,17 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
     let mut blocks = new_block_chain(3, 123);
     let conn = &writer.connection();
     assert!(
-        insert_block(conn, block_row(1, &blocks[1 - 1]))
+        queries::insert_block(conn, block_row(1, &blocks[1 - 1]))
             .await
             .is_ok()
     );
     assert!(
-        insert_block(conn, block_row(2, &blocks[2 - 1]))
+        queries::insert_block(conn, block_row(2, &blocks[2 - 1]))
             .await
             .is_ok()
     );
     assert!(
-        insert_block(conn, block_row(3, &blocks[3 - 1]))
+        queries::insert_block(conn, block_row(3, &blocks[3 - 1]))
             .await
             .is_ok()
     );

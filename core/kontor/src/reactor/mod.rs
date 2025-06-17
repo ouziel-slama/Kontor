@@ -118,7 +118,6 @@ impl<T: Tx + 'static> Reactor<T> {
             Err(e) => {
                 error!("Failed to execute seek: {}", e);
                 self.cancel_token.cancel();
-                return;
             }
         }
     }
@@ -129,10 +128,11 @@ impl<T: Tx + 'static> Reactor<T> {
         if let Some(row) = block_row {
             self.rollback(row.height - 1).await;
         } else {
-            panic!(
-                "attemped rollback to hash {:?} failed, block not found",
+            error!(
+                "attemped rollback to hash {} failed, block not found",
                 hash
             );
+            self.cancel_token.cancel();
         }
     }
 

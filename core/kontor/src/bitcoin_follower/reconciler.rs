@@ -152,14 +152,17 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                 }
             }
             ZmqEvent::BlockConnected(block) => {
-                // TODO do we need to check current mode here?
-                let last_height = self
-                    .state
-                    .latest_block_height
-                    .expect("must have start height before using ZMQ");
-                if block.height == last_height + 1 {
-                    self.state.latest_block_height = Some(block.height);
-                    handle_block(&mut self.state.mempool_cache, block.height, block)
+                if self.state.mode == Mode::Zmq {
+                    let last_height = self
+                        .state
+                        .latest_block_height
+                        .expect("must have start height before using ZMQ");
+                    if block.height == last_height + 1 {
+                        self.state.latest_block_height = Some(block.height);
+                        handle_block(&mut self.state.mempool_cache, block.height, block)
+                    } else {
+                        vec![]
+                    }
                 } else {
                     vec![]
                 }
@@ -236,8 +239,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
             let block_hash = self
                 .info
                 .get_block_hash(start_height - 1)
-                .await
-                .expect("failed to get block hash of previous block");
+                .await?;
 
             if last_hash != block_hash {
                 warn!(
@@ -253,8 +255,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         let blockchain_height = self
             .info
             .get_blockchain_height()
-            .await
-            .expect("failed to get blockchain info");
+            .await?;
 
         self.state.mode = Mode::Rpc;
         self.state.latest_block_height = Some(start_height - 1);

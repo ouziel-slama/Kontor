@@ -1,16 +1,18 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::Parser;
+use libsql::Connection;
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::{BlockHash, hashes::Hash};
 
 use kontor::{
-    bitcoin_follower::{events::Event, queries::select_block_at_height, seek::SeekChannel},
+    bitcoin_follower::{events::Event, seek::SeekChannel},
     block::{Block, Tx},
     config::Config,
-    database::{queries::insert_block, types::BlockRow},
+    database::{queries, types::BlockRow},
     reactor,
+    retry::{new_backoff_unlimited, retry},
     utils::{MockTransaction, new_test_db},
 };
 
@@ -47,6 +49,24 @@ fn block_row<T: Tx>(height: u64, b: &Block<T>) -> BlockRow {
         height,
         hash: b.hash,
     }
+}
+
+async fn select_block_at_height(
+    conn: &Connection,
+    height: u64,
+    cancel_token: CancellationToken,
+) -> Result<BlockRow> {
+    retry(
+        async || match queries::select_block_at_height(conn, height).await {
+            Ok(Some(row)) => Ok(row),
+            Ok(None) => Err(anyhow!("Block at height not found: {}", height)),
+            Err(e) => Err(e.into()),
+        },
+        "read block at height",
+        new_backoff_unlimited(),
+        cancel_token.clone(),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -428,17 +448,17 @@ async fn test_reactor_rollback_hash_event() -> Result<()> {
     let blocks = new_block_chain::<MockTransaction>(5);
     let conn = &writer.connection();
     assert!(
-        insert_block(conn, block_row(1, &blocks[1 - 1]))
+        queries::insert_block(conn, block_row(1, &blocks[1 - 1]))
             .await
             .is_ok()
     );
     assert!(
-        insert_block(conn, block_row(2, &blocks[2 - 1]))
+        queries::insert_block(conn, block_row(2, &blocks[2 - 1]))
             .await
             .is_ok()
     );
     assert!(
-        insert_block(conn, block_row(3, &blocks[3 - 1]))
+        queries::insert_block(conn, block_row(3, &blocks[3 - 1]))
             .await
             .is_ok()
     );

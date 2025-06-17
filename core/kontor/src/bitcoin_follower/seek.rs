@@ -18,7 +18,7 @@ pub struct SeekChannel<T: Tx> {
 
 impl<T: Tx + 'static> SeekChannel<T> {
     pub fn create() -> (Self, Receiver<SeekMessage<T>>) {
-        let (ctrl_tx, ctrl_rx) = mpsc::channel(10);
+        let (ctrl_tx, ctrl_rx) = mpsc::channel(1);
 
         (Self { ctrl_tx }, ctrl_rx)
     }
