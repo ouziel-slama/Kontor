@@ -10,8 +10,9 @@ use wasmtime::{
 };
 use wit_component::ComponentEncoder;
 
-type CallOperationFn = Box<dyn Fn(String, String) -> String + Send + Sync>;
+type CallOperationFn = Box<dyn Fn(String, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync>;
 
+#[derive(Clone)]
 struct ForeignService {
     engine: Engine,
     component: Component,
@@ -24,14 +25,13 @@ impl ForeignService {
         config.wasm_component_model(true);
         let engine = Engine::new(&config)?;
 
-        let path_str = format!("../../contracts/target/wasm32-unknown-unknown/debug/{}.wasm", address);
-        let path = Path::new(&path_str);
+        let path = Path::new(address);
         
         // Check if the file exists
         if !path.exists() {
             return Err(anyhow!(
                 "Invalid address: {} provided to foreign constructor. WASM file not found at {}",
-                address, path_str
+                address, path.display()
             ));
         }
         
@@ -87,25 +87,19 @@ pub struct ForeignHostRep {
 }
 
 impl ForeignHostRep {
-    pub fn new(address: String) -> Result<Self> {
-        // Create a new runtime to handle the async operation
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let caller = rt.block_on(async {
-            ForeignService::new(&address).await
-        })?;
+    pub async fn new(address: String) -> Result<Self> {
+        let caller = ForeignService::new(&address).await?;
         
         Ok(ForeignHostRep {
             call_operation: Box::new(move |name: String, args: String| {
-                // Use the captured runtime to handle the async call
-                let result = rt.block_on(async {
-                    caller.call_function(&name, &args).await
-                });
-                
-                // Return the wave-encoded result or an error message
-                match result {
-                    Ok(wave_result) => wave_result,
-                    Err(e) => format!("Error: {}", e),
-                }
+                let caller = caller.clone();
+                Box::pin(async move {
+                    // Return the wave-encoded result or an error message
+                    match caller.call_function(&name, &args).await {
+                        Ok(wave_result) => wave_result,
+                        Err(e) => format!("Error: {}", e),
+                    }
+                })
             }),
         })
     }
