@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use stdlib::{Contract, MyMonoidHostRep};
+use stdlib::{Contract, MyMonoidHostRep, ForeignHostRep};
 use tokio::fs::read;
 use wasmtime::{
     Engine, Store,
@@ -28,6 +28,24 @@ impl HostCtx {
 impl stdlib::Host for HostCtx {
     async fn test(&mut self) -> Result<bool> {
         Ok(true)
+    }
+}
+
+impl stdlib::HostForeign for HostCtx {
+    async fn new(&mut self, address: String) -> Result<Resource<ForeignHostRep>> {
+        let rep = ForeignHostRep::new(address)?;
+        Ok(self.table.push(rep)?)
+    }
+
+    async fn call(&mut self, handle: Resource<ForeignHostRep>, name: String, args: String) -> Result<String> {
+        let rep = self.table.get(&handle)?;
+        let result = (rep.call_operation)(name, args);
+        Ok(result)
+    }
+
+    async fn drop(&mut self, handle: Resource<ForeignHostRep>) -> Result<()> {
+        let _rep: ForeignHostRep = self.table.delete(handle)?;
+        Ok(())
     }
 }
 
