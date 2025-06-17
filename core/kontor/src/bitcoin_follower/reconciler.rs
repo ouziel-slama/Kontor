@@ -10,13 +10,8 @@ use tracing::{error, info, warn};
 
 use crate::{
     bitcoin_follower::seek::SeekMessage,
-    bitcoin_follower::{
-        info::BlockchainInfo,
-        queries::{select_block_at_height, select_block_with_hash},
-        rpc::BlockFetcher,
-    },
+    bitcoin_follower::{info::BlockchainInfo, rpc::BlockFetcher},
     block::{Block, Tx},
-    database,
 };
 
 use super::events::{Event, ZmqEvent};
@@ -29,8 +24,7 @@ pub enum Mode {
 
 pub struct State<T: Tx> {
     mempool_cache: IndexMap<Txid, T>,
-    zmq_latest_block_height: Option<u64>,
-    pub rpc_latest_block_height: Option<u64>,
+    pub latest_block_height: Option<u64>,
     pub target_block_height: Option<u64>,
     zmq_connected: bool,
     pub mode: Mode,
@@ -40,8 +34,7 @@ impl<T: Tx> State<T> {
     pub fn new() -> Self {
         Self {
             mempool_cache: IndexMap::new(),
-            zmq_latest_block_height: None,
-            rpc_latest_block_height: None,
+            latest_block_height: None,
             target_block_height: None,
             zmq_connected: false,
             mode: Mode::Rpc,
@@ -51,7 +44,6 @@ impl<T: Tx> State<T> {
 
 pub struct Reconciler<T: Tx, I: BlockchainInfo, F: BlockFetcher> {
     pub cancel_token: CancellationToken,
-    pub reader: database::Reader,
     pub info: I,
     pub fetcher: F,
     pub rpc_rx: Receiver<(u64, Block<T>)>,
@@ -64,7 +56,6 @@ pub struct Reconciler<T: Tx, I: BlockchainInfo, F: BlockFetcher> {
 impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
     pub fn new(
         cancel_token: CancellationToken,
-        reader: database::Reader,
         info: I,
         fetcher: F,
         rpc_rx: Receiver<(u64, Block<T>)>,
@@ -73,7 +64,6 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         let state = State::new();
         Self {
             cancel_token,
-            reader,
             info,
             fetcher,
             rpc_rx,
@@ -91,8 +81,8 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
 
                 let mut events = vec![];
                 if self.state.mode == Mode::Rpc {
-                    let caught_up = self.state.rpc_latest_block_height.is_some()
-                        && self.state.target_block_height == self.state.rpc_latest_block_height;
+                    let caught_up = self.state.latest_block_height.is_some()
+                        && self.state.target_block_height == self.state.latest_block_height;
 
                     // RPC fetching is caught up (or not necessary), switching to ZMQ
                     if caught_up {
@@ -115,18 +105,12 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                 self.state.zmq_connected = false;
                 if self.state.mode == Mode::Zmq {
                     self.state.mode = Mode::Rpc;
-                    let height = if let Some(height) = self.state.zmq_latest_block_height {
-                        height + 1
-                    } else {
-                        let height = self
-                            .state
-                            .rpc_latest_block_height
-                            .expect("must have start height before using ZMQ");
-                        height + 1
-                    };
-                    self.fetcher.start(height);
+                    let last_height = self
+                        .state
+                        .latest_block_height
+                        .expect("must have start height before using ZMQ");
+                    self.fetcher.start(last_height + 1);
                 }
-                self.state.zmq_latest_block_height = None;
                 while !self.zmq_rx.is_empty() {
                     self.zmq_rx.recv().await;
                 }
@@ -161,31 +145,20 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                 }
             }
             ZmqEvent::BlockDisconnected(block_hash) => {
-                let conn = &*self.reader.connection().await?;
                 if self.state.mode == Mode::Zmq {
-                    let block_row =
-                        select_block_with_hash(conn, &block_hash, self.cancel_token.clone())
-                            .await?;
-                    let prev_block_row = select_block_at_height(
-                        conn,
-                        block_row.height - 1,
-                        self.cancel_token.clone(),
-                    )
-                    .await?;
-                    self.state.zmq_latest_block_height = Some(prev_block_row.height);
-                    vec![Event::Rollback(prev_block_row.height)]
+                    vec![Event::RollbackHash(block_hash)]
                 } else {
-                    self.state.zmq_latest_block_height = None;
                     vec![]
                 }
             }
             ZmqEvent::BlockConnected(block) => {
+                // TODO do we need to check current mode here?
                 let last_height = self
                     .state
-                    .rpc_latest_block_height
+                    .latest_block_height
                     .expect("must have start height before using ZMQ");
-                if block.height > last_height {
-                    self.state.zmq_latest_block_height = Some(block.height);
+                if block.height == last_height + 1 {
+                    self.state.latest_block_height = Some(block.height);
                     handle_block(&mut self.state.mempool_cache, block.height, block)
                 } else {
                     vec![]
@@ -213,7 +186,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         (target_height, block): (u64, Block<T>),
     ) -> Result<Vec<Event<T>>> {
         let height = block.height;
-        self.state.rpc_latest_block_height = Some(height);
+        self.state.latest_block_height = Some(height);
 
         match self.state.target_block_height {
             Some(target) => {
@@ -284,7 +257,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
             .expect("failed to get blockchain info");
 
         self.state.mode = Mode::Rpc;
-        self.state.rpc_latest_block_height = Some(start_height - 1);
+        self.state.latest_block_height = Some(start_height - 1);
 
         // set initial target, may get pushed higher by RPC Fetcher events
         self.state.target_block_height = Some(blockchain_height);

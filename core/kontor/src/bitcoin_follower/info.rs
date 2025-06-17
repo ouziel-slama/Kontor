@@ -3,12 +3,12 @@ use bitcoin::{self, BlockHash};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    bitcoin_client::{client::BitcoinRpc},
+    bitcoin_client::client::BitcoinRpc,
     retry::{new_backoff_unlimited, retry},
 };
 
 pub trait BlockchainInfo {
-    fn get_blockchain_height( &self,) -> impl Future<Output = Result<u64, Error>> + Send;
+    fn get_blockchain_height(&self) -> impl Future<Output = Result<u64, Error>> + Send;
 
     fn get_block_hash(&self, height: u64) -> impl Future<Output = Result<BlockHash, Error>> + Send;
 }
