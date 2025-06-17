@@ -3,7 +3,7 @@ use libsql::{Connection, de::from_row, params};
 use thiserror::Error as ThisError;
 
 use crate::database::types::{
-    PaginationMeta, TransactionCursor, TransactionResponse, TransactionRow,
+    PaginationMeta, TransactionCursor, TransactionRow,
     TransactionRowWithPagination,
 };
 
@@ -188,7 +188,7 @@ pub async fn get_transactions_paginated(
     cursor: Option<String>,
     offset: Option<u64>,
     limit: u32,
-) -> Result<(Vec<TransactionResponse>, PaginationMeta), Error> {
+) -> Result<(Vec<TransactionRow>, PaginationMeta), Error> {
     let mut params = Vec::new();
     let mut where_clauses = Vec::new();
 
@@ -223,10 +223,10 @@ pub async fn get_transactions_paginated(
     // Conditionally include LEAD columns based on pagination type
     let select_columns = if offset.is_none() {
         // Using cursor pagination - include LEAD for next cursor
-        "t.txid, t.height, t.tx_index, LEAD(t.height) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_height, LEAD(t.tx_index) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_tx_index, COUNT(*) OVER() as total_count"
+        "t.id, t.txid, t.height, t.tx_index, LEAD(t.height) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_height, LEAD(t.tx_index) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_tx_index, COUNT(*) OVER() as total_count"
     } else {
         // Using offset pagination - no need for LEAD
-        "t.txid, t.height, t.tx_index, NULL as next_height, NULL as next_tx_index, COUNT(*) OVER() as total_count"
+        "t.id, t.txid, t.height, t.tx_index, NULL as next_height, NULL as next_tx_index, COUNT(*) OVER() as total_count"
     };
 
     let query = format!(
@@ -251,9 +251,9 @@ pub async fn get_transactions_paginated(
         transaction_rows_with_pagination.push(from_row(&row)?);
     }
 
-    let mut transactions: Vec<TransactionResponse> = transaction_rows_with_pagination
+    let mut transactions: Vec<TransactionRow> = transaction_rows_with_pagination
         .iter()
-        .map(TransactionResponse::from_transaction_row_with_pagination)
+        .map(TransactionRow::from_transaction_row_with_pagination)
         .collect();
     let has_more = transactions.len() > limit as usize;
     if has_more {

@@ -32,22 +32,17 @@ pub struct ContractStateRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct TransactionRow {
+    #[serde(skip_serializing)]
     pub id: Option<i64>,
     pub txid: String,
     pub height: u64,
     pub tx_index: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionResponse {
-    pub txid: String,
-    pub height: u64,
-    pub tx_index: i32,
-}
-
-impl TransactionResponse {
+impl TransactionRow {
     pub fn from_transaction_row_with_pagination(row: &TransactionRowWithPagination) -> Self {
         Self {
+            id: row.id,
             txid: row.txid.clone(),
             height: row.height,
             tx_index: row.tx_index,
@@ -57,6 +52,7 @@ impl TransactionResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionRowWithPagination {
+    pub id: Option<i64>,
     pub txid: String,
     pub height: u64,
     pub tx_index: i32,
@@ -116,7 +112,7 @@ pub struct PaginationMeta {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionListResponse {
-    pub results: Vec<TransactionResponse>,
+    pub results: Vec<TransactionRow>,
     pub pagination: PaginationMeta,
 }
 
