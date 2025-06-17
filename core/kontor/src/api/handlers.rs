@@ -93,11 +93,11 @@ pub async fn get_compose_reveal(
 }
 
 pub async fn get_transactions(
-    path: Option<Path<u64>>,
     Query(query): Query<TransactionQuery>,
     State(env): State<Env>,
+    path: Option<Path<u64>>,
 ) -> Result<TransactionListResponse> {
-    let limit = query.limit.unwrap_or(20).min(1000);
+    let limit = query.limit.map_or(20, |l| l.clamp(1, 1000));
 
     if query.cursor.is_some() && query.offset.is_some() {
         return Err(HttpError::BadRequest(
@@ -109,7 +109,7 @@ pub async fn get_transactions(
     // Extract height from optional path
     let height = path.map(|Path(h)| h);
 
-    let (transactions, meta) = get_transactions_paginated(
+    let (transactions, pagination) = get_transactions_paginated(
         &*env.reader.connection().await?,
         height,
         query.cursor,
@@ -120,7 +120,7 @@ pub async fn get_transactions(
 
     Ok(TransactionListResponse {
         results: transactions,
-        pagination: meta,
+        pagination,
     }
     .into())
 }

@@ -128,9 +128,10 @@ async fn test_contract_state_operations() -> Result<()> {
 
     // Test with a newer version of the same contract state
     let height2 = 800001;
+    let hash2 = "000000000000000000015d76e1b13f62d0edc4593ed326528c37b5af3c3fba05".parse()?;
     let block2 = BlockRow {
         height: height2,
-        hash,
+        hash: hash2,
     };
     insert_block(&conn, block2).await?;
 
@@ -232,9 +233,10 @@ async fn test_transaction_operations() -> Result<()> {
 
     // Insert transactions at a different height
     let height2 = 800001;
+    let hash2 = "000000000000000000015d76e1b13f62d0edc4593ed326528c37b5af3c3fba05".parse()?;
     let block2 = BlockRow {
         height: height2,
-        hash,
+        hash: hash2,
     };
     insert_block(&conn, block2).await?;
 

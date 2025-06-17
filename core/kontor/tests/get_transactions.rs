@@ -84,7 +84,7 @@ async fn test_basic_pagination_no_filters() -> Result<()> {
 
     assert_eq!(transactions.len(), 3);
     assert!(meta.has_more);
-    assert_eq!(meta.total_count, Some(10)); // 5 + 3 + 2 = 10 total
+    assert_eq!(meta.total_count, 10); // 5 + 3 + 2 = 10 total
     assert!(meta.next_offset.is_some());
     assert_eq!(meta.next_offset, Some(3));
     assert!(meta.next_cursor.is_some());
@@ -172,13 +172,6 @@ async fn test_cursor_pagination() -> Result<()> {
     assert_eq!(decoded_cursor.height, 800001);
     assert_eq!(decoded_cursor.tx_index, 1);
 
-    // // Switch to cursor pagination by providing a cursor
-    // let cursor = TransactionCursor {
-    //     height: page1.last().unwrap().height,
-    //     tx_index: page1.last().unwrap().tx_index,
-    // };
-    // let encoded_cursor = cursor.encode();
-
     let (page2, meta2) = get_transactions_paginated(
         &*reader.connection().await?,
         None,
@@ -235,7 +228,7 @@ async fn test_height_filter() -> Result<()> {
             .await?;
 
     assert_eq!(transactions.len(), 3);
-    assert_eq!(meta.total_count, Some(3));
+    assert_eq!(meta.total_count, 3);
     assert!(!meta.has_more);
     assert!(meta.next_offset.is_none());
 
@@ -265,7 +258,7 @@ async fn test_height_filter_with_pagination() -> Result<()> {
             .await?;
 
     assert_eq!(page1.len(), 2);
-    assert_eq!(meta1.total_count, Some(5));
+    assert_eq!(meta1.total_count, 5);
     assert!(meta1.has_more);
     assert_eq!(meta1.next_offset, Some(2));
 
@@ -334,7 +327,7 @@ async fn test_empty_result_set() -> Result<()> {
             .await?;
 
     assert_eq!(transactions.len(), 0);
-    assert_eq!(meta.total_count, Some(0));
+    assert_eq!(meta.total_count, 0);
     assert!(!meta.has_more);
     assert!(meta.next_offset.is_none());
     assert!(meta.next_cursor.is_none());
@@ -406,7 +399,7 @@ async fn test_large_limit() -> Result<()> {
     assert_eq!(transactions.len(), 10); // All available transactions
     assert!(!meta.has_more);
     assert!(meta.next_offset.is_none());
-    assert_eq!(meta.total_count, Some(10));
+    assert_eq!(meta.total_count, 10);
 
     Ok(())
 }
@@ -424,7 +417,7 @@ async fn test_zero_limit() -> Result<()> {
     assert_eq!(transactions.len(), 0);
     assert!(meta.has_more); // There are transactions available
     assert_eq!(meta.next_offset, Some(0)); // Next offset should be 0
-    assert_eq!(meta.total_count, Some(10));
+    assert_eq!(meta.total_count, 10);
 
     Ok(())
 }

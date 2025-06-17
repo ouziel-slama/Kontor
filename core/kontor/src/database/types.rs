@@ -2,7 +2,8 @@ use base64::{Engine, engine::general_purpose};
 use bitcoin::BlockHash;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+
+use crate::database::queries::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockRow {
@@ -29,16 +30,6 @@ pub struct ContractStateRow {
     pub deleted: bool,
 }
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("LibSQL error: {0}")]
-    LibSQL(#[from] libsql::Error),
-    #[error("Row deserialization error: {0}")]
-    RowDeserialization(#[from] serde::de::value::Error),
-    #[error("Invalid cursor format")]
-    InvalidCursor,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct TransactionRow {
     pub id: Option<i64>,
@@ -55,20 +46,21 @@ pub struct TransactionResponse {
 }
 
 impl TransactionResponse {
-    pub fn from_meta(meta: &TransactionResponseWithMeta) -> Self {
+    pub fn from_transaction_row_with_pagination(row: &TransactionRowWithPagination) -> Self {
         Self {
-            txid: meta.txid.clone(),
-            height: meta.height,
-            tx_index: meta.tx_index,
+            txid: row.txid.clone(),
+            height: row.height,
+            tx_index: row.tx_index,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionResponseWithMeta {
+pub struct TransactionRowWithPagination {
     pub txid: String,
     pub height: u64,
     pub tx_index: i32,
+    pub total_count: u64,
     #[serde(skip)]
     pub next_height: Option<u64>,
     #[serde(skip)]
@@ -106,10 +98,10 @@ impl TransactionCursor {
         Ok(TransactionCursor { height, tx_index })
     }
 
-    pub fn from_meta(meta: &TransactionResponseWithMeta) -> Self {
+    pub fn from_transaction_row_with_pagination(row: &TransactionRowWithPagination) -> Self {
         Self {
-            height: meta.height,
-            tx_index: meta.tx_index,
+            height: row.height,
+            tx_index: row.tx_index,
         }
     }
 }
@@ -119,8 +111,7 @@ pub struct PaginationMeta {
     pub next_cursor: Option<String>,
     pub next_offset: Option<u64>,
     pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_count: Option<u64>,
+    pub total_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

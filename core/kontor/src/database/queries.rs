@@ -3,8 +3,8 @@ use libsql::{Connection, de::from_row, params};
 use thiserror::Error as ThisError;
 
 use crate::database::types::{
-    PaginationMeta, TransactionCursor, TransactionResponse, TransactionResponseWithMeta,
-    TransactionRow,
+    PaginationMeta, TransactionCursor, TransactionResponse, TransactionRow,
+    TransactionRowWithPagination,
 };
 
 use super::types::{BlockRow, ContractStateRow};
@@ -15,8 +15,8 @@ pub enum Error {
     LibSQL(#[from] libsql::Error),
     #[error("Row deserialization error: {0}")]
     RowDeserialization(#[from] serde::de::value::Error),
-    #[error("Invalid cursor: {0}")]
-    InvalidCursor(#[from] crate::database::types::Error),
+    #[error("Invalid cursor format")]
+    InvalidCursor,
 }
 
 pub async fn insert_block(conn: &Connection, block: BlockRow) -> Result<i64, Error> {
@@ -200,7 +200,7 @@ pub async fn get_transactions_paginated(
 
     // Build cursor filter
     if let Some(c) = cursor.clone() {
-        let cursor = TransactionCursor::decode(&c).map_err(Error::InvalidCursor)?;
+        let cursor = TransactionCursor::decode(&c).map_err(|_| Error::InvalidCursor)?;
         where_clauses.push("(t.height, t.tx_index) < (?, ?)");
         params.push(libsql::Value::Integer(cursor.height as i64));
         params.push(libsql::Value::Integer(cursor.tx_index as i64));
@@ -213,15 +213,6 @@ pub async fn get_transactions_paginated(
         format!("WHERE {}", where_clauses.join(" AND "))
     };
 
-    // Get total count first
-    let count_query = format!("SELECT COUNT(*) FROM transactions t {}", where_sql);
-    let mut count_rows = conn.query(&count_query, params.clone()).await?;
-    let total_count = count_rows
-        .next()
-        .await?
-        .map(|r| r.get::<i64>(0))
-        .transpose()?;
-
     // Build OFFSET clause
     let offset_clause = cursor
         .is_none()
@@ -232,18 +223,18 @@ pub async fn get_transactions_paginated(
     // Conditionally include LEAD columns based on pagination type
     let select_columns = if offset.is_none() {
         // Using cursor pagination - include LEAD for next cursor
-        "t.txid, t.height, t.tx_index, LEAD(t.height) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_height, LEAD(t.tx_index) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_tx_index"
+        "t.txid, t.height, t.tx_index, LEAD(t.height) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_height, LEAD(t.tx_index) OVER (ORDER BY t.height DESC, t.tx_index DESC) as next_tx_index, COUNT(*) OVER() as total_count"
     } else {
         // Using offset pagination - no need for LEAD
-        "t.txid, t.height, t.tx_index, NULL as next_height, NULL as next_tx_index"
+        "t.txid, t.height, t.tx_index, NULL as next_height, NULL as next_tx_index, COUNT(*) OVER() as total_count"
     };
 
     let query = format!(
         r#"
     SELECT {select_columns}
-    FROM transactions t
-    {where_sql}
-    ORDER BY t.height DESC, t.tx_index DESC
+        FROM transactions t
+        {where_sql}
+        ORDER BY t.height DESC, t.tx_index DESC
     LIMIT {}
     {offset_clause}
     "#,
@@ -255,14 +246,14 @@ pub async fn get_transactions_paginated(
 
     let mut rows = conn.query(&query, params).await?;
 
-    let mut transaction_rows: Vec<TransactionResponseWithMeta> = Vec::new();
+    let mut transaction_rows_with_pagination: Vec<TransactionRowWithPagination> = Vec::new();
     while let Some(row) = rows.next().await? {
-        transaction_rows.push(from_row(&row)?);
+        transaction_rows_with_pagination.push(from_row(&row)?);
     }
 
-    let mut transactions: Vec<TransactionResponse> = transaction_rows
+    let mut transactions: Vec<TransactionResponse> = transaction_rows_with_pagination
         .iter()
-        .map(TransactionResponse::from_meta)
+        .map(TransactionResponse::from_transaction_row_with_pagination)
         .collect();
     let has_more = transactions.len() > limit as usize;
     if has_more {
@@ -272,21 +263,25 @@ pub async fn get_transactions_paginated(
 
     let next_cursor = (offset.is_none() && has_more)
         .then(|| {
-            transaction_rows
+            transaction_rows_with_pagination
                 .last()
-                .map(|r| TransactionCursor::from_meta(r).encode())
+                .map(|r| TransactionCursor::from_transaction_row_with_pagination(r).encode())
         })
         .flatten();
 
     let next_offset = (cursor.is_none() && has_more)
         .then(|| offset.map_or(limit as u64, |current| current + limit as u64));
 
-    let pagination_meta = PaginationMeta {
+    let total_count = transaction_rows_with_pagination
+        .first()
+        .map_or(0, |r| r.total_count);
+
+    let pagination = PaginationMeta {
         next_cursor,
         next_offset,
         has_more,
-        total_count: total_count.map(|c| c as u64),
+        total_count,
     };
 
-    Ok((transactions, pagination_meta))
+    Ok((transactions, pagination))
 }
