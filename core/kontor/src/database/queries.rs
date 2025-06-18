@@ -1,10 +1,11 @@
 use bitcoin::BlockHash;
-use libsql::{Connection, de::from_row, params};
+use libsql::{Connection, de::from_row, named_params, params};
 use thiserror::Error as ThisError;
 
-use crate::database::types::TransactionRow;
+use crate::database::types::{PaginationMeta, TransactionCursor, TransactionRow};
 
 use super::types::{BlockRow, ContractStateRow};
+use libsql::Transaction;
 
 #[derive(ThisError, Debug)]
 pub enum Error {
@@ -12,6 +13,8 @@ pub enum Error {
     LibSQL(#[from] libsql::Error),
     #[error("Row deserialization error: {0}")]
     RowDeserialization(#[from] serde::de::value::Error),
+    #[error("Invalid cursor format")]
+    InvalidCursor,
 }
 
 pub async fn insert_block(conn: &Connection, block: BlockRow) -> Result<i64, Error> {
@@ -36,6 +39,19 @@ pub async fn select_block_latest(conn: &Connection) -> Result<Option<BlockRow>, 
         .query(
             "SELECT height, hash FROM blocks ORDER BY height DESC LIMIT 1",
             params![],
+        )
+        .await?;
+    Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
+}
+
+pub async fn select_block_by_height_or_hash(
+    conn: &Connection,
+    identifier: &str,
+) -> Result<Option<BlockRow>, Error> {
+    let mut rows = conn
+        .query(
+            "SELECT height, hash FROM blocks WHERE height = ? OR hash = ?",
+            params![identifier, identifier],
         )
         .await?;
     Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
@@ -123,8 +139,8 @@ pub async fn get_latest_contract_state(
 
 pub async fn insert_transaction(conn: &Connection, row: TransactionRow) -> Result<i64, Error> {
     conn.execute(
-        "INSERT INTO transactions (height, txid) VALUES (?, ?)",
-        params![row.height, row.txid],
+        "INSERT INTO transactions (height, txid, tx_index) VALUES (?, ?, ?)",
+        params![row.height, row.txid, row.tx_index],
     )
     .await?;
 
@@ -137,7 +153,7 @@ pub async fn get_transaction_by_id(
 ) -> Result<Option<TransactionRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT id, height, txid FROM transactions WHERE id = ?",
+            "SELECT id, txid, height, tx_index FROM transactions WHERE id = ?",
             params![id],
         )
         .await?;
@@ -151,7 +167,7 @@ pub async fn get_transaction_by_txid(
 ) -> Result<Option<TransactionRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT id, txid, height FROM transactions WHERE txid = ?",
+            "SELECT id, txid, height, tx_index FROM transactions WHERE txid = ?",
             params![txid],
         )
         .await?;
@@ -161,11 +177,11 @@ pub async fn get_transaction_by_txid(
 
 pub async fn get_transactions_at_height(
     conn: &Connection,
-    height: u64,
+    height: i64,
 ) -> Result<Vec<TransactionRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT id, txid, height FROM transactions WHERE height = ?",
+            "SELECT id, txid, height, tx_index FROM transactions WHERE height = ?",
             params![height],
         )
         .await?;
@@ -175,4 +191,124 @@ pub async fn get_transactions_at_height(
         results.push(from_row(&row)?);
     }
     Ok(results)
+}
+
+pub async fn get_transactions_paginated(
+    tx: &Transaction,
+    height: Option<i64>,
+    cursor: Option<String>,
+    offset: Option<i64>,
+    limit: i64,
+) -> Result<(Vec<TransactionRow>, PaginationMeta), Error> {
+    let mut where_clauses = Vec::new();
+
+    // Build height filter
+    if height.is_some() {
+        where_clauses.push("t.height = :height");
+    }
+
+    let cursor_decoded = cursor
+        .as_ref()
+        .map(|c| TransactionCursor::decode(c).map_err(|_| Error::InvalidCursor))
+        .transpose()?;
+
+    if cursor_decoded.is_some() {
+        where_clauses.push("(t.height, t.tx_index) < (:cursor_height, :cursor_tx_index)");
+    }
+
+    let (cursor_height, cursor_tx_index) = cursor_decoded
+        .as_ref()
+        .map_or((None, None), |c| (Some(c.height), Some(c.tx_index)));
+
+    // Build WHERE clause
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    // Get total count first
+    let count_query = format!("SELECT COUNT(*) FROM transactions t {}", where_sql);
+    let mut count_rows = tx
+        .query(
+            &count_query,
+            named_params! {
+                ":height": height,
+                ":cursor_height": cursor_height,
+                ":cursor_tx_index": cursor_tx_index,
+            },
+        )
+        .await?;
+
+    let total_count = count_rows
+        .next()
+        .await?
+        .map_or(0, |r| r.get::<i64>(0).unwrap_or(0));
+
+    // Build OFFSET clause
+    let offset_clause = cursor
+        .is_none()
+        .then_some(offset)
+        .flatten()
+        .map_or(String::from(""), |_| "OFFSET :offset".to_string());
+
+    let query = format!(
+        r#"
+         SELECT t.txid, t.height, t.tx_index
+         FROM transactions t
+         {where_sql}
+         ORDER BY t.height DESC, t.tx_index DESC
+         LIMIT :limit
+         {offset_clause}
+         "#,
+        where_sql = where_sql,
+        offset_clause = offset_clause
+    );
+
+    // Execute main query with ALL named parameters
+    let mut rows = tx
+        .query(
+            &query,
+            named_params! {
+                ":height": height,
+                ":cursor_height": cursor_height,
+                ":cursor_tx_index": cursor_tx_index,
+                ":offset": offset,
+                ":limit": (limit + 1),
+            },
+        )
+        .await?;
+
+    let mut transactions: Vec<TransactionRow> = Vec::new();
+    while let Some(row) = rows.next().await? {
+        transactions.push(from_row(&row)?);
+    }
+
+    let has_more = transactions.len() > limit as usize;
+
+    if has_more {
+        transactions.pop();
+    }
+
+    let next_cursor = transactions
+        .last()
+        .filter(|_| offset.is_none() && has_more)
+        .map(|last_tx| {
+            TransactionCursor {
+                height: last_tx.height,
+                tx_index: last_tx.tx_index,
+            }
+            .encode()
+        });
+
+    let next_offset = (cursor.is_none() && has_more).then(|| offset.unwrap_or(0) + limit);
+
+    let pagination = PaginationMeta {
+        next_cursor,
+        next_offset,
+        has_more,
+        total_count,
+    };
+
+    Ok((transactions, pagination))
 }

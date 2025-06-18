@@ -3,8 +3,11 @@ use axum::extract::{Path, Query, State};
 use crate::{
     bitcoin_client::types::TestMempoolAcceptResult,
     database::{
-        queries::{select_block_at_height, select_block_latest},
-        types::BlockRow,
+        queries::{
+            get_transaction_by_txid, get_transactions_paginated, select_block_by_height_or_hash,
+            select_block_latest,
+        },
+        types::{BlockRow, TransactionListResponse, TransactionQuery, TransactionRow},
     },
 };
 
@@ -25,10 +28,10 @@ pub struct TxsQuery {
     txs: String,
 }
 
-pub async fn get_block(State(env): State<Env>, Path(height): Path<u64>) -> Result<BlockRow> {
-    match select_block_at_height(&*env.reader.connection().await?, height).await? {
+pub async fn get_block(State(env): State<Env>, Path(identifier): Path<String>) -> Result<BlockRow> {
+    match select_block_by_height_or_hash(&*env.reader.connection().await?, &identifier).await? {
         Some(block_row) => Ok(block_row.into()),
-        None => Err(HttpError::NotFound(format!("block at height: {}", height)).into()),
+        None => Err(HttpError::NotFound(format!("block at height or hash: {}", identifier)).into()),
     }
 }
 
@@ -87,4 +90,48 @@ pub async fn get_compose_reveal(
     let outputs = compose_reveal(inputs).map_err(|e| HttpError::BadRequest(e.to_string()))?;
 
     Ok(outputs.into())
+}
+
+pub async fn get_transactions(
+    Query(query): Query<TransactionQuery>,
+    State(env): State<Env>,
+    path: Option<Path<i64>>,
+) -> Result<TransactionListResponse> {
+    let limit = query.limit.map_or(20, |l| l.clamp(1, 1000));
+
+    if query.cursor.is_some() && query.offset.is_some() {
+        return Err(HttpError::BadRequest(
+            "Cannot specify both cursor and offset parameters".to_string(),
+        )
+        .into());
+    }
+
+    // Extract height from optional path
+    let height = path.map(|Path(h)| h);
+
+    // Start a transaction
+    let conn = env.reader.connection().await?;
+    let tx = conn.transaction().await?;
+
+    let (transactions, pagination) =
+        get_transactions_paginated(&tx, height, query.cursor, query.offset, limit).await?;
+
+    // Commit the transaction
+    tx.commit().await?;
+
+    Ok(TransactionListResponse {
+        transactions,
+        pagination,
+    }
+    .into())
+}
+
+pub async fn get_transaction(
+    Path(txid): Path<String>,
+    State(env): State<Env>,
+) -> Result<TransactionRow> {
+    match get_transaction_by_txid(&*env.reader.connection().await?, &txid).await? {
+        Some(transaction) => Ok(transaction.into()),
+        None => Err(HttpError::NotFound(format!("transaction: {}", txid)).into()),
+    }
 }
