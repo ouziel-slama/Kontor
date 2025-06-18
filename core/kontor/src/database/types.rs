@@ -14,7 +14,7 @@ pub struct BlockRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointRow {
     pub id: i64,
-    pub height: u64,
+    pub height: i64,
     pub hash: String,
 }
 
@@ -23,7 +23,7 @@ pub struct ContractStateRow {
     pub id: Option<i64>,
     pub contract_id: String,
     pub tx_id: i64,
-    pub height: u64,
+    pub height: i64,
     pub path: String,
     pub value: Option<Vec<u8>>,
     #[builder(default = false)]
@@ -35,14 +35,14 @@ pub struct TransactionRow {
     #[serde(skip_serializing)]
     pub id: Option<i64>,
     pub txid: String,
-    pub height: u64,
-    pub tx_index: i32,
+    pub height: i64,
+    pub tx_index: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionCursor {
-    pub height: u64,
-    pub tx_index: i32,
+    pub height: i64,
+    pub tx_index: i64,
 }
 
 impl TransactionCursor {
@@ -64,8 +64,8 @@ impl TransactionCursor {
             return Err(Error::InvalidCursor);
         }
 
-        let height = parts[0].parse::<u64>().map_err(|_| Error::InvalidCursor)?;
-        let tx_index = parts[1].parse::<i32>().map_err(|_| Error::InvalidCursor)?;
+        let height = parts[0].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
+        let tx_index = parts[1].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
 
         Ok(TransactionCursor { height, tx_index })
     }
@@ -73,10 +73,12 @@ impl TransactionCursor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationMeta {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
-    pub next_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<i64>,
     pub has_more: bool,
-    pub total_count: u64,
+    pub total_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,21 +90,21 @@ pub struct TransactionListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationQuery {
     pub cursor: Option<String>,
-    pub offset: Option<u64>,
-    pub limit: Option<u32>,
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionQuery {
     pub cursor: Option<String>,
-    pub offset: Option<u64>,
-    pub limit: Option<u32>,
-    pub height: Option<u64>,
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
+    pub height: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionPaginationQuery {
     pub cursor: Option<String>,
-    pub offset: Option<u64>,
-    pub limit: Option<u32>,
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
 }

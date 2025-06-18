@@ -95,7 +95,7 @@ pub async fn get_compose_reveal(
 pub async fn get_transactions(
     Query(query): Query<TransactionQuery>,
     State(env): State<Env>,
-    path: Option<Path<u64>>,
+    path: Option<Path<i64>>,
 ) -> Result<TransactionListResponse> {
     let limit = query.limit.map_or(20, |l| l.clamp(1, 1000));
 

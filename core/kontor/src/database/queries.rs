@@ -1,5 +1,5 @@
 use bitcoin::BlockHash;
-use libsql::{Connection, de::from_row, params};
+use libsql::{Connection, de::from_row, named_params, params};
 use thiserror::Error as ThisError;
 
 use crate::database::types::{PaginationMeta, TransactionCursor, TransactionRow};
@@ -177,7 +177,7 @@ pub async fn get_transaction_by_txid(
 
 pub async fn get_transactions_at_height(
     conn: &Connection,
-    height: u64,
+    height: i64,
 ) -> Result<Vec<TransactionRow>, Error> {
     let mut rows = conn
         .query(
@@ -195,27 +195,30 @@ pub async fn get_transactions_at_height(
 
 pub async fn get_transactions_paginated(
     tx: &Transaction,
-    height: Option<u64>,
+    height: Option<i64>,
     cursor: Option<String>,
-    offset: Option<u64>,
-    limit: u32,
+    offset: Option<i64>,
+    limit: i64,
 ) -> Result<(Vec<TransactionRow>, PaginationMeta), Error> {
-    let mut params = Vec::new();
     let mut where_clauses = Vec::new();
 
     // Build height filter
-    if let Some(h) = height {
-        where_clauses.push("t.height = ?");
-        params.push(libsql::Value::Integer(h as i64));
+    if height.is_some() {
+        where_clauses.push("t.height = :height");
     }
 
-    // Build cursor filter
-    if let Some(c) = cursor.clone() {
-        let cursor = TransactionCursor::decode(&c).map_err(|_| Error::InvalidCursor)?;
-        where_clauses.push("(t.height, t.tx_index) < (?, ?)");
-        params.push(libsql::Value::Integer(cursor.height as i64));
-        params.push(libsql::Value::Integer(cursor.tx_index as i64));
+    let cursor_decoded = cursor
+        .as_ref()
+        .map(|c| TransactionCursor::decode(c).map_err(|_| Error::InvalidCursor))
+        .transpose()?;
+
+    if cursor_decoded.is_some() {
+        where_clauses.push("(t.height, t.tx_index) < (:cursor_height, :cursor_tx_index)");
     }
+
+    let (cursor_height, cursor_tx_index) = cursor_decoded
+        .as_ref()
+        .map_or((None, None), |c| (Some(c.height), Some(c.tx_index)));
 
     // Build WHERE clause
     let where_sql = if where_clauses.is_empty() {
@@ -224,23 +227,30 @@ pub async fn get_transactions_paginated(
         format!("WHERE {}", where_clauses.join(" AND "))
     };
 
-    // Get total count first (within the same transaction)
+    // Get total count first
     let count_query = format!("SELECT COUNT(*) FROM transactions t {}", where_sql);
-    let mut count_rows = tx.query(&count_query, params.clone()).await?;
+    let mut count_rows = tx
+        .query(
+            &count_query,
+            named_params! {
+                ":height": height,
+                ":cursor_height": cursor_height,
+                ":cursor_tx_index": cursor_tx_index,
+            },
+        )
+        .await?;
 
     let total_count = count_rows
         .next()
         .await?
-        .map(|r| r.get::<i64>(0))
-        .transpose()?
-        .unwrap_or(0) as u64;
+        .map_or(0, |r| r.get::<i64>(0).unwrap_or(0));
 
     // Build OFFSET clause
     let offset_clause = cursor
         .is_none()
         .then_some(offset)
         .flatten()
-        .map_or(String::new(), |val| format!("OFFSET {}", val));
+        .map_or(String::from(""), |_| "OFFSET :offset".to_string());
 
     let query = format!(
         r#"
@@ -248,16 +258,26 @@ pub async fn get_transactions_paginated(
          FROM transactions t
          {where_sql}
          ORDER BY t.height DESC, t.tx_index DESC
-         LIMIT {}
+         LIMIT :limit
          {offset_clause}
          "#,
-        limit + 1,
         where_sql = where_sql,
         offset_clause = offset_clause
     );
 
-    // Execute main query within the same transaction
-    let mut rows = tx.query(&query, params).await?;
+    // Execute main query with ALL named parameters
+    let mut rows = tx
+        .query(
+            &query,
+            named_params! {
+                ":height": height,
+                ":cursor_height": cursor_height,
+                ":cursor_tx_index": cursor_tx_index,
+                ":offset": offset,
+                ":limit": (limit + 1),
+            },
+        )
+        .await?;
 
     let mut transactions: Vec<TransactionRow> = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -281,8 +301,7 @@ pub async fn get_transactions_paginated(
             .encode()
         });
 
-    let next_offset = (cursor.is_none() && has_more)
-        .then(|| offset.map_or(limit as u64, |current| current + limit as u64));
+    let next_offset = (cursor.is_none() && has_more).then(|| offset.unwrap_or(0) + limit);
 
     let pagination = PaginationMeta {
         next_cursor,

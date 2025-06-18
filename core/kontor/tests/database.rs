@@ -88,7 +88,7 @@ async fn test_contract_state_operations() -> Result<()> {
 
     // Insert a transaction for the contract state
     let tx = TransactionRow::builder()
-        .height(height)
+        .height(height as i64)
         .txid("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string())
         .tx_index(0)
         .build();
@@ -102,7 +102,7 @@ async fn test_contract_state_operations() -> Result<()> {
     let contract_state = ContractStateRow::builder()
         .contract_id(contract_id.to_string())
         .tx_id(tx_id)
-        .height(height)
+        .height(height as i64)
         .path(path.to_string())
         .value(value.clone())
         .build();
@@ -123,7 +123,7 @@ async fn test_contract_state_operations() -> Result<()> {
     assert_eq!(retrieved_state.path, path);
     assert_eq!(retrieved_state.value, Some(value));
     assert!(!retrieved_state.deleted);
-    assert_eq!(retrieved_state.height, height);
+    assert_eq!(retrieved_state.height, height as i64);
     assert_eq!(retrieved_state.tx_id, tx_id);
 
     // Test with a newer version of the same contract state
@@ -137,7 +137,7 @@ async fn test_contract_state_operations() -> Result<()> {
 
     let txid2 = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321";
     let tx2 = TransactionRow::builder()
-        .height(height2)
+        .height(height2 as i64)
         .txid(txid2.to_string())
         .tx_index(2)
         .build();
@@ -147,7 +147,7 @@ async fn test_contract_state_operations() -> Result<()> {
     let updated_contract_state = ContractStateRow::builder()
         .contract_id(contract_id.to_string())
         .tx_id(tx_id2)
-        .height(height2)
+        .height(height2 as i64)
         .path(path.to_string())
         .value(updated_value.clone())
         .build();
@@ -157,7 +157,7 @@ async fn test_contract_state_operations() -> Result<()> {
     let latest_state = get_latest_contract_state(&conn, contract_id, path)
         .await?
         .unwrap();
-    assert_eq!(latest_state.height, height2);
+    assert_eq!(latest_state.height, height2 as i64);
     assert_eq!(latest_state.value, Some(updated_value));
 
     Ok(())
@@ -176,17 +176,17 @@ async fn test_transaction_operations() -> Result<()> {
     insert_block(&conn, block).await?;
 
     let tx1 = TransactionRow::builder()
-        .height(height)
+        .height(height as i64)
         .txid("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string())
         .tx_index(0)
         .build();
     let tx2 = TransactionRow::builder()
-        .height(height)
+        .height(height as i64)
         .txid("123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0".to_string())
         .tx_index(1)
         .build();
     let tx3 = TransactionRow::builder()
-        .height(height)
+        .height(height as i64)
         .txid("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321".to_string())
         .tx_index(2)
         .build();
@@ -201,7 +201,7 @@ async fn test_transaction_operations() -> Result<()> {
     let tx1 = get_transaction_by_id(&conn, tx_id1).await?.unwrap();
     assert_eq!(tx1.id, Some(tx_id1));
     assert_eq!(tx1.txid, tx1.txid);
-    assert_eq!(tx1.height, height);
+    assert_eq!(tx1.height, height as i64);
 
     // Test get_transaction_by_txid
     let tx2 = get_transaction_by_txid(&conn, tx2.txid.as_str())
@@ -209,10 +209,10 @@ async fn test_transaction_operations() -> Result<()> {
         .unwrap();
     assert_eq!(tx2.id, Some(tx_id2));
     assert_eq!(tx2.txid, tx2.txid);
-    assert_eq!(tx2.height, height);
+    assert_eq!(tx2.height, height as i64);
 
     // Test get_transactions_at_height
-    let txs_at_height = get_transactions_at_height(&conn, height).await?;
+    let txs_at_height = get_transactions_at_height(&conn, height as i64).await?;
     assert_eq!(txs_at_height.len(), 3);
 
     // Verify all transactions are included - now using TransactionRow objects
@@ -241,7 +241,7 @@ async fn test_transaction_operations() -> Result<()> {
     insert_block(&conn, block2).await?;
 
     let tx4 = TransactionRow::builder()
-        .height(height2)
+        .height(height2 as i64)
         .txid("aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string())
         .tx_index(0)
         .build();
@@ -249,17 +249,17 @@ async fn test_transaction_operations() -> Result<()> {
     let tx_id4 = insert_transaction(&conn, tx4).await?;
 
     // Verify get_transactions_at_height returns only transactions at the specified height
-    let txs_at_height1 = get_transactions_at_height(&conn, height).await?;
+    let txs_at_height1 = get_transactions_at_height(&conn, height as i64).await?;
     assert_eq!(txs_at_height1.len(), 3);
 
-    let txs_at_height2 = get_transactions_at_height(&conn, height2).await?;
+    let txs_at_height2 = get_transactions_at_height(&conn, height2 as i64).await?;
     assert_eq!(txs_at_height2.len(), 1);
 
     // Check the transaction details
     let tx4 = &txs_at_height2[0];
     assert_eq!(tx4.id, Some(tx_id4));
     assert_eq!(tx4.txid, tx4.txid);
-    assert_eq!(tx4.height, height2);
+    assert_eq!(tx4.height, height2 as i64);
 
     Ok(())
 }
