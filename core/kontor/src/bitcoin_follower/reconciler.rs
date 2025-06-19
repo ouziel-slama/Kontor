@@ -14,7 +14,7 @@ use crate::{
     block::{Block, Tx},
 };
 
-use super::events::{Event, ZmqEvent};
+use super::events::{BlockId, Event, ZmqEvent};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mode {
@@ -146,7 +146,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
             }
             ZmqEvent::BlockDisconnected(block_hash) => {
                 if self.state.mode == Mode::Zmq {
-                    vec![Event::RollbackHash(block_hash)]
+                    vec![Event::Rollback(BlockId::Hash(block_hash))]
                 } else {
                     vec![]
                 }
@@ -248,7 +248,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                     start_height, last_hash, block_hash
                 );
 
-                return Ok(vec![Event::Rollback(start_height - 2)]);
+                return Ok(vec![Event::Rollback(BlockId::Height(start_height - 2))]);
             }
         }
 
