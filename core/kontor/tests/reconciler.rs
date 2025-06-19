@@ -8,7 +8,7 @@ use bitcoin::{self, BlockHash, hashes::Hash};
 
 use kontor::{
     bitcoin_follower::{
-        events::{Event, ZmqEvent},
+        events::{BlockId, Event, ZmqEvent},
         info,
         reconciler::{self},
         rpc,
@@ -301,7 +301,7 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
     );
 
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::RollbackHash(blocks[2 - 1].hash));
+    assert_eq!(e, Event::Rollback(BlockId::Hash(blocks[2 - 1].hash)));
 
     cancel_token.cancel();
     let _ = handle.await;
