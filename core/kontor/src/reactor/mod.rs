@@ -8,7 +8,10 @@ use bitcoin::BlockHash;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    bitcoin_follower::{events::Event, seek::SeekChannel},
+    bitcoin_follower::{
+        events::{BlockId, Event},
+        seek::SeekChannel,
+    },
     block::{Block, Tx},
     database::{
         self,
@@ -216,10 +219,10 @@ impl<T: Tx + 'static> Reactor<T> {
                                           target_height, block.hash);
                                     self.handle_block(block).await?;
                                 },
-                                Event::Rollback(height) => {
+                                Event::Rollback(BlockId::Height(height)) => {
                                     self.rollback(height).await?;
                                 },
-                                Event::RollbackHash(block_hash) => {
+                                Event::Rollback(BlockId::Hash(block_hash)) => {
                                     self.rollback_hash(block_hash).await?;
                                 },
                                 Event::MempoolUpdate {removed, added} => {

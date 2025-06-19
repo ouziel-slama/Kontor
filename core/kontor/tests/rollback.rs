@@ -12,7 +12,7 @@ use kontor::{
     bitcoin_client::{client::BitcoinRpc, error, types},
     bitcoin_follower::{
         self,
-        events::Event,
+        events::{BlockId, Event},
         info,
         reconciler::{self, Reconciler},
         rpc::Fetcher,
@@ -495,7 +495,7 @@ async fn test_follower_handle_control_signal() -> Result<()> {
         })
         .await
         .unwrap();
-    assert_eq!(res, vec![Event::Rollback(1)]);
+    assert_eq!(res, vec![Event::Rollback(BlockId::Height(1))]);
     assert_eq!(rec.fetcher.running(), false);
 
     // start-up at block height 3 with matching hash for last block at 2

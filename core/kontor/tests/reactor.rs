@@ -7,7 +7,10 @@ use tokio_util::sync::CancellationToken;
 use bitcoin::{BlockHash, hashes::Hash};
 
 use kontor::{
-    bitcoin_follower::{events::Event, seek::SeekChannel},
+    bitcoin_follower::{
+        events::{BlockId, Event},
+        seek::SeekChannel,
+    },
     block::{Block, Tx},
     config::Config,
     database::{queries, types::BlockRow},
@@ -135,7 +138,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
     assert_eq!(block.height, 92);
     assert_eq!(block.hash, BlockHash::from_byte_array([0x20; 32]));
 
-    assert!(tx.send(Event::Rollback(91)).await.is_ok());
+    assert!(tx.send(Event::Rollback(BlockId::Height(91))).await.is_ok());
 
     let seek = ctrl_rx.recv().await.unwrap();
     assert_eq!(seek.start_height, 92);
@@ -477,7 +480,7 @@ async fn test_reactor_rollback_hash_event() -> Result<()> {
     let tx = seek.event_tx;
 
     assert!(
-        tx.send(Event::RollbackHash(blocks[2 - 1].hash))
+        tx.send(Event::Rollback(BlockId::Hash(blocks[2 - 1].hash)))
             .await
             .is_ok()
     );
