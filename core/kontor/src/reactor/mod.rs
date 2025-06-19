@@ -1,6 +1,6 @@
 pub mod events;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use tokio::{select, sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -43,9 +43,10 @@ impl<T: Tx + 'static> Reactor<T> {
         match select_block_latest(conn).await? {
             Some(block) => {
                 if block.height < starting_block_height - 1 {
-                    panic!(
+                    bail!(
                         "Latest block has height {}, less than start height {}",
-                        block.height, starting_block_height
+                        block.height,
+                        starting_block_height
                     );
                 }
 
@@ -83,17 +84,12 @@ impl<T: Tx + 'static> Reactor<T> {
         }
     }
 
-    async fn rollback(&mut self, height: u64) {
-        rollback_to_height(&self.writer.connection(), height)
-            .await
-            .unwrap();
+    async fn rollback(&mut self, height: u64) -> Result<()> {
+        rollback_to_height(&self.writer.connection(), height).await?;
         self.last_height = height;
 
-        if let Some(block) =
-            select_block_at_height(&self.reader.connection().await.unwrap(), height)
-                .await
-                .unwrap()
-        {
+        let conn = &self.reader.connection().await?;
+        if let Some(block) = select_block_at_height(conn, height).await? {
             self.option_last_hash = Some(block.hash);
             info!("Rollback to height {} ({})", height, block.hash);
         } else {
@@ -114,29 +110,26 @@ impl<T: Tx + 'static> Reactor<T> {
                     while rx.recv().await.is_some() {}
                 }
                 self.event_rx = Some(event_rx);
+                Ok(())
             }
             Err(e) => {
-                error!("Failed to execute seek: {}", e);
-                self.cancel_token.cancel();
+                bail!("Failed to execute seek: {}", e);
             }
         }
     }
 
-    async fn rollback_hash(&mut self, hash: BlockHash) {
+    async fn rollback_hash(&mut self, hash: BlockHash) -> Result<()> {
         let conn = &self.writer.connection();
-        let block_row = select_block_with_hash(conn, &hash).await.unwrap();
+        let block_row = select_block_with_hash(conn, &hash).await?;
         if let Some(row) = block_row {
-            self.rollback(row.height - 1).await;
+            self.rollback(row.height - 1).await
         } else {
-            error!(
-                "attemped rollback to hash {} failed, block not found",
-                hash
-            );
-            self.cancel_token.cancel();
+            error!("attemped rollback to hash {} failed, block not found", hash);
+            Ok(())
         }
     }
 
-    async fn handle_block(&mut self, block: Block<T>) {
+    async fn handle_block(&mut self, block: Block<T>) -> Result<()> {
         let height = block.height;
         let hash = block.hash;
         let prev_hash = block.prev_hash;
@@ -148,16 +141,14 @@ impl<T: Tx + 'static> Reactor<T> {
                 self.last_height + 1,
             );
 
-            self.rollback(height - 1).await;
-            return;
+            self.rollback(height - 1).await?;
+            return Ok(());
         } else if height > self.last_height + 1 {
-            error!(
+            bail!(
                 "Order exception, received block at height {}, expected height {}",
                 height,
                 self.last_height + 1
             );
-            self.cancel_token.cancel();
-            return;
         }
 
         if let Some(last_hash) = self.option_last_hash {
@@ -170,8 +161,8 @@ impl<T: Tx + 'static> Reactor<T> {
 
                 // roll back 2 steps since we know both the received block and the
                 // last one stored must be bad.
-                self.rollback(height - 2).await;
-                return;
+                self.rollback(height - 2).await?;
+                return Ok(());
             }
         } else {
             info!(
@@ -183,25 +174,33 @@ impl<T: Tx + 'static> Reactor<T> {
         self.last_height = height;
         self.option_last_hash = Some(hash);
 
-        insert_block(&self.writer.connection(), BlockRow { height, hash })
-            .await
-            .unwrap();
+        insert_block(&self.writer.connection(), BlockRow { height, hash }).await?;
+
+        Ok(())
     }
 
-    pub async fn run(&mut self) {
-        let rx = self
+    pub async fn run(&mut self) -> Result<()> {
+        let rx = match self
             .ctrl
             .clone()
             .seek(self.last_height + 1, self.option_last_hash)
             .await
-            .expect("initial seek must execute");
+        {
+            Ok(rx) => rx,
+            Err(e) => {
+                bail!("initial seek failed: {}", e);
+            }
+        };
+
         self.event_rx = Some(rx);
 
         loop {
-            let event_rx = self
-                .event_rx
-                .as_mut()
-                .expect("event channel must exist to run handler loop");
+            let event_rx = match self.event_rx.as_mut() {
+                Some(rx) => rx,
+                None => {
+                    bail!("handler loop started with missing event channel");
+                }
+            };
 
             select! {
                 _ = self.cancel_token.cancelled() => {
@@ -215,13 +214,13 @@ impl<T: Tx + 'static> Reactor<T> {
                                 Event::Block((target_height, block)) => {
                                     info!("Block {}/{} {}", block.height,
                                           target_height, block.hash);
-                                    self.handle_block(block).await;
+                                    self.handle_block(block).await?;
                                 },
                                 Event::Rollback(height) => {
-                                    self.rollback(height).await;
+                                    self.rollback(height).await?;
                                 },
                                 Event::RollbackHash(block_hash) => {
-                                    self.rollback_hash(block_hash).await;
+                                    self.rollback_hash(block_hash).await?;
                                 },
                                 Event::MempoolUpdate {removed, added} => {
                                     debug!("MempoolUpdates removed {} added {}",
@@ -245,6 +244,7 @@ impl<T: Tx + 'static> Reactor<T> {
             rx.close();
             while rx.recv().await.is_some() {}
         }
+        Ok(())
     }
 }
 
@@ -257,7 +257,7 @@ pub fn run<T: Tx + 'static>(
 ) -> JoinHandle<()> {
     tokio::spawn({
         async move {
-            let mut reactor = Reactor::new(
+            let mut reactor = match Reactor::new(
                 starting_block_height,
                 reader,
                 writer,
@@ -265,9 +265,19 @@ pub fn run<T: Tx + 'static>(
                 cancel_token.clone(),
             )
             .await
-            .expect("Failed to create Reactor, exiting");
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("Failed to create Reactor: {}, exiting", e);
+                    cancel_token.cancel();
+                    return;
+                }
+            };
 
-            reactor.run().await;
+            if let Err(e) = reactor.run().await {
+                error!("Reactor error: {}, exiting", e);
+                cancel_token.cancel();
+            }
 
             info!("Exited");
         }

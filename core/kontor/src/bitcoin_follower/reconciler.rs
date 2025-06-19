@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use bitcoin::{BlockHash, Txid};
 use indexmap::{IndexMap, IndexSet, map::Entry};
 use tokio::{
@@ -105,10 +105,9 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                 self.state.zmq_connected = false;
                 if self.state.mode == Mode::Zmq {
                     self.state.mode = Mode::Rpc;
-                    let last_height = self
-                        .state
-                        .latest_block_height
-                        .expect("must have start height before using ZMQ");
+                    let Some(last_height) = self.state.latest_block_height else {
+                        bail!("must have start height before using ZMQ");
+                    };
                     self.fetcher.start(last_height + 1);
                 }
                 while !self.zmq_rx.is_empty() {
@@ -153,14 +152,17 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
             }
             ZmqEvent::BlockConnected(block) => {
                 if self.state.mode == Mode::Zmq {
-                    let last_height = self
-                        .state
-                        .latest_block_height
-                        .expect("must have start height before using ZMQ");
+                    let Some(last_height) = self.state.latest_block_height else {
+                        bail!("must have start height before using ZMQ");
+                    };
                     if block.height == last_height + 1 {
                         self.state.latest_block_height = Some(block.height);
                         handle_block(&mut self.state.mempool_cache, block.height, block)
                     } else {
+                        warn!(
+                            "ZMQ BlockConnected at unexpected height {}, last height was {}",
+                            block.height, last_height
+                        );
                         vec![]
                     }
                 } else {
@@ -177,7 +179,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
 
     async fn stop_fetcher(&mut self) {
         if let Err(e) = self.fetcher.stop().await {
-            error!("Fetcher panicked on join: {}", e);
+            error!("RPC Fetcher panicked on join: {}", e);
         }
         while !self.rpc_rx.is_empty() {
             let _ = self.rpc_rx.recv().await;
@@ -208,7 +210,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         if self.state.zmq_connected && target_height == height {
             let blockchain_height = self.info.get_blockchain_height().await?;
             if target_height == blockchain_height {
-                info!("RPC caught up: {}", target_height);
+                info!("RPC Fetcher caught up: {}", target_height);
 
                 self.state.mode = Mode::Zmq;
                 self.stop_fetcher().await;
@@ -236,10 +238,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
 
         // check if we need to roll back before we start fetching
         if let Some(last_hash) = option_last_hash {
-            let block_hash = self
-                .info
-                .get_block_hash(start_height - 1)
-                .await?;
+            let block_hash = self.info.get_block_hash(start_height - 1).await?;
 
             if last_hash != block_hash {
                 warn!(
@@ -252,10 +251,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
             }
         }
 
-        let blockchain_height = self
-            .info
-            .get_blockchain_height()
-            .await?;
+        let blockchain_height = self.info.get_blockchain_height().await?;
 
         self.state.mode = Mode::Rpc;
         self.state.latest_block_height = Some(start_height - 1);
@@ -290,7 +286,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                  option_zmq_event = self.zmq_rx.recv() => {
                     match option_zmq_event {
                         Some(zmq_event) => {
-                            self.handle_zmq_event(zmq_event) .await
+                            self.handle_zmq_event(zmq_event).await
                         },
                         None => {
                             // Occurs when runner fails to start up and drops channel sender
@@ -331,7 +327,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                 }
                 Err(e) => {
                     warn!(
-                        "Event handing resulted in error. Cancelling program and exiting: {}",
+                        "Event handling resulted in error. Cancelling program and exiting: {}",
                         e
                     );
                     self.cancel_token.cancel();
