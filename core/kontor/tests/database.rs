@@ -121,7 +121,7 @@ async fn test_contract_state_operations() -> Result<()> {
     let retrieved_state = retrieved_state.unwrap();
     assert_eq!(retrieved_state.contract_id, contract_id);
     assert_eq!(retrieved_state.path, path);
-    assert_eq!(retrieved_state.value, Some(value));
+    assert_eq!(retrieved_state.value, value);
     assert!(!retrieved_state.deleted);
     assert_eq!(retrieved_state.height, height as i64);
     assert_eq!(retrieved_state.tx_id, tx_id);
@@ -158,7 +158,7 @@ async fn test_contract_state_operations() -> Result<()> {
         .await?
         .unwrap();
     assert_eq!(latest_state.height, height2 as i64);
-    assert_eq!(latest_state.value, Some(updated_value));
+    assert_eq!(latest_state.value, updated_value);
 
     Ok(())
 }

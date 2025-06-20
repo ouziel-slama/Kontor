@@ -203,10 +203,7 @@ async fn count_checkpoints(conn: &libsql::Connection) -> Result<i64> {
 }
 
 fn calculate_row_hash(state: &ContractStateRow) -> Result<String> {
-    let value_part = match &state.value {
-        Some(v) => String::from_utf8_lossy(v).to_string(),
-        None => "".to_string(), // Empty string for NULL, matching concat() behavior
-    };
+    let value_part = hex::encode(&state.value).to_uppercase();
 
     let input = format!(
         "{}{}{}{}",

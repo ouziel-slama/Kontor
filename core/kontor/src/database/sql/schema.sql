@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS contract_state (
   tx_id INTEGER NOT NULL,
   height INTEGER NOT NULL,
   path TEXT NOT NULL,
-  value BLOB,
+  value BLOB NOT NULL,
   deleted BOOLEAN NOT NULL DEFAULT 0,
   UNIQUE (contract_id, height, path),
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE

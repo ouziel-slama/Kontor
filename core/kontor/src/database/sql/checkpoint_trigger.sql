@@ -49,7 +49,12 @@ VALUES
           SELECT
             hex(
               crypto_sha256 (
-                concat (NEW.contract_id, NEW.path, NEW.value, NEW.deleted)
+                concat (
+                  NEW.contract_id,
+                  NEW.path,
+                  hex(NEW.value),
+                  NEW.deleted
+                )
               )
             ) AS hash
         )

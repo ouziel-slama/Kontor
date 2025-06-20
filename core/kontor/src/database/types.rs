@@ -25,7 +25,8 @@ pub struct ContractStateRow {
     pub tx_id: i64,
     pub height: i64,
     pub path: String,
-    pub value: Option<Vec<u8>>,
+    #[builder(default = vec![246])] // cbor serialized null
+    pub value: Vec<u8>,
     #[builder(default = false)]
     pub deleted: bool,
 }
