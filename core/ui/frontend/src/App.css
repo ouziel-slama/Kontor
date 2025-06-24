@@ -70,6 +70,12 @@ button:hover {
   background-color: #45a049;
 }
 
+button:disabled {
+  background-color: #cccccc;
+  color: #666666;
+  cursor: not-allowed;
+}
+
 .addresses {
   margin-top: 2rem;
   text-align: left;
