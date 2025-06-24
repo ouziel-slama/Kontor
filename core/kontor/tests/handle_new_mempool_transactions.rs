@@ -17,10 +17,7 @@ fn test_empty_initial_state() {
 
     assert_eq!(
         result,
-        Event::MempoolUpdate {
-            removed: vec![],
-            added: vec![tx1.clone(), tx2.clone()],
-        }
+        vec![Event::MempoolInsert(vec![tx1.clone(), tx2.clone()])]
     );
     assert_eq!(mempool_cache.len(), 2);
     assert!(mempool_cache.contains_key(&tx1.txid()));
@@ -46,10 +43,10 @@ fn test_adding_and_removing_transactions() {
 
     assert_eq!(
         result,
-        Event::MempoolUpdate {
-            removed: vec![tx1.txid(), tx3.txid()],
-            added: vec![tx2.clone(), tx4.clone()],
-        }
+        vec![
+            Event::MempoolRemove(vec![tx1.txid(), tx3.txid()]),
+            Event::MempoolInsert(vec![tx2.clone(), tx4.clone()])
+        ]
     );
     assert_eq!(mempool_cache.len(), 3);
     assert!(mempool_cache.contains_key(&tx2.txid()));
@@ -66,13 +63,7 @@ fn test_no_changes() {
 
     let result = handle_new_mempool_transactions(&mut mempool_cache, txs);
 
-    assert_eq!(
-        result,
-        Event::MempoolUpdate {
-            removed: vec![],
-            added: vec![],
-        }
-    );
+    assert_eq!(result, vec![]);
     assert_eq!(mempool_cache.len(), 1);
     assert!(mempool_cache.contains_key(&tx1.txid()));
 }
@@ -86,13 +77,7 @@ fn test_empty_new_transactions() {
 
     let result = handle_new_mempool_transactions(&mut mempool_cache, txs);
 
-    assert_eq!(
-        result,
-        Event::MempoolUpdate {
-            removed: vec![tx1.txid()],
-            added: vec![],
-        }
-    );
+    assert_eq!(result, vec![Event::MempoolRemove(vec![tx1.txid()])]);
     assert!(mempool_cache.is_empty());
 }
 
@@ -104,13 +89,7 @@ fn test_duplicate_transactions() {
 
     let result = handle_new_mempool_transactions(&mut mempool_cache, txs);
 
-    assert_eq!(
-        result,
-        Event::MempoolUpdate {
-            removed: vec![],
-            added: vec![tx1.clone()],
-        }
-    );
+    assert_eq!(result, vec![Event::MempoolInsert(vec![tx1.clone()])]);
     assert_eq!(mempool_cache.len(), 1);
     assert!(mempool_cache.contains_key(&tx1.txid()));
 }
