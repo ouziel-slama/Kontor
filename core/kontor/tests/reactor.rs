@@ -8,8 +8,8 @@ use bitcoin::{BlockHash, hashes::Hash};
 
 use kontor::{
     bitcoin_follower::{
+        ctrl::CtrlChannel,
         events::{BlockId, Event},
-        seek::SeekChannel,
     },
     block::{Block, Tx},
     config::Config,
@@ -75,7 +75,7 @@ async fn select_block_at_height(
 #[tokio::test]
 async fn test_reactor_rollback_event() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (ctrl, mut ctrl_rx) = SeekChannel::create();
+    let (ctrl, mut ctrl_rx) = CtrlChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -86,12 +86,12 @@ async fn test_reactor_rollback_event() -> Result<()> {
         ctrl,
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 91);
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 91);
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 91,
@@ -105,7 +105,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,
@@ -119,7 +119,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 93,
@@ -138,15 +138,18 @@ async fn test_reactor_rollback_event() -> Result<()> {
     assert_eq!(block.height, 92);
     assert_eq!(block.hash, BlockHash::from_byte_array([0x20; 32]));
 
-    assert!(tx.send(Event::Rollback(BlockId::Height(91))).await.is_ok());
+    assert!(tx.send(Event::BlockRemove(BlockId::Height(91))).await.is_ok());
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 92);
-    assert_eq!(seek.last_hash, Some(BlockHash::from_byte_array([0x10; 32])));
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 92);
+    assert_eq!(
+        start.last_hash,
+        Some(BlockHash::from_byte_array([0x10; 32]))
+    );
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,
@@ -160,7 +163,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 93,
@@ -194,7 +197,7 @@ async fn test_reactor_rollback_event() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_unexpected_block() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (ctrl, mut ctrl_rx) = SeekChannel::create();
+    let (ctrl, mut ctrl_rx) = CtrlChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -205,12 +208,12 @@ async fn test_reactor_unexpected_block() -> Result<()> {
         ctrl,
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 81);
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 81);
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 82, // skipping 81
@@ -234,7 +237,7 @@ async fn test_reactor_unexpected_block() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (ctrl, mut ctrl_rx) = SeekChannel::create();
+    let (ctrl, mut ctrl_rx) = CtrlChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -245,12 +248,12 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
         ctrl,
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 91);
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 91);
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 91,
@@ -264,7 +267,7 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,
@@ -285,7 +288,7 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
     assert_eq!(block.hash, BlockHash::from_byte_array([0x02; 32]));
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 93,
@@ -298,14 +301,17 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
         .is_ok()
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 92);
-    assert_eq!(seek.last_hash, Some(BlockHash::from_byte_array([0x01; 32])));
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 92);
+    assert_eq!(
+        start.last_hash,
+        Some(BlockHash::from_byte_array([0x01; 32]))
+    );
 
-    let tx = seek.event_tx;
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,
@@ -334,7 +340,7 @@ async fn test_reactor_rollback_due_to_hash_mismatch() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (ctrl, mut ctrl_rx) = SeekChannel::create();
+    let (ctrl, mut ctrl_rx) = CtrlChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let handle = reactor::run::<MockTransaction>(
@@ -345,12 +351,12 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
         ctrl,
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 91);
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 91);
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 91,
@@ -364,7 +370,7 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,
@@ -378,7 +384,7 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 93,
@@ -392,7 +398,7 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     );
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,                                   // lower height
@@ -409,13 +415,16 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
     // it doesn't seem worth having a special code-path for what should be
     // an exceptional case.
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 92);
-    assert_eq!(seek.last_hash, Some(BlockHash::from_byte_array([0x01; 32])));
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 92);
+    assert_eq!(
+        start.last_hash,
+        Some(BlockHash::from_byte_array([0x01; 32]))
+    );
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Block((
+        tx.send(Event::BlockInsert((
             100,
             Block {
                 height: 92,
@@ -445,7 +454,7 @@ async fn test_reactor_rollback_due_to_reverting_height() -> Result<()> {
 #[tokio::test]
 async fn test_reactor_rollback_hash_event() -> Result<()> {
     let cancel_token = CancellationToken::new();
-    let (ctrl, mut ctrl_rx) = SeekChannel::create();
+    let (ctrl, mut ctrl_rx) = CtrlChannel::create();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
     let blocks = new_block_chain::<MockTransaction>(5);
@@ -474,20 +483,20 @@ async fn test_reactor_rollback_hash_event() -> Result<()> {
         ctrl,
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 4);
-    assert_eq!(seek.last_hash, Some(blocks[3 - 1].hash));
-    let tx = seek.event_tx;
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 4);
+    assert_eq!(start.last_hash, Some(blocks[3 - 1].hash));
+    let tx = start.event_tx;
 
     assert!(
-        tx.send(Event::Rollback(BlockId::Hash(blocks[2 - 1].hash)))
+        tx.send(Event::BlockRemove(BlockId::Hash(blocks[2 - 1].hash)))
             .await
             .is_ok()
     );
 
-    let seek = ctrl_rx.recv().await.unwrap();
-    assert_eq!(seek.start_height, 2);
-    assert_eq!(seek.last_hash, Some(blocks[1 - 1].hash));
+    let start = ctrl_rx.recv().await.unwrap();
+    assert_eq!(start.start_height, 2);
+    assert_eq!(start.last_hash, Some(blocks[1 - 1].hash));
     assert!(!handle.is_finished());
     cancel_token.cancel();
     let _ = handle.await;
