@@ -9,4 +9,3 @@ tracing = { workspace = true }
 wasmtime = { workspace = true }
 tokio = { workspace = true }
 wit-component = { workspace = true }
-wasm-wave = { workspace = true }

@@ -9,6 +9,7 @@ use wasmtime::{
     },
 };
 use wit_component::ComponentEncoder;
+use anyhow::Context;
 
 type CallOperationFn = Box<dyn Fn(String, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync>;
 
@@ -20,13 +21,7 @@ struct ForeignService {
 
 impl ForeignService {
     async fn new(address: &str) -> Result<Self> {
-        let mut config = wasmtime::Config::new();
-        config.async_support(true);
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config)?;
-
-        let path = Path::new(address);
-        
+        let path = Path::new("/Users/spora/opt/Kontor/contracts/target/wasm32-unknown-unknown/debug/sum.wasm");        
         // Check if the file exists
         if !path.exists() {
             return Err(anyhow!(
@@ -34,17 +29,26 @@ impl ForeignService {
                 address, path.display()
             ));
         }
-        
-        let module_bytes = read(path).await?;
+                
+        let module_bytes = read(path).await.with_context(|| format!("failed first"))?;
         let component_bytes = ComponentEncoder::default()
-            .module(&module_bytes)?
+            .module(&module_bytes)
+            .with_context(|| format!("failed context"))?
             .validate(true)
             .encode()?;
+
+        let mut config = wasmtime::Config::new();
+        config.async_support(true);
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config)?;
+
         let component = Component::from_binary(&engine, &component_bytes)?;
         
         Ok(Self { engine, component })
     }
 
+    // .call("sum", "1, 2")
+    // result => 1, 2
     async fn call_function(&self, name: &str, args: &str) -> Result<String> {
         let mut store = Store::new(&self.engine, ());
         let linker = Linker::new(&self.engine);
@@ -78,7 +82,7 @@ impl ForeignService {
         for val in &results {
             encoded_results.push(val.to_wave()?);
         }
-        Ok(format!("({})", encoded_results.join(", ")))
+        Ok(format!("{}", encoded_results.join(", ")))
     }
 }
 

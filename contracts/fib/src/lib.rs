@@ -2,6 +2,9 @@ wit_bindgen::generate!({
     path: "wit/world.wit",
 });
 
+// use crate::kontor::contract::stdlib::Foreign;
+use kontor::contract::stdlib::*;
+
 struct Contract;
 
 impl Guest for Contract {
@@ -9,8 +12,11 @@ impl Guest for Contract {
         match n {
             0 | 1 => n,
             _ => {
-                let m = Monoid::new(0);
-                sum(m.mzero(), m.mappend(Self::fib(n - 1), Self::fib(n - 2)))
+                // let m = Monoid::new(0);
+                let foreign = Foreign::new("/Users/spora/opt/Kontor/contracts/target/wasm32-unknown-unknown/debug/sum.wasm");
+                let args = format!("{}, {}", Self::fib(n - 1), Self::fib(n - 2));
+                let result = foreign.call("sum", args.as_str());
+                result.parse::<u64>().unwrap_or(0)
             }
         }
     }
