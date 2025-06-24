@@ -10,17 +10,15 @@ use wasmtime::{
 };
 use wit_component::ComponentEncoder;
 
-type CallOperationFn = Box<dyn Fn(String, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync>;
-
 #[derive(Clone)]
-struct ForeignService {
+pub struct ForeignHostRep {
     engine: Engine,
     component: Component,
 }
 
-impl ForeignService {
-    async fn new(address: &str) -> Result<Self> {
-        let path = Path::new(address);        
+impl ForeignHostRep {
+    pub async fn new(address: String) -> Result<Self> {
+        let path = Path::new(&address);        
         // Check if the file exists
         if !path.exists() {
             return Err(anyhow!(
@@ -45,9 +43,7 @@ impl ForeignService {
         Ok(Self { engine, component })
     }
 
-    // .call("sum", "1, 2")
-    // result => 1, 2
-    async fn call_function(&self, name: &str, args: &str) -> Result<String> {
+    pub async fn call(&self, name: &str, args: &str) -> Result<String> {
         let mut store = Store::new(&self.engine, ());
         let linker = Linker::new(&self.engine);
         
@@ -81,29 +77,6 @@ impl ForeignService {
             encoded_results.push(val.to_wave()?);
         }
         Ok(format!("{}", encoded_results.join(", ")))
-    }
-}
-
-pub struct ForeignHostRep {
-    pub call_operation: CallOperationFn,
-}
-
-impl ForeignHostRep {
-    pub async fn new(address: String) -> Result<Self> {
-        let caller = ForeignService::new(&address).await?;
-        
-        Ok(ForeignHostRep {
-            call_operation: Box::new(move |name: String, args: String| {
-                let caller = caller.clone();
-                Box::pin(async move {
-                    // Return the wave-encoded result or an error message
-                    match caller.call_function(&name, &args).await {
-                        Ok(wave_result) => wave_result,
-                        Err(e) => format!("Error: {}", e),
-                    }
-                })
-            }),
-        })
     }
 }
 
