@@ -10,6 +10,7 @@ pub mod op_return;
 pub mod reactor;
 pub mod regtest_utils;
 pub mod retry;
+pub mod runtime;
 pub mod stopper;
 pub mod test_utils;
 pub mod utils;

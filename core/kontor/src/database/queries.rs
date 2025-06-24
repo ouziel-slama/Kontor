@@ -109,6 +109,8 @@ pub async fn insert_contract_state(conn: &Connection, row: ContractStateRow) -> 
     Ok(conn.last_insert_rowid())
 }
 
+const BASE_CONTRACT_STATE_QUERY: &str = include_str!("sql/base_contract_state_query.sql");
+
 pub async fn get_latest_contract_state(
     conn: &Connection,
     contract_id: &str,
@@ -116,7 +118,8 @@ pub async fn get_latest_contract_state(
 ) -> Result<Option<ContractStateRow>, Error> {
     let mut rows = conn
         .query(
-            r#"
+            &format!(
+                r#"
                 SELECT
                     id,
                     contract_id,
@@ -125,16 +128,52 @@ pub async fn get_latest_contract_state(
                     path,
                     value,
                     deleted
-                FROM contract_state
-                WHERE contract_id = ? AND path = ?
-                ORDER BY height DESC
-                LIMIT 1
-            "#,
-            params![contract_id, path],
+                {}
+                "#,
+                BASE_CONTRACT_STATE_QUERY
+            ),
+            ((":contract_id", contract_id), (":path", path)),
         )
         .await?;
 
     Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
+}
+
+pub async fn get_latest_contract_state_value(
+    conn: &Connection,
+    contract_id: &str,
+    path: &str,
+) -> Result<Option<Vec<u8>>, Error> {
+    let mut rows = conn
+        .query(
+            &format!(
+                r#"
+                SELECT value
+                {}
+                "#,
+                BASE_CONTRACT_STATE_QUERY
+            ),
+            ((":contract_id", contract_id), (":path", path)),
+        )
+        .await?;
+
+    Ok(rows.next().await?.map(|r| r.get(0)).transpose()?)
+}
+
+pub async fn delete_contract_state(
+    conn: &Connection,
+    height: i64,
+    tx_id: i64,
+    contract_id: &str,
+    path: &str,
+) -> Result<(), Error> {
+    if let Some(mut row) = get_latest_contract_state(conn, contract_id, path).await? {
+        row.deleted = true;
+        row.height = height;
+        row.tx_id = tx_id;
+        insert_contract_state(conn, row).await?;
+    }
+    Ok(())
 }
 
 pub async fn insert_transaction(conn: &Connection, row: TransactionRow) -> Result<i64, Error> {

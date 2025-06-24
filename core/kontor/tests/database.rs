@@ -5,9 +5,10 @@ use kontor::{
     config::Config,
     database::{
         queries::{
-            get_latest_contract_state, get_transaction_by_id, get_transaction_by_txid,
-            get_transactions_at_height, insert_block, insert_contract_state, insert_transaction,
-            select_block_at_height, select_block_by_height_or_hash, select_block_latest,
+            delete_contract_state, get_latest_contract_state, get_latest_contract_state_value,
+            get_transaction_by_id, get_transaction_by_txid, get_transactions_at_height,
+            insert_block, insert_contract_state, insert_transaction, select_block_at_height,
+            select_block_by_height_or_hash, select_block_latest,
         },
         types::{BlockRow, ContractStateRow, TransactionRow},
     },
@@ -118,10 +119,18 @@ async fn test_contract_state_operations() -> Result<()> {
         "Contract state should be retrieved"
     );
 
+    // Get latest contract state value
+    let retrieved_value = get_latest_contract_state_value(&conn, contract_id, path).await?;
+    assert!(
+        retrieved_value.is_some(),
+        "Contract state value should be retrieved"
+    );
+
     let retrieved_state = retrieved_state.unwrap();
     assert_eq!(retrieved_state.contract_id, contract_id);
     assert_eq!(retrieved_state.path, path);
     assert_eq!(retrieved_state.value, value);
+    assert_eq!(retrieved_value.unwrap(), value);
     assert!(!retrieved_state.deleted);
     assert_eq!(retrieved_state.height, height as i64);
     assert_eq!(retrieved_state.tx_id, tx_id);
@@ -157,8 +166,32 @@ async fn test_contract_state_operations() -> Result<()> {
     let latest_state = get_latest_contract_state(&conn, contract_id, path)
         .await?
         .unwrap();
+    let latest_value = get_latest_contract_state_value(&conn, contract_id, path)
+        .await?
+        .unwrap();
     assert_eq!(latest_state.height, height2 as i64);
     assert_eq!(latest_state.value, updated_value);
+    assert_eq!(latest_value, updated_value);
+
+    // Delete the contract state
+    delete_contract_state(&conn, height2 as i64, tx_id, contract_id, path).await?;
+
+    // Verify the contract state is deleted
+    let latest_state = get_latest_contract_state(&conn, contract_id, path).await?;
+    assert!(latest_state.is_none());
+
+    let count = conn
+        .query(
+            "SELECT COUNT(*) FROM contract_state WHERE contract_id = ? AND path = ?",
+            vec![contract_id, path],
+        )
+        .await?
+        .next()
+        .await?
+        .unwrap()
+        .get::<u64>(0)
+        .unwrap();
+    assert_eq!(count, 2);
 
     Ok(())
 }
