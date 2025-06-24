@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    bitcoin_follower::seek::SeekMessage,
+    bitcoin_follower::ctrl::StartMessage,
     bitcoin_follower::{info::BlockchainInfo, rpc::BlockFetcher},
     block::{Block, Tx},
 };
@@ -116,36 +116,27 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                 vec![]
             }
             ZmqEvent::MempoolTransactions(txs) => {
-                vec![handle_new_mempool_transactions(
-                    &mut self.state.mempool_cache,
-                    txs,
-                )]
+                handle_new_mempool_transactions(&mut self.state.mempool_cache, txs)
             }
             ZmqEvent::MempoolTransactionAdded(t) => {
                 let txid = t.txid();
                 if let Entry::Vacant(_) = self.state.mempool_cache.entry(txid) {
                     self.state.mempool_cache.insert(txid, t.clone());
-                    vec![Event::MempoolUpdate {
-                        removed: vec![],
-                        added: vec![t],
-                    }]
+                    vec![Event::MempoolInsert(vec![t])]
                 } else {
                     vec![]
                 }
             }
             ZmqEvent::MempoolTransactionRemoved(txid) => {
                 if self.state.mempool_cache.shift_remove(&txid).is_some() {
-                    vec![Event::MempoolUpdate {
-                        removed: vec![txid],
-                        added: vec![],
-                    }]
+                    vec![Event::MempoolRemove(vec![txid])]
                 } else {
                     vec![]
                 }
             }
             ZmqEvent::BlockDisconnected(block_hash) => {
                 if self.state.mode == Mode::Zmq {
-                    vec![Event::Rollback(BlockId::Hash(block_hash))]
+                    vec![Event::BlockRemove(BlockId::Hash(block_hash))]
                 } else {
                     vec![]
                 }
@@ -224,7 +215,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         Ok(events)
     }
 
-    pub async fn seek(
+    pub async fn start(
         &mut self,
         start_height: u64,
         option_last_hash: Option<BlockHash>,
@@ -247,7 +238,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                     start_height, last_hash, block_hash
                 );
 
-                return Ok(vec![Event::Rollback(BlockId::Height(start_height - 2))]);
+                return Ok(vec![Event::BlockRemove(BlockId::Height(start_height - 2))]);
             }
         }
 
@@ -264,21 +255,21 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         Ok(vec![])
     }
 
-    pub async fn handle_seek(&mut self, msg: SeekMessage<T>) -> Result<Vec<Event<T>>> {
+    pub async fn handle_start(&mut self, msg: StartMessage<T>) -> Result<Vec<Event<T>>> {
         self.event_tx = Some(msg.event_tx);
-        self.seek(msg.start_height, msg.last_hash).await
+        self.start(msg.start_height, msg.last_hash).await
     }
 
-    pub async fn run_event_loop(&mut self, mut ctrl_rx: Receiver<SeekMessage<T>>) {
+    pub async fn run_event_loop(&mut self, mut ctrl_rx: Receiver<StartMessage<T>>) {
         loop {
             let result = select! {
-                option_seek = ctrl_rx.recv() => {
-                    match option_seek {
+                option_start = ctrl_rx.recv() => {
+                    match option_start {
                         Some(msg) => {
-                            self.handle_seek(msg).await
+                            self.handle_start(msg).await
                         },
                         None => {
-                            info!("Received None seek message, exiting");
+                            info!("Received None start message, exiting");
                             return;
                         }
                     }
@@ -337,7 +328,7 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
         }
     }
 
-    pub async fn run(&mut self, ctrl_rx: Receiver<SeekMessage<T>>) {
+    pub async fn run(&mut self, ctrl_rx: Receiver<StartMessage<T>>) {
         self.run_event_loop(ctrl_rx).await;
 
         self.stop_fetcher().await;
@@ -357,18 +348,15 @@ fn handle_block<T: Tx>(
         }
     }
     vec![
-        Event::MempoolUpdate {
-            removed,
-            added: vec![],
-        },
-        Event::Block((target_height, block)),
+        Event::MempoolRemove(removed),
+        Event::BlockInsert((target_height, block)),
     ]
 }
 
 pub fn handle_new_mempool_transactions<T: Tx>(
     mempool_cache: &mut IndexMap<Txid, T>,
     txs: Vec<T>,
-) -> Event<T> {
+) -> Vec<Event<T>> {
     let new_mempool_cache: IndexMap<Txid, T> = txs.into_iter().map(|t| (t.txid(), t)).collect();
     let new_mempool_cache_txids: IndexSet<Txid> = new_mempool_cache.keys().cloned().collect();
     let mempool_cache_txids: IndexSet<Txid> = mempool_cache.keys().cloned().collect();
@@ -387,5 +375,13 @@ pub fn handle_new_mempool_transactions<T: Tx>(
         .collect();
 
     *mempool_cache = new_mempool_cache;
-    Event::MempoolUpdate { removed, added }
+
+    let mut events = vec![];
+    if !removed.is_empty() {
+        events.push(Event::MempoolRemove(removed));
+    }
+    if !added.is_empty() {
+        events.push(Event::MempoolInsert(added));
+    }
+    events
 }

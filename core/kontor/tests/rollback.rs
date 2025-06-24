@@ -14,7 +14,7 @@ use kontor::{
         events::Event,
         events::{BlockId, ZmqEvent},
         info, reconciler, rpc,
-        seek::{SeekChannel, SeekMessage},
+        ctrl::{CtrlChannel, StartMessage},
     },
     block::{Block, Tx},
     config::Config,
@@ -215,7 +215,7 @@ async fn test_follower_reactor_fetching() -> Result<()> {
     let mut handles = vec![];
 
     let info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::create();
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();
@@ -283,7 +283,7 @@ async fn test_follower_reactor_fetching() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
+async fn test_follower_reactor_rollback_during_start() -> Result<()> {
     let cancel_token = CancellationToken::new();
     let (reader, writer, _temp_dir) = new_test_db(&Config::try_parse()?).await?;
 
@@ -316,7 +316,7 @@ async fn test_follower_reactor_rollback_during_seek() -> Result<()> {
     let mut handles = vec![];
 
     let info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::create();
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();
@@ -422,7 +422,7 @@ async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
     let mut handles = vec![];
 
     let mut info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::create();
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();
@@ -557,7 +557,7 @@ async fn test_follower_handle_control_signal() -> Result<()> {
         reconciler::Reconciler::new(cancel_token.clone(), info.clone(), fetcher, rpc_rx, zmq_rx);
     let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_seek(SeekMessage {
+        .handle_start(StartMessage {
             start_height: 3,
             last_hash: None,
             event_tx,
@@ -578,14 +578,14 @@ async fn test_follower_handle_control_signal() -> Result<()> {
         reconciler::Reconciler::new(cancel_token.clone(), info.clone(), fetcher, rpc_rx, zmq_rx);
     let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_seek(SeekMessage {
+        .handle_start(StartMessage {
             start_height: 3,
             last_hash: Some(BlockHash::from_byte_array([0x00; 32])), // not matching
             event_tx,
         })
         .await
         .unwrap();
-    assert_eq!(res, vec![Event::Rollback(BlockId::Height(1))]);
+    assert_eq!(res, vec![Event::BlockRemove(BlockId::Height(1))]);
     assert!(!rec.fetcher.running());
 
     // start-up at block height 3 with matching hash for last block at 2
@@ -596,7 +596,7 @@ async fn test_follower_handle_control_signal() -> Result<()> {
         reconciler::Reconciler::new(cancel_token.clone(), info.clone(), fetcher, rpc_rx, zmq_rx);
     let (event_tx, _event_rx) = mpsc::channel(1);
     let res = rec
-        .handle_seek(SeekMessage {
+        .handle_start(StartMessage {
             start_height: 3,
             last_hash: Some(blocks[2 - 1].hash),
             event_tx,
@@ -637,7 +637,7 @@ async fn test_follower_reactor_rollback_zmq_message_multiple_blocks() -> Result<
     let mut handles = vec![];
 
     let mut info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::create();
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();
@@ -757,7 +757,7 @@ async fn test_follower_reactor_rollback_zmq_message_redundant_messages() -> Resu
     let mut handles = vec![];
 
     let mut info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::create();
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();

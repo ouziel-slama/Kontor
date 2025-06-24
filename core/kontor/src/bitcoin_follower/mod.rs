@@ -13,12 +13,12 @@ use tracing::{error, info};
 
 use crate::{bitcoin_client::client::BitcoinRpc, block::Tx};
 
+pub mod ctrl;
 pub mod events;
 pub mod info;
 pub mod messages;
 pub mod reconciler;
 pub mod rpc;
-pub mod seek;
 pub mod zmq;
 
 async fn zmq_runner<T: Tx + 'static, C: BitcoinRpc>(
@@ -66,7 +66,7 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
     cancel_token: CancellationToken,
     bitcoin: C,
     f: fn(Transaction) -> Option<T>,
-    ctrl_rx: Receiver<seek::SeekMessage<T>>,
+    ctrl_rx: Receiver<ctrl::StartMessage<T>>,
 ) -> Result<JoinHandle<()>> {
     let info = info::Info::new(cancel_token.clone(), bitcoin.clone());
 

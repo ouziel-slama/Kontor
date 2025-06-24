@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     bitcoin_follower::{
         events::{BlockId, Event},
-        seek::SeekChannel,
+        ctrl::CtrlChannel,
     },
     block::{Block, Tx},
     database::{
@@ -27,7 +27,7 @@ struct Reactor<T: Tx + 'static> {
     reader: database::Reader,
     writer: database::Writer,
     cancel_token: CancellationToken, // currently not used due to relaxed error handling
-    ctrl: SeekChannel<T>,
+    ctrl: CtrlChannel<T>,
     event_rx: Option<Receiver<Event<T>>>,
 
     last_height: u64,
@@ -39,7 +39,7 @@ impl<T: Tx + 'static> Reactor<T> {
         starting_block_height: u64,
         reader: database::Reader,
         writer: database::Writer,
-        ctrl: SeekChannel<T>,
+        ctrl: CtrlChannel<T>,
         cancel_token: CancellationToken,
     ) -> Result<Self> {
         let conn = &*reader.connection().await?;
@@ -103,7 +103,7 @@ impl<T: Tx + 'static> Reactor<T> {
         match self
             .ctrl
             .clone()
-            .seek(self.last_height + 1, self.option_last_hash)
+            .start(self.last_height + 1, self.option_last_hash)
             .await
         {
             Ok(event_rx) => {
@@ -116,7 +116,7 @@ impl<T: Tx + 'static> Reactor<T> {
                 Ok(())
             }
             Err(e) => {
-                bail!("Failed to execute seek: {}", e);
+                bail!("Failed to execute start: {}", e);
             }
         }
     }
@@ -187,12 +187,12 @@ impl<T: Tx + 'static> Reactor<T> {
         let rx = match self
             .ctrl
             .clone()
-            .seek(self.last_height + 1, self.option_last_hash)
+            .start(self.last_height + 1, self.option_last_hash)
             .await
         {
             Ok(rx) => rx,
             Err(e) => {
-                bail!("initial seek failed: {}", e);
+                bail!("initial start failed: {}", e);
             }
         };
 
@@ -215,20 +215,22 @@ impl<T: Tx + 'static> Reactor<T> {
                     match option_event {
                         Some(event) => {
                             match event {
-                                Event::Block((target_height, block)) => {
+                                Event::BlockInsert((target_height, block)) => {
                                     info!("Block {}/{} {}", block.height,
                                           target_height, block.hash);
                                     self.handle_block(block).await?;
                                 },
-                                Event::Rollback(BlockId::Height(height)) => {
+                                Event::BlockRemove(BlockId::Height(height)) => {
                                     self.rollback(height).await?;
                                 },
-                                Event::Rollback(BlockId::Hash(block_hash)) => {
+                                Event::BlockRemove(BlockId::Hash(block_hash)) => {
                                     self.rollback_hash(block_hash).await?;
                                 },
-                                Event::MempoolUpdate {removed, added} => {
-                                    debug!("MempoolUpdates removed {} added {}",
-                                           removed.len(), added.len());
+                                Event::MempoolRemove(removed) => {
+                                    debug!("MempoolRemove {}", removed.len());
+                                },
+                                Event::MempoolInsert(added) => {
+                                    debug!("MempoolInsert {}", added.len());
                                 },
                                 Event::MempoolSet(txs) => {
                                     info!("MempoolSet {}", txs.len());
@@ -257,7 +259,7 @@ pub fn run<T: Tx + 'static>(
     cancel_token: CancellationToken,
     reader: database::Reader,
     writer: database::Writer,
-    ctrl: SeekChannel<T>,
+    ctrl: CtrlChannel<T>,
 ) -> JoinHandle<()> {
     tokio::spawn({
         async move {

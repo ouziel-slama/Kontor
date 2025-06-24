@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
         .await?,
     );
 
-    let (ctrl, ctrl_rx) = bitcoin_follower::seek::SeekChannel::create();
+    let (ctrl, ctrl_rx) = bitcoin_follower::ctrl::CtrlChannel::create();
 
     handles.push(
         bitcoin_follower::run(

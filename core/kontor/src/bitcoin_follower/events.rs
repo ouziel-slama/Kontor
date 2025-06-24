@@ -21,8 +21,9 @@ pub enum BlockId {
 
 #[derive(Debug, PartialEq)]
 pub enum Event<T: Tx> {
-    MempoolUpdate { removed: Vec<Txid>, added: Vec<T> },
     MempoolSet(Vec<T>),
-    Block((u64, Block<T>)),
-    Rollback(BlockId),
+    MempoolInsert(Vec<T>),
+    MempoolRemove(Vec<Txid>),
+    BlockInsert((u64, Block<T>)),
+    BlockRemove(BlockId),
 }

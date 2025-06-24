@@ -8,11 +8,11 @@ use bitcoin::{self, BlockHash, hashes::Hash};
 
 use kontor::{
     bitcoin_follower::{
+        ctrl::CtrlChannel,
         events::{BlockId, Event, ZmqEvent},
         info,
         reconciler::{self},
         rpc,
-        seek::SeekChannel,
     },
     block::{Block, Tx},
     utils::MockTransaction,
@@ -135,7 +135,7 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     let mut blocks = new_block_chain(3);
 
     let info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::<MockTransaction>::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::<MockTransaction>::create();
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();
@@ -156,7 +156,7 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
 
     assert!(zmq_tx.send(ZmqEvent::Connected).is_ok());
 
-    let mut event_rx = ctrl.clone().seek(2, None).await.unwrap();
+    let mut event_rx = ctrl.clone().start(2, None).await.unwrap();
     await_running(&fetcher).await;
     assert_eq!(fetcher.start_height(), 2);
 
@@ -173,7 +173,7 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     let e = event_rx.recv().await.unwrap();
     assert_eq!(e, Event::MempoolSet(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::Block((3, blocks[2 - 1].clone())));
+    assert_eq!(e, Event::BlockInsert((3, blocks[2 - 1].clone())));
 
     assert!(
         rpc_tx
@@ -188,7 +188,7 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     let e = event_rx.recv().await.unwrap();
     assert_eq!(e, Event::MempoolSet(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::Block((3, blocks[3 - 1].clone())));
+    assert_eq!(e, Event::BlockInsert((3, blocks[3 - 1].clone())));
     await_stopped(&fetcher).await; // switched to ZMQ
 
     let more_blocks = gen_blocks(3, 5, blocks[3 - 1].hash);
@@ -203,15 +203,9 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     let e = event_rx.recv().await.unwrap();
     assert_eq!(e, Event::MempoolSet(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(
-        e,
-        Event::MempoolUpdate {
-            removed: vec![],
-            added: vec![]
-        }
-    );
+    assert_eq!(e, Event::MempoolRemove(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::Block((4, blocks[4 - 1].clone())));
+    assert_eq!(e, Event::BlockInsert((4, blocks[4 - 1].clone())));
 
     assert!(
         zmq_tx
@@ -220,15 +214,9 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     );
 
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(
-        e,
-        Event::MempoolUpdate {
-            removed: vec![],
-            added: vec![]
-        }
-    );
+    assert_eq!(e, Event::MempoolRemove(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::Block((5, blocks[5 - 1].clone())));
+    assert_eq!(e, Event::BlockInsert((5, blocks[5 - 1].clone())));
 
     cancel_token.cancel();
     let _ = handle.await;
@@ -242,7 +230,7 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
     let mut blocks = new_block_chain::<MockTransaction>(3);
 
     let info = MockInfo::new(blocks.clone());
-    let (ctrl, ctrl_rx) = SeekChannel::<MockTransaction>::create();
+    let (ctrl, ctrl_rx) = CtrlChannel::<MockTransaction>::create();
 
     let (_rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = MockFetcher::new();
@@ -263,7 +251,7 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
 
     let mut event_rx = ctrl
         .clone()
-        .seek(4, Some(blocks[3 - 1].hash))
+        .start(4, Some(blocks[3 - 1].hash))
         .await
         .unwrap();
     await_running(&fetcher).await;
@@ -284,15 +272,9 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
     let e = event_rx.recv().await.unwrap();
     assert_eq!(e, Event::MempoolSet(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(
-        e,
-        Event::MempoolUpdate {
-            removed: vec![],
-            added: vec![]
-        }
-    );
+    assert_eq!(e, Event::MempoolRemove(vec![]));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::Block((4, blocks[4 - 1].clone())));
+    assert_eq!(e, Event::BlockInsert((4, blocks[4 - 1].clone())));
 
     assert!(
         zmq_tx
@@ -301,7 +283,7 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
     );
 
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::Rollback(BlockId::Hash(blocks[2 - 1].hash)));
+    assert_eq!(e, Event::BlockRemove(BlockId::Hash(blocks[2 - 1].hash)));
 
     cancel_token.cancel();
     let _ = handle.await;
