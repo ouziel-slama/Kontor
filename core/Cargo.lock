@@ -2191,7 +2191,7 @@ dependencies = [
  "futures-util",
  "hex",
  "indexmap 2.9.0",
- "kontor_macro",
+ "kontor-macro",
  "libsql",
  "lru",
  "proptest",
@@ -2202,6 +2202,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
+ "sha2",
  "stdlib",
  "tempfile",
  "thiserror 2.0.12",
@@ -2219,7 +2220,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kontor_macro"
+name = "kontor-macro"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",

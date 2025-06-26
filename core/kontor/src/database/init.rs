@@ -17,14 +17,13 @@ const LIB_FILE_EXT: &str = "dylib";
 #[cfg(target_os = "linux")]
 const LIB_FILE_EXT: &str = "so";
 
-pub const CREATE_BLOCKS_TABLE: &str = "
-    CREATE TABLE IF NOT EXISTS blocks (
-        height INTEGER PRIMARY KEY,
-        hash TEXT NOT NULL
-    )";
+pub const CREATE_SCHEMA: &str = include_str!("sql/schema.sql");
+pub const CREATE_CONTRACT_STATE_TRIGGER: &str = include_str!("sql/checkpoint_trigger.sql");
 
 pub async fn initialize_database(config: &Config, conn: &libsql::Connection) -> Result<(), Error> {
-    conn.execute(CREATE_BLOCKS_TABLE, ()).await?;
+    conn.query("PRAGMA foreign_keys = ON;", ()).await?;
+    conn.execute_batch(CREATE_SCHEMA).await?;
+    conn.execute(CREATE_CONTRACT_STATE_TRIGGER, ()).await?;
     conn.query("PRAGMA journal_mode = WAL;", ()).await?;
     conn.query("PRAGMA synchronous = NORMAL;", ()).await?;
     let p = config.data_dir.join(format!("crypto.{}", LIB_FILE_EXT));

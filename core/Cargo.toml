@@ -2,6 +2,9 @@
 members = ["stdlib", "kontor", "macro", "ui"]
 resolver = "2"
 
+[workspace.lints.clippy]
+new_without_default = "allow"
+
 [workspace.dependencies]
 anyhow = "1"
 axum = { version = "0.8", features = ["http2", "ws"] }

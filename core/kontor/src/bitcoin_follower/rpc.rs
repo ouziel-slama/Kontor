@@ -195,7 +195,7 @@ pub fn run_processor<T: Tx + 'static>(
                                 );
                             },
                             None => {
-                                info!("Procesor received None message, exiting");
+                                info!("Processor received None message, exiting");
                                 break;
                             },
                         }
@@ -326,5 +326,25 @@ impl<T: Tx + 'static, C: BitcoinRpc> Fetcher<T, C> {
         }
         info!("Exited");
         Ok(())
+    }
+}
+
+pub trait BlockFetcher {
+    fn running(&self) -> bool;
+    fn start(&mut self, start_height: u64);
+    fn stop(&mut self) -> impl Future<Output = Result<()>>;
+}
+
+impl<T: Tx + 'static, C: BitcoinRpc> BlockFetcher for Fetcher<T, C> {
+    fn running(&self) -> bool {
+        self.running()
+    }
+
+    fn start(&mut self, start_height: u64) {
+        self.start(start_height);
+    }
+
+    async fn stop(&mut self) -> Result<()> {
+        self.stop().await
     }
 }

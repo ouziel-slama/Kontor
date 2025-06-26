@@ -14,9 +14,16 @@ pub enum ZmqEvent<T: Tx> {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum BlockId {
+    Height(u64),
+    Hash(BlockHash),
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Event<T: Tx> {
-    MempoolUpdate { removed: Vec<Txid>, added: Vec<T> },
     MempoolSet(Vec<T>),
-    Block((u64, Block<T>)),
-    Rollback(u64),
+    MempoolInsert(Vec<T>),
+    MempoolRemove(Vec<Txid>),
+    BlockInsert((u64, Block<T>)),
+    BlockRemove(BlockId),
 }

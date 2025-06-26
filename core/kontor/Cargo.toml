@@ -3,8 +3,11 @@ name = "kontor"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
-kontor_macro = { path = "../macro" }
+kontor-macro = { path = "../macro" }
 stdlib = { path = "../stdlib" }
 
 anyhow = { workspace = true }
@@ -51,4 +54,5 @@ wit-component = { workspace = true }
 lru = { workspace = true }
 
 [dev-dependencies]
+sha2 = "0.10.9"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
