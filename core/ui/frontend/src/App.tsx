@@ -93,8 +93,7 @@ interface LeatherAddressEntry {
 
 interface ComposeAddressEntry {
   address: string;
-  publicKey: string;
-  compressedPublicKey?: string; // For OKX Wallet
+  xOnlyPublicKey: string;
 }
 
 interface Utxo {
@@ -185,7 +184,7 @@ async function composeTransactionOnApi(
   const fundingUtxoIds = utxos
     .map((utxo) => `${utxo.txid}:${utxo.vout}`)
     .join(",");
-  const url = `${kontorUrl}/compose?address=${address.address}&x_only_public_key=${address.publicKey}&funding_utxo_ids=${fundingUtxoIds}&sat_per_vbyte=2&script_data=${base64EncodedData}`;
+  const url = `${kontorUrl}/compose?address=${address.address}&x_only_public_key=${address.xOnlyPublicKey}&funding_utxo_ids=${fundingUtxoIds}&sat_per_vbyte=2&script_data=${base64EncodedData}`;
 
   const response = await fetch(url);
   const data = await response.json();
@@ -300,6 +299,84 @@ async function signPsbtWithLeather(
   return tx.toHex();
 }
 
+async function signPsbtWithOKX(
+  psbtHex: string,
+  scriptLeafData?: TapLeafScript
+): Promise<string> {
+  if (!window.okxwallet) {
+    throw new Error("OKX Wallet not available");
+  }
+
+  const psbt = bitcoin.Psbt.fromHex(psbtHex);
+
+  if (scriptLeafData) {
+    psbt.updateInput(0, {
+      tapLeafScript: [
+        {
+          leafVersion: scriptLeafData.leafVersion,
+          script: Buffer.from(scriptLeafData.script, "hex"),
+          controlBlock: Buffer.from(scriptLeafData.controlBlock, "hex"),
+        },
+      ],
+    });
+  }
+
+  const options: any = {};
+
+  // For script spend, disable tweak signer to use original private key
+  if (scriptLeafData) {
+    options.disableTweakSigner = true;
+  }
+
+  try {
+    const signedPsbtHex = await window.okxwallet.bitcoin.signPsbt(
+      psbt.toHex(),
+      options
+    );
+
+    const signedPsbt = bitcoin.Psbt.fromHex(signedPsbtHex);
+
+    // Manually create witness for all inputs
+    for (let i = 0; i < signedPsbt.inputCount; i++) {
+      const input = signedPsbt.data.inputs[i];
+
+      if (input.tapKeySig && !scriptLeafData) {
+        // Key spend: create witness with just the signature
+        signedPsbt.updateInput(i, {
+          finalScriptWitness: Buffer.concat([
+            Buffer.from([input.tapKeySig.length]),
+            input.tapKeySig,
+          ]),
+        });
+      } else if (input.tapScriptSig && scriptLeafData) {
+        // Script spend: create witness with signature + script + control block
+        const scriptSig = input.tapScriptSig[0];
+        signedPsbt.updateInput(i, {
+          finalScriptWitness: Buffer.concat([
+            Buffer.from([scriptSig.signature.length]),
+            scriptSig.signature,
+            Buffer.from([Buffer.from(scriptLeafData.script, "hex").length]),
+            Buffer.from(scriptLeafData.script, "hex"),
+            Buffer.from([
+              Buffer.from(scriptLeafData.controlBlock, "hex").length,
+            ]),
+            Buffer.from(scriptLeafData.controlBlock, "hex"),
+          ]),
+        });
+      }
+    }
+
+    const tx = signedPsbt.extractTransaction();
+    return tx.toHex();
+  } catch (err) {
+    throw new Error(
+      `OKX signing failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+}
+
 async function signPsbt(
   psbtHex: string,
   sourceAddress: string,
@@ -321,6 +398,8 @@ async function signPsbt(
         provider,
         scriptLeafData
       );
+    case PROVIDER_ID_OKX:
+      return signPsbtWithOKX(psbtHex, scriptLeafData);
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -443,12 +522,10 @@ const ComposeResultDisplay: React.FC<{ composeResult: ComposeResult }> = ({
 );
 
 const Composer: React.FC<{
-  address: ComposeAddressEntry;
-  utxos: Utxo[];
   inputData: string;
   setInputData: (d: string) => void;
   onCompose: () => void;
-}> = ({ address, utxos, inputData, setInputData, onCompose }) => (
+}> = ({ inputData, setInputData, onCompose }) => (
   <div className="compose-section">
     <div className="input-container">
       <input
@@ -554,7 +631,7 @@ function WalletComponent() {
         if (accounts.length > 0) {
           const paymentAddress: ComposeAddressEntry = {
             address: accounts[0],
-            publicKey,
+            xOnlyPublicKey: publicKey,
           };
           setAddress(paymentAddress);
           handleFetchUtxos(paymentAddress.address);
@@ -571,14 +648,11 @@ function WalletComponent() {
 
     if (provider === PROVIDER_ID_OKX && window.okxwallet) {
       try {
-        const res = await window.okxwallet.bitcoin.connect();
-        console.log("res", res);
-        const { address, publicKey, compressedPublicKey } = res;
+        const { address, publicKey } = await window.okxwallet.bitcoin.connect();
 
         const paymentAddress: ComposeAddressEntry = {
           address,
-          publicKey,
-          compressedPublicKey,
+          xOnlyPublicKey: publicKey,
         };
         setAddress(paymentAddress);
         handleFetchUtxos(paymentAddress.address);
@@ -635,7 +709,7 @@ function WalletComponent() {
         if (paymentAddress) {
           const composeAddress: ComposeAddressEntry = {
             address: paymentAddress.address,
-            publicKey:
+            xOnlyPublicKey:
               (paymentAddress as LeatherAddressEntry).tweakedPublicKey ||
               paymentAddress.publicKey,
           };
@@ -693,23 +767,21 @@ function WalletComponent() {
       bitcoin.initEccLib(ecc);
       ECPairFactory(ecc);
 
-      console.log("signing commit");
       const commitSignResult = await signPsbt(
         composeResult.commit_psbt_hex,
         address.address,
         provider
       );
-      console.log("signing reveal");
+
       const revealSignResult = await signPsbt(
         composeResult.reveal_psbt_hex,
         address.address,
-        provider
+        provider,
+        composeResult.tap_leaf_script
       );
-      console.log("signing done");
 
       setSignedTx([commitSignResult, revealSignResult].join(","));
     } catch (err) {
-      console.log("signTransaction err", err);
       setError(
         err instanceof Error
           ? `Failed to sign transaction: ${err.message}`
@@ -724,7 +796,6 @@ function WalletComponent() {
     try {
       const result = await broadcastTransactionOnApi(signedTx);
       setBroadcastedTx(result);
-      console.log("broadcastedTx", result);
     } catch (err) {
       setError(
         err instanceof Error
@@ -752,8 +823,6 @@ function WalletComponent() {
 
       {!composeResult && address && utxos.length > 0 && (
         <Composer
-          address={address}
-          utxos={utxos}
           inputData={inputData}
           setInputData={setInputData}
           onCompose={handleCompose}
