@@ -77,12 +77,8 @@ impl ForeignHostRep {
             return Ok(results[0].to_wave()?);
         }
         
-        // Multiple results as tuple
-        let mut encoded_results = Vec::with_capacity(results.len());
-        for val in &results {
-            encoded_results.push(val.to_wave()?);
-        }
-        Ok(format!("{}", encoded_results.join(", ")))
+        // Multiple results are not supported
+        Err(anyhow!("Functions with multiple return values are not supported"))
     }
 }
 
