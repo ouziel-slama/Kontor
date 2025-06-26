@@ -10,7 +10,7 @@ use kontor::{
 use tokio::fs::read;
 use wasmtime::{
     Engine, Store,
-    component::{Component, Linker, Val, wasm_wave::parser::Parser as WaveParser},
+    component::{Component, HasSelf, Linker, Val, wasm_wave::parser::Parser as WaveParser},
 };
 use wit_component::ComponentEncoder;
 
@@ -31,7 +31,7 @@ async fn test_fib_contract() -> Result<()> {
     let host_ctx = Context::new(engine.clone(), storage);
     let mut store = Store::new(&engine, host_ctx);
     let mut linker = Linker::<Context>::new(&engine);
-    Contract::add_to_linker(&mut linker, |s| s)?;
+    Contract::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s)?;
 
     let n = 8;
     let s = format!("fib({})", n);
