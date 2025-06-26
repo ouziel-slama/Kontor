@@ -166,14 +166,19 @@ pub async fn delete_contract_state(
     tx_id: i64,
     contract_id: &str,
     path: &str,
-) -> Result<(), Error> {
-    if let Some(mut row) = get_latest_contract_state(conn, contract_id, path).await? {
-        row.deleted = true;
-        row.height = height;
-        row.tx_id = tx_id;
-        insert_contract_state(conn, row).await?;
-    }
-    Ok(())
+) -> Result<bool, Error> {
+    Ok(
+        match get_latest_contract_state(conn, contract_id, path).await? {
+            Some(mut row) => {
+                row.deleted = true;
+                row.height = height;
+                row.tx_id = tx_id;
+                insert_contract_state(conn, row).await?;
+                true
+            }
+            None => false,
+        },
+    )
 }
 
 pub async fn insert_transaction(conn: &Connection, row: TransactionRow) -> Result<i64, Error> {
