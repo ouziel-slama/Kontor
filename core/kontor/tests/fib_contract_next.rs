@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::Arc;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
@@ -81,73 +80,6 @@ impl stdlib::HostMonoid for HostCtx {
     }
 }
 
-struct SumService {
-    engine: Engine,
-    component: Component,
-}
-
-impl SumService {
-    async fn new(engine: &Engine) -> Result<Arc<Self>> {
-        let path = Path::new("../../contracts/target/wasm32-unknown-unknown/debug/sum.wasm");
-        let module_bytes = read(path).await?;
-        let component_bytes = ComponentEncoder::default()
-            .module(&module_bytes)?
-            .validate(true)
-            .encode()?;
-        let component = Component::from_binary(engine, &component_bytes)?;
-        
-        let service = Arc::new(Self { 
-            engine: engine.clone(),
-            component 
-        });
-        Ok(service)
-    }
-    
-    async fn call_sum(&self, x: u64, y: u64) -> Result<u64> {
-        let host_ctx = HostCtx::new(self.engine.clone());
-        let mut store = Store::new(&self.engine, host_ctx);
-        let mut linker = Linker::<HostCtx>::new(&self.engine);
-        Contract::add_to_linker(&mut linker, |s| s)?;
-        
-        let s = format!("sum({}, {})", x, y);
-        let call = WaveParser::new(&s).parse_raw_func_call()?;
-        
-        let instance = linker.instantiate_async(&mut store, &self.component).await?;
-        
-        let func = instance
-            .get_func(&mut store, call.name())
-            .ok_or_else(|| anyhow::anyhow!("sum function not found in instance"))?;
-        let params = call.to_wasm_params(func.params(&store).iter().map(|(_, t)| t))?;
-        let mut results = func
-            .results(&store)
-            .iter()
-            .map(default_val_for_type)
-            .collect::<Vec<_>>();
-        func.call_async(&mut store, &params, &mut results).await?;
-        
-        match &results[0] {
-            Val::U64(value) => Ok(*value),
-            _ => Err(anyhow::anyhow!("Expected u64 result from sum function")),
-        }
-    }
-}
-
-struct FibCtx {
-    host_ctx: HostCtx,
-    sum_service: Arc<SumService>,
-}
-
-impl FibCtx {
-    async fn new(engine: &Engine) -> Result<Self> {
-        let host_ctx = HostCtx::new(engine.clone());
-        let sum_service = SumService::new(engine).await?;
-        Ok(Self {
-            host_ctx,
-            sum_service,
-        })
-    }
-}
-
 #[tokio::test]
 async fn test_fib_contract() -> Result<()> {
     let mut config = wasmtime::Config::new();
@@ -155,25 +87,10 @@ async fn test_fib_contract() -> Result<()> {
     config.wasm_component_model(true);
     let engine = Engine::new(&config)?;
 
-    let fib_ctx = FibCtx::new(&engine).await?;
-    let mut store = Store::new(&engine, fib_ctx);
-    let mut linker = Linker::<FibCtx>::new(&engine);
-    Contract::add_to_linker(&mut linker, |s| &mut s.host_ctx)?;
-
-    // Add the sum function implementation to the linker using store context
-    linker.root().func_wrap_async(
-        "sum",
-        |store_context: wasmtime::StoreContextMut<'_, FibCtx>,
-         (x, y): (u64, u64)|
-         -> Box<dyn std::future::Future<Output = Result<(u64,), wasmtime::Error>> + Send> {
-            Box::new(async move {
-                let sum_service = store_context.data().sum_service.clone();
-                let result = sum_service.call_sum(x, y).await
-                    .map_err(|e| wasmtime::Error::msg(format!("Sum WASM call failed: {}", e)))?;
-                Ok((result,))
-            })
-        },
-    )?;
+    let host_ctx = HostCtx::new(engine.clone());
+    let mut store = Store::new(&engine, host_ctx);
+    let mut linker = Linker::<HostCtx>::new(&engine);
+    Contract::add_to_linker(&mut linker, |s| s)?;
 
     let n = 8;
     let s = format!("fib({})", n);
