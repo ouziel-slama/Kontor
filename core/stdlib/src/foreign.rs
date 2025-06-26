@@ -22,8 +22,8 @@ impl ForeignHostRep {
         let component = if let Some(cached_component) = component_cache.get(&address) {
             cached_component.clone()
         } else {
-            let full_path = format!("{}{}.wasm", component_dir, address);
-            let path = Path::new(&full_path);        
+            let path_str = format!("{}{}.wasm", component_dir, address);
+            let path = Path::new(&path_str);
             // Check if the file exists
             if !path.exists() {
                 return Err(anyhow!(
