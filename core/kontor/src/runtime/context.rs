@@ -1,4 +1,4 @@
-use super::{storage::Storage, wit::kontor::contract::built_in::Host};
+use super::{storage::Storage, wit::kontor::built_in::storage::Host as StorageHost};
 use anyhow::Result;
 
 pub struct Context {
@@ -11,7 +11,7 @@ impl Context {
     }
 }
 
-impl Host for Context {
+impl StorageHost for Context {
     async fn set(&mut self, key: String, value: Vec<u8>) -> Result<()> {
         self.storage.set(&key, &value).await
     }
