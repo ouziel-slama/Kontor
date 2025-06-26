@@ -9,7 +9,7 @@ struct Contract;
 
 impl Guest for Contract {
     fn fib(n: u64) -> u64 {
-        let foreign = Foreign::new("/Users/spora/opt/Kontor/contracts/target/wasm32-unknown-unknown/debug/sum.wasm");
+        let foreign = Foreign::new("sum");
         match n {
             0 | 1 => n,
             _ => {

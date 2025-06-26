@@ -18,11 +18,12 @@ pub struct ForeignHostRep {
 }
 
 impl ForeignHostRep {
-    pub async fn new(engine: &Engine, component_cache: &mut LruCache<String, Component>, address: String) -> Result<Self> {
+    pub async fn new(engine: &Engine, component_cache: &mut LruCache<String, Component>, component_dir: String, address: String) -> Result<Self> {
         let component = if let Some(cached_component) = component_cache.get(&address) {
             cached_component.clone()
         } else {
-            let path = Path::new(&address);        
+            let full_path = format!("{}{}.wasm", component_dir, address);
+            let path = Path::new(&full_path);        
             // Check if the file exists
             if !path.exists() {
                 return Err(anyhow!(

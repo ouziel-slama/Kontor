@@ -40,7 +40,8 @@ impl stdlib::Host for HostCtx {
 
 impl stdlib::HostForeign for HostCtx {
     async fn new(&mut self, address: String) -> Result<Resource<ForeignHostRep>> {
-        let rep = ForeignHostRep::new(&self.engine, &mut self.component_cache, address).await?;
+        let component_dir = "../../contracts/target/wasm32-unknown-unknown/debug/";
+        let rep = ForeignHostRep::new(&self.engine, &mut self.component_cache, component_dir.to_string(), address).await?;
         Ok(self.table.push(rep)?)
     }
 
