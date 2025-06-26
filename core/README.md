@@ -167,3 +167,8 @@ npm run dev
 ```
 
 Dev server runs at localhost:5173
+
+To build the frontend for release, before merging, in the frontend dir
+```bash
+npm run build
+```

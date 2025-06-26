@@ -14,18 +14,55 @@ import './App.css'
 import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
 
+// --- Constants ---
+const SATS_PER_BTC = 100_000_000;
+const PROVIDER_ID_XVERSE = 'XverseProviders.BitcoinProvider';
+const PROVIDER_ID_LEATHER = 'LeatherProvider';
+const PROVIDER_ID_UNISAT = 'unisat';
+const ADDRESS_TYPE_P2TR = 'p2tr';
+
+const electrsUrl = import.meta.env.VITE_ELECTRS_URL;
+const kontorUrl = import.meta.env.VITE_KONTOR_URL;
+
+// --- Types ---
+interface UnisatProvider {
+  requestAccounts(): Promise<string[]>;
+  getAccounts(): Promise<string[]>;
+  getPublicKey(): Promise<string>;
+  getBalance(): Promise<{ confirmed: number; unconfirmed: number; total: number }>;
+  signPsbt(psbtHex: string, options?: any): Promise<string>;
+  getNetwork(): Promise<string>;
+}
+
+declare global {
+  interface Window {
+    unisat?: UnisatProvider;
+  }
+}
+
 interface Provider {
   id: string;
   name: string;
   icon: string;
 }
 
-interface ExtendedAddressEntry {
+interface XverseAddressEntry {
   address: string
   publicKey: string
   purpose: AddressPurpose
   addressType: string
+}
+
+interface LeatherAddressEntry {
+  address: string
+  publicKey: string
   type: string
+  tweakedPublicKey: string
+}
+
+interface ComposeAddressEntry {
+  address: string
+  publicKey: string
 }
 
 interface Utxo {
@@ -90,6 +127,7 @@ interface TestMempoolAcceptResultWrapper {
   result: TestMempoolAcceptResult[]
 }
 
+// --- Helper Functions ---
 const convertKebabToSnake = (obj: Record<string, any>): Record<string, any> => {
   return Object.entries(obj).reduce((acc, [key, value]) => {
     const snakeKey = key.replace(/-([a-z])/g, (_, letter) => `_${letter}`);
@@ -98,14 +136,37 @@ const convertKebabToSnake = (obj: Record<string, any>): Record<string, any> => {
   }, {} as Record<string, any>);
 };
 
+async function fetchUtxosFromApi(address: string): Promise<Utxo[]> {
+  const response = await fetch(`${electrsUrl}/address/${address}/utxo`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch UTXOs');
+  }
+  return response.json();
+}
 
+async function composeTransactionOnApi(address: ComposeAddressEntry, utxos: Utxo[], inputData: string): Promise<ComposeResult> {
+  const base64EncodedData = btoa(inputData || '');
+  const fundingUtxoIds = utxos.map(utxo => `${utxo.txid}:${utxo.vout}`).join(',');
+  const url = `${kontorUrl}/compose?address=${address.address}&x_only_public_key=${address.publicKey}&funding_utxo_ids=${fundingUtxoIds}&sat_per_vbyte=2&script_data=${base64EncodedData}`;
 
-async function signPsbt(
-  psbtHex: string,
-  sourceAddress: string,
-  provider: string,
-  scriptLeafData?: TapLeafScript
-): Promise<string> {
+  const response = await fetch(url);
+  const data = await response.json();
+  if (data.error) {
+    throw new Error(data.error);
+  }
+  return data.result;
+}
+
+async function broadcastTransactionOnApi(signedTx: string): Promise<TestMempoolAcceptResult[]> {
+  const response = await fetch(`${kontorUrl}/api/test_mempool_accept?txs=${signedTx}`);
+  const rawData = await response.json();
+  const convertedData: TestMempoolAcceptResultWrapper = {
+    result: rawData.result.map((item: any) => convertKebabToSnake(item))
+  };
+  return convertedData.result;
+}
+
+async function signPsbt(psbtHex: string, sourceAddress: string, provider: string, scriptLeafData?: TapLeafScript): Promise<string> {
   const psbt = bitcoin.Psbt.fromHex(psbtHex);
 
   if (scriptLeafData) {
@@ -116,36 +177,175 @@ async function signPsbt(
           leafVersion: scriptLeafData.leafVersion,
           script: Buffer.from(scriptLeafData.script, 'hex'),
           controlBlock: Buffer.from(scriptLeafData.controlBlock, 'hex')
-        }
-        ]
+        }]
       }
     )
   }
 
+  const commonSignOptions = {
+    broadcast: false,
+    signInputs: { [sourceAddress]: Array.from({ length: psbt.txInputs.length }, (_, i) => i) },
+  };
+
+  const payload = provider === PROVIDER_ID_LEATHER
+    ? { ...commonSignOptions, hex: psbt.toHex() }
+    : { ...commonSignOptions, psbt: psbt.toBase64() };
+
   const res = await satsConnectRequest(
     'signPsbt',
-    {
-      psbt: psbt.toBase64(),
-      broadcast: false,
-      signInputs: { [sourceAddress]: Array.from({ length: psbt.txInputs.length }, (_, i) => i) },
-    },
+    payload as any,
     provider
   );
 
   if (res.status === 'error') {
-    throw new Error(`Signing failed: ${res.error || 'Unknown error'}`);
+    throw new Error(`Signing failed: ${res.error?.message || 'Unknown error'}`);
   }
 
-  const signedPsbt = bitcoin.Psbt.fromBase64(res.result.psbt);
+  const signedPsbt = provider === PROVIDER_ID_LEATHER
+    ? bitcoin.Psbt.fromHex((res.result as any).hex)
+    : bitcoin.Psbt.fromBase64(res.result.psbt);
+
   signedPsbt.finalizeAllInputs();
   const tx = signedPsbt.extractTransaction();
-
   return tx.toHex();
 }
 
+// --- UI Components ---
 
+const ErrorMessage: React.FC<{ error: string }> = ({ error }) => {
+  if (!error) return null;
+  return <p className="error">{error}</p>;
+};
+
+const ProviderSelector: React.FC<{ provider: string; setProvider: (p: string) => void; availableProviders: Provider[] }> = ({ provider, setProvider, availableProviders }) => {
+  if (availableProviders.length === 0) return null;
+  return (
+    <div>
+      <label htmlFor="provider-select">Choose a wallet provider: </label>
+      <select id="provider-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
+        {availableProviders.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+    </div>
+  );
+};
+
+const AddressInfo: React.FC<{ address: ComposeAddressEntry; utxos: Utxo[] }> = ({ address, utxos }) => (
+  <div className="addresses">
+    <h2>Your Taproot Address:</h2>
+    <ul><li>{address.address}</li></ul>
+    {utxos.length > 0 && (
+      <div className="utxos">
+        <h3>UTXOs:</h3>
+        <ul>
+          {utxos.map((utxo, index) => (
+            <li key={index}>
+              <strong>TXID:</strong> {utxo.txid}<br />
+              <strong>Vout:</strong> {utxo.vout}<br />
+              <strong>Value:</strong> {utxo.value / SATS_PER_BTC} BTC<br />
+              <strong>Status:</strong> {utxo.status.confirmed ? 'Confirmed' : 'Unconfirmed'}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </div>
+);
+
+const TransactionDetails: React.FC<{ tx: Transaction, title: string }> = ({ tx, title }) => (
+  <>
+    <h3>{title}:</h3>
+    <div className="transaction-details">
+      <p><strong>Version:</strong> {tx.version}</p>
+      <p><strong>Lock Time:</strong> {tx.lock_time}</p>
+      <h4>Inputs:</h4>
+      <ul>
+        {tx.input.map((input, index) => (
+          <li key={index}>
+            <strong>Previous Output:</strong> {input.previous_output}<br />
+            <strong>Sequence:</strong> {input.sequence}
+          </li>
+        ))}
+      </ul>
+      <h4>Outputs:</h4>
+      <ul>
+        {tx.output.map((output, index) => (
+          <li key={index}>
+            <strong>Script Pubkey:</strong> {output.script_pubkey}<br />
+            <strong>Value:</strong> {output.value / SATS_PER_BTC} BTC
+          </li>
+        ))}
+      </ul>
+    </div>
+  </>
+);
+
+const ComposeResultDisplay: React.FC<{ composeResult: ComposeResult }> = ({ composeResult }) => (
+  <div className="transactions">
+    <TransactionDetails tx={composeResult.commit_transaction} title="Commit Transaction" />
+    <TransactionDetails tx={composeResult.reveal_transaction} title="Reveal Transaction" />
+    <h3>Tap Script:</h3>
+    <p className="tap-script">{composeResult.tap_script}</p>
+  </div>
+);
+
+const Composer: React.FC<{ address: ComposeAddressEntry, utxos: Utxo[], inputData: string; setInputData: (d: string) => void; onCompose: () => void; }> =
+  ({ address, utxos, inputData, setInputData, onCompose }) => (
+    <div className="compose-section">
+      <div className="input-container">
+        <input
+          type="text"
+          value={inputData}
+          onChange={(e) => setInputData(e.target.value)}
+          placeholder="Enter data to encode"
+          className="data-input"
+          style={{ width: '100%', padding: '12px', marginBottom: '16px', fontSize: '16px', borderRadius: '4px', border: '1px solid #ccc' }}
+        />
+      </div>
+      <button onClick={onCompose}>Compose Commit/Reveal Transactions</button>
+    </div>
+  );
+
+const Signer: React.FC<{ signedTx: string, onSign: () => void, onBroadcast: () => void }> = ({ signedTx, onSign, onBroadcast }) => (
+  <div className="sign-transaction">
+    <button onClick={onSign}>Sign Transactions</button>
+    {signedTx && (
+      <>
+        <div className="signed-transaction">
+          <h3>Signed Transactions (Commit, Reveal):</h3>
+          <p className="tx-hex">{signedTx}</p>
+        </div>
+        <button onClick={onBroadcast}>Broadcast Transactions</button>
+      </>
+    )}
+  </div>
+);
+
+const BroadcastResultDisplay: React.FC<{ broadcastedTx: TestMempoolAcceptResult[] }> = ({ broadcastedTx }) => {
+  if (broadcastedTx.length === 0) return null;
+  return (
+    <div className="broadcasted-transaction">
+      <h3>Broadcasted Transaction Result:</h3>
+      <ul>
+        {broadcastedTx.map((tx, index) => (
+          <li key={index}>
+            <strong>TXID:</strong> {tx.txid}
+            <p>Allowed: {tx.allowed ? 'Yes' : 'No'}</p>
+            {tx.reject_reason && <p>Reject Reason: {tx.reject_reason}</p>}
+            {tx.vsize && <p>Vsize: {tx.vsize}</p>}
+            {tx.fee && <p>Fee: {tx.fee}</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+
+// --- Main Wallet Component ---
 function WalletComponent() {
-  const [address, setAddress] = useState<ExtendedAddressEntry | undefined>()
+  const [address, setAddress] = useState<ComposeAddressEntry | undefined>()
   const [utxos, setUtxos] = useState<Utxo[]>([])
   const [composeResult, setComposeResult] = useState<ComposeResult | undefined>()
   const [error, setError] = useState<string>('')
@@ -157,8 +357,11 @@ function WalletComponent() {
 
   useEffect(() => {
     const providers = getProviders();
-    console.log('providers>>>>>', providers)
-    if (providers && providers.length > 0) {
+    if (window.unisat && !providers.find(p => p.id === PROVIDER_ID_UNISAT)) {
+      providers.push({ id: PROVIDER_ID_UNISAT, name: 'UniSat', icon: '' });
+    }
+
+    if (providers?.length > 0) {
       setAvailableProviders(providers);
       if (!provider) {
         setProvider(providers[0].id);
@@ -167,281 +370,137 @@ function WalletComponent() {
   }, [provider]);
 
   const handleGetAddresses = async () => {
-    try {
-      console.log('provider', provider)
-      let response = await satsConnectRequest(
-        'getAddresses',
-        {
-          purposes: [AddressPurpose.Payment, AddressPurpose.Ordinals, AddressPurpose.Stacks],
-        },
-        provider
-      );
-      console.log('get addresses response', response)
-      if (response.status === 'error' && response.error.code === RpcErrorCode.INTERNAL_ERROR) {
-        throw new Error('Please sign in to your wallet to continue.');
-      }
-
-      if (response.status === 'error' && response.error.code === RpcErrorCode.ACCESS_DENIED) {
-        const permResponse = await satsConnectRequest('wallet_requestPermissions', undefined, provider);
-        if (permResponse.status === 'error') {
-          throw new Error('User declined connection.');
+    setError('');
+    if (provider === PROVIDER_ID_UNISAT && window.unisat) {
+      try {
+        const accounts = await window.unisat.requestAccounts();
+        const publicKey = await window.unisat.getPublicKey();
+        if (accounts.length > 0) {
+          const paymentAddress: ComposeAddressEntry = { address: accounts[0], publicKey };
+          setAddress(paymentAddress);
+          handleFetchUtxos(paymentAddress.address);
         }
-
-        response = await satsConnectRequest(
-          'getAddresses',
-          {
-            purposes: [AddressPurpose.Payment, AddressPurpose.Ordinals, AddressPurpose.Stacks],
-          },
-          provider
-        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An unknown error occurred with UniSat.');
       }
-
-      console.log('response!!!!!!!!!!!', response)
-
-      if (response.status === 'success') {
-        const paymentAddress = (response.result.addresses as unknown as ExtendedAddressEntry[]).find(
-          addr => {
-            switch (provider) {
-              case 'XverseProviders.BitcoinProvider':
-                return addr.addressType === 'p2tr'
-              case 'LeatherProvider':
-                return addr.type === 'p2tr'
-              default:
-                return addr.purpose === AddressPurpose.Payment
-            }
-          }
-        );
-        if (paymentAddress) {
-          setAddress(paymentAddress)
-          fetchUtxos(paymentAddress);
-        } else {
-          setError('Could not find a payment address.')
-        }
-      } else {
-        setError(response.error.message);
-      }
-    } catch (err) {
-      console.error('Failed to get addresses:', err);
-      setError('Failed to get addresses or UTXOs');
-    }
-  }
-
-  const fetchUtxos = async (paymentAddress: ExtendedAddressEntry) => {
-    const electrsUrl = import.meta.env.VITE_ELECTRS_URL
-    const utxoResponse = await fetch(`${electrsUrl}/address/${paymentAddress.address}/utxo`)
-    if (!utxoResponse.ok) {
-      throw new Error('Failed to fetch UTXOs')
-    }
-    const utxoData = await utxoResponse.json()
-    setUtxos(utxoData)
-  };
-
-
-  const handleCompose = async (address: ExtendedAddressEntry, utxos: Utxo[]) => {
-    if (utxos.length > 0) {
-      const kontorUrl = import.meta.env.VITE_KONTOR_URL
-      const base64EncodedData = btoa(inputData || '')
-      const kontorResponse = await fetch(`${kontorUrl}/compose?address=${address.address}&x_only_public_key=${address.publicKey}&funding_utxo_ids=${utxos.map(utxo => utxo.txid + ':' + utxo.vout).join(',')}&sat_per_vbyte=2&script_data=${base64EncodedData}`)
-      const kontorData = await kontorResponse.json()
-
-      setComposeResult(kontorData.result)
-    }
-  }
-
-
-  const handleSignTransaction = async () => {
-    if (!address || !composeResult || utxos.length === 0) {
-      setError('No address, transaction, or UTXOs to sign');
       return;
     }
 
     try {
-      bitcoin.initEccLib(ecc);
+      const getAddresses = () => satsConnectRequest('getAddresses', { purposes: [AddressPurpose.Payment, AddressPurpose.Ordinals, AddressPurpose.Stacks] }, provider);
+      let response = await getAddresses();
 
-      ECPairFactory(ecc);
+      if (response.status === 'error') {
+        if (response.error.code === RpcErrorCode.ACCESS_DENIED) {
+          await satsConnectRequest('wallet_requestPermissions', undefined, provider);
+          response = await getAddresses();
+        } else {
+          throw new Error(response.error.message || 'Failed to get addresses.');
+        }
+      }
 
-      const commit_sign_result = await signPsbt(composeResult.commit_psbt_hex, address.address, provider);
-      const reveal_sign_result = await signPsbt(composeResult.reveal_psbt_hex, address.address, provider, composeResult.tap_leaf_script);
+      if (response.status === 'success') {
+        const paymentAddress = (response.result.addresses as (XverseAddressEntry | LeatherAddressEntry)[]).find(
+          addr => (addr as XverseAddressEntry).addressType === ADDRESS_TYPE_P2TR || (addr as LeatherAddressEntry).type === ADDRESS_TYPE_P2TR
+        );
 
-      setSignedTx([commit_sign_result, reveal_sign_result].join(','));
+        if (paymentAddress) {
+          const composeAddress: ComposeAddressEntry = {
+            address: paymentAddress.address,
+            publicKey: (paymentAddress as LeatherAddressEntry).tweakedPublicKey || paymentAddress.publicKey,
+          };
+          setAddress(composeAddress);
+          handleFetchUtxos(composeAddress.address);
+        } else {
+          setError('Could not find a P2TR (Taproot) payment address.');
+        }
+      } else {
+        setError(response.error?.message || 'Failed to get addresses.');
+      }
     } catch (err) {
-      console.error('Failed to sign transaction:', err);
-      setError('Failed to sign transaction');
+      setError(err instanceof Error ? err.message : 'Failed to get addresses or UTXOs');
     }
+  }
 
+  const handleFetchUtxos = async (addr: string) => {
+    try {
+      const utxoData = await fetchUtxosFromApi(addr);
+      setUtxos(utxoData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred while fetching UTXOs.');
+    }
   };
 
-  const handleBroadcastTransaction = async (signedTx: string) => {
-    const kontorUrl = import.meta.env.VITE_KONTOR_URL
-    const kontorResponse = await fetch(`${kontorUrl}/api/test_mempool_accept?txs=${signedTx}`)
-    const rawData = await kontorResponse.json()
+  const handleCompose = async () => {
+    if (!address || utxos.length === 0) return;
+    setError('');
+    try {
+      const kontorData = await composeTransactionOnApi(address, utxos, inputData);
+      setComposeResult(kontorData);
+    } catch (err) {
+      setError(err instanceof Error ? `Failed to compose transaction: ${err.message}` : 'An unknown error occurred during composition.');
+    }
+  }
 
-    const convertedData = {
-      result: rawData.result.map((item: any) => convertKebabToSnake(item))
-    } as TestMempoolAcceptResultWrapper
-    setBroadcastedTx(convertedData.result)
+  const handleSignTransaction = async () => {
+    if (!address || !composeResult) return;
+    setError('');
+    try {
+      bitcoin.initEccLib(ecc);
+      ECPairFactory(ecc);
+
+      const commitSignResult = await signPsbt(composeResult.commit_psbt_hex, address.address, provider);
+      const revealSignResult = await signPsbt(composeResult.reveal_psbt_hex, address.address, provider, composeResult.tap_leaf_script);
+
+      setSignedTx([commitSignResult, revealSignResult].join(','));
+    } catch (err) {
+      console.log('err', err)
+      setError(err instanceof Error ? `Failed to sign transaction: ${err.message}` : 'An unknown error occurred during signing.');
+    }
+  };
+
+  const handleBroadcastTransaction = async () => {
+    if (!signedTx) return;
+    setError('');
+    try {
+      const result = await broadcastTransactionOnApi(signedTx);
+      setBroadcastedTx(result);
+    } catch (err) {
+      setError(err instanceof Error ? `Failed to broadcast: ${err.message}` : 'An unknown error occurred while broadcasting.');
+    }
   }
 
   return (
     <div className="wallet-container">
       <h1>COMPOSE</h1>
-      {availableProviders.length > 0 && (
-        <div>
-          <label htmlFor="provider-select">Choose a wallet provider: </label>
-          <select id="provider-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
-            {availableProviders.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      <ProviderSelector provider={provider} setProvider={setProvider} availableProviders={availableProviders} />
       <button onClick={handleGetAddresses}>Get Wallet Addresses</button>
-      {address && (
-        <div className="addresses">
-          <h2>Your Taproot Address:</h2>
-          <ul>
-            <li>
-              <strong>{address.purpose}:</strong> {address.address}
-            </li>
-          </ul>
-          {utxos.length > 0 && (
-            <div className="utxos">
-              <h3>UTXOs:</h3>
-              <ul>
-                {utxos.map((utxo, index) => (
-                  <li key={index}>
-                    <strong>TXID:</strong> {utxo.txid}
-                    <br />
-                    <strong>Vout:</strong> {utxo.vout}
-                    <br />
-                    <strong>Value:</strong> {utxo.value / 100000000} BTC
-                    <br />
-                    <strong>Status:</strong> {utxo.status.confirmed ? 'Confirmed' : 'Unconfirmed'}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {composeResult && (
-            <div className="transactions">
-              <h3>Commit Transaction:</h3>
-              <div className="transaction-details">
-                <p><strong>Version:</strong> {composeResult.commit_transaction.version}</p>
-                <p><strong>Lock Time:</strong> {composeResult.commit_transaction.lock_time}</p>
-                <h4>Inputs:</h4>
-                <ul>
-                  {composeResult.commit_transaction.input.map((input, index) => (
-                    <li key={index}>
-                      <strong>Previous Output:</strong> {input.previous_output}
-                      <br />
-                      <strong>Sequence:</strong> {input.sequence}
-                    </li>
-                  ))}
-                </ul>
-                <h4>Outputs:</h4>
-                <ul>
-                  {composeResult.commit_transaction.output.map((output, index) => (
-                    <li key={index}>
-                      <strong>Script Pubkey:</strong> {output.script_pubkey}
-                      <br />
-                      <strong>Value:</strong> {output.value / 100000000} BTC
-                    </li>
-                  ))}
-                </ul>
 
-              </div>
+      <ErrorMessage error={error} />
 
-              <h3>Reveal Transaction:</h3>
-              <div className="transaction-details">
-                <p><strong>Version:</strong> {composeResult.reveal_transaction.version}</p>
-                <p><strong>Lock Time:</strong> {composeResult.reveal_transaction.lock_time}</p>
-                <h4>Inputs:</h4>
-                <ul>
-                  {composeResult.reveal_transaction.input.map((input, index) => (
-                    <li key={index}>
-                      <strong>Previous Output:</strong> {input.previous_output}
-                      <br />
-                      <strong>Sequence:</strong> {input.sequence}
-                    </li>
-                  ))}
-                </ul>
-                <h4>Outputs:</h4>
-                <ul>
-                  {composeResult.reveal_transaction.output.map((output, index) => (
-                    <li key={index}>
-                      <strong>Script Pubkey:</strong> {output.script_pubkey}
-                      <br />
-                      <strong>Value:</strong> {output.value / 100000000} BTC
-                    </li>
-                  ))}
-                </ul>
+      {address && <AddressInfo address={address} utxos={utxos} />}
 
-              </div>
+      {composeResult && <ComposeResultDisplay composeResult={composeResult} />}
 
-              <h3>Tap Script:</h3>
-              <p className="tap-script">{composeResult.tap_script}</p>
-            </div>
-          )}
-        </div>
+      {!composeResult && address && utxos.length > 0 && (
+        <Composer
+          address={address}
+          utxos={utxos}
+          inputData={inputData}
+          setInputData={setInputData}
+          onCompose={handleCompose}
+        />
       )}
-      {
-        !composeResult && address && utxos.length > 0 && (
-          <div className="compose-section">
-            <div className="input-container">
-              <input
-                type="text"
-                value={inputData}
-                onChange={(e) => setInputData(e.target.value)}
-                placeholder="Enter data to encode"
-                className="data-input"
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  marginBottom: '16px',
-                  fontSize: '16px',
-                  borderRadius: '4px',
-                  border: '1px solid #ccc'
-                }}
-              />
-            </div>
-            <button onClick={() => handleCompose(address, utxos)}>Compose Commit/Reveal Transactions</button>
-          </div>
-        )
-      }
+
       {composeResult && (
-        <div className="sign-transaction">
-
-          <button onClick={handleSignTransaction}>Sign Commit Transaction</button>
-
-          {signedTx && (
-            <>
-              <div className="signed-transaction">
-                <h3>Signed Transaction:</h3>
-                <p className="tx-hex">{signedTx}</p>
-              </div>
-
-              <button onClick={() => handleBroadcastTransaction(signedTx)}>Broadcast Transaction</button>
-            </>
-          )}
-        </div>
+        <Signer
+          signedTx={signedTx}
+          onSign={handleSignTransaction}
+          onBroadcast={handleBroadcastTransaction}
+        />
       )}
-      {broadcastedTx.length > 0 && (
-        <div className="broadcasted-transaction">
-          <h3>Broadcasted Transaction:</h3>
-          <ul>
-            {broadcastedTx.map((tx, index) => (
-              <li key={index}>
-                <strong>TXID:</strong> {tx.txid}
-                <p>Allowed: {tx.allowed ? 'Yes' : 'No'}</p>
-                <p>Reject Reason: {tx.reject_reason}</p>
-                <p>Vsize: {tx.vsize}</p>
-                <p>Fee: {tx.fee}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {error && <p className="error">{error}</p>}
+
+      <BroadcastResultDisplay broadcastedTx={broadcastedTx} />
     </div>
   )
 }
