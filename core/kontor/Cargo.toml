@@ -48,6 +48,7 @@ urlencoding = "2.1"
 proptest = "1.6"
 wasmtime = { workspace = true }
 wit-component = { workspace = true }
+lru = { workspace = true }
 
 [dev-dependencies]
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }

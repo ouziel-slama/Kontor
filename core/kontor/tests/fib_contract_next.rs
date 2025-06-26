@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
-use std::collections::HashMap;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 use anyhow::Result;
 use stdlib::{Contract, MyMonoidHostRep, ForeignHostRep, default_val_for_type};
@@ -14,10 +15,12 @@ use wasmtime::{
 };
 use wit_component::ComponentEncoder;
 
+const COMPONENT_CACHE_CAPACITY: usize = 64;
+
 struct HostCtx {
     table: ResourceTable,
     engine: Engine,
-    component_cache: HashMap<String, Component>,
+    component_cache: LruCache<String, Component>,
 }
 
 impl HostCtx {
@@ -25,7 +28,7 @@ impl HostCtx {
         Self {
             table: ResourceTable::new(),
             engine: engine,
-            component_cache: HashMap::new(),
+            component_cache: LruCache::new(NonZeroUsize::new(COMPONENT_CACHE_CAPACITY).unwrap()),
         }
     }
 }

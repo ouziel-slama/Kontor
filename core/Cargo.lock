@@ -1625,6 +1625,8 @@ version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash",
  "serde",
 ]
@@ -2191,6 +2193,7 @@ dependencies = [
  "indexmap 2.9.0",
  "kontor_macro",
  "libsql",
+ "lru",
  "proptest",
  "rayon",
  "reqwest",
@@ -2484,6 +2487,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24fb722b06a9dc12adb0963ed585f19fc61dc5413e6a9be9422ef92c091e731d"
 dependencies = [
  "logos-codegen",
+]
+
+[[package]]
+name = "lru"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f8cc7106155f10bdf99a6f379688f543ad6596a415375b36a59a054ceda1198"
+dependencies = [
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -3670,6 +3682,7 @@ name = "stdlib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "lru",
  "tokio",
  "tracing",
  "wasmtime",

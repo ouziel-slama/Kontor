@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use std::path::Path;
-use std::collections::HashMap;
+use lru::LruCache;
 use tokio::fs::read;
 use wasmtime::{
     Engine, Store,
@@ -18,7 +18,7 @@ pub struct ForeignHostRep {
 }
 
 impl ForeignHostRep {
-    pub async fn new(engine: &Engine, component_cache: &mut HashMap<String, Component>, address: String) -> Result<Self> {
+    pub async fn new(engine: &Engine, component_cache: &mut LruCache<String, Component>, address: String) -> Result<Self> {
         let component = if let Some(cached_component) = component_cache.get(&address) {
             cached_component.clone()
         } else {
@@ -39,7 +39,7 @@ impl ForeignHostRep {
 
             let component = Component::from_binary(engine, &component_bytes)?;
             
-            component_cache.insert(address.clone(), component.clone());
+            component_cache.put(address.clone(), component.clone());
             component
         };
         
