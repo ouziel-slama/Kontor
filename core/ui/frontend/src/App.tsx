@@ -20,6 +20,7 @@ const PROVIDER_ID_XVERSE = "XverseProviders.BitcoinProvider";
 const PROVIDER_ID_LEATHER = "LeatherProvider";
 const PROVIDER_ID_UNISAT = "unisat";
 const PROVIDER_ID_OKX = "okxwallet";
+const PROVIDER_ID_PHANTOM = "phantom";
 const ADDRESS_TYPE_P2TR = "p2tr";
 
 const electrsUrl = import.meta.env.VITE_ELECTRS_URL;
@@ -28,15 +29,8 @@ const kontorUrl = import.meta.env.VITE_KONTOR_URL;
 // --- Types ---
 interface UnisatProvider {
   requestAccounts(): Promise<string[]>;
-  getAccounts(): Promise<string[]>;
   getPublicKey(): Promise<string>;
-  getBalance(): Promise<{
-    confirmed: number;
-    unconfirmed: number;
-    total: number;
-  }>;
   signPsbt(psbtHex: string, options?: any): Promise<string>;
-  getNetwork(): Promise<string>;
 }
 
 interface OkxWallet {
@@ -44,30 +38,41 @@ interface OkxWallet {
     connect(): Promise<{
       address: string;
       publicKey: string;
-      compressedPublicKey: string;
     }>;
-    requestAccounts(): Promise<string[]>;
-    getAccounts(): Promise<string[]>;
-    getNetwork(): Promise<string>;
-    getPublicKey(): Promise<string>;
-    getBalance(): Promise<{
-      confirmed: number;
-      unconfirmed: number;
-      total: number;
-    }>;
-    sendBitcoin(
-      toAddress: string,
-      satoshis: number,
-      options?: any
-    ): Promise<string>;
     signPsbt(psbtHex: string, options?: any): Promise<string>;
   };
+}
+
+interface PhantomBtcAccount {
+  address: string;
+  addressType: "p2tr" | "p2wpkh" | "p2sh" | "p2pkh";
+  publicKey: string;
+  purpose: "payment" | "ordinals";
+}
+
+interface PhantomBitcoinProvider {
+  requestAccounts(): Promise<PhantomBtcAccount[]>;
+  signPSBT(
+    psbt: Uint8Array,
+    options: {
+      inputsToSign: {
+        address: string;
+        signingIndexes: number[];
+        sigHash?: number;
+      }[];
+    }
+  ): Promise<string>;
+}
+
+interface PhantomWallet {
+  bitcoin: PhantomBitcoinProvider;
 }
 
 declare global {
   interface Window {
     unisat?: UnisatProvider;
     okxwallet?: OkxWallet;
+    phantom?: PhantomWallet;
   }
 }
 
@@ -377,6 +382,83 @@ async function signPsbtWithOKX(
   }
 }
 
+async function signPsbtWithPhantom(
+  psbtHex: string,
+  sourceAddress: string,
+  scriptLeafData?: TapLeafScript
+): Promise<string> {
+  if (!window.phantom?.bitcoin) {
+    throw new Error("Phantom Wallet not available");
+  }
+
+  const psbt = bitcoin.Psbt.fromHex(psbtHex);
+
+  if (scriptLeafData) {
+    psbt.updateInput(0, {
+      tapLeafScript: [
+        {
+          leafVersion: scriptLeafData.leafVersion,
+          script: Buffer.from(scriptLeafData.script, "hex"),
+          controlBlock: Buffer.from(scriptLeafData.controlBlock, "hex"),
+        },
+      ],
+    });
+  }
+
+  // Sign all inputs that belong to the source address
+  const inputsToSign = [
+    {
+      address: sourceAddress,
+      signingIndexes: Array.from({ length: psbt.inputCount }, (_, i) => i),
+      ...(scriptLeafData && { sigHash: 0x00 }),
+    },
+  ];
+
+  try {
+    const psbtBytes = new Uint8Array(Buffer.from(psbt.toHex(), "hex"));
+
+    const signedPsbtBytes = await window.phantom.bitcoin.signPSBT(psbtBytes, {
+      inputsToSign,
+    });
+
+    const signedPsbtHex = Buffer.from(signedPsbtBytes).toString("hex");
+
+    const signedPsbt = bitcoin.Psbt.fromHex(signedPsbtHex);
+
+    // Check signatures for all inputs
+    for (let i = 0; i < signedPsbt.inputCount; i++) {
+      const input = signedPsbt.data.inputs[i];
+
+      if (!scriptLeafData) {
+        // Key path spend - check for tapKeySig
+        if (!input.tapKeySig) {
+          throw new Error(
+            `Phantom signing failed: no tapKeySig found for key-path spend on input ${i}`
+          );
+        }
+      } else {
+        // Script path spend - check for tapScriptSig
+        if (!input.tapScriptSig?.length) {
+          throw new Error(
+            `Phantom signing failed: no tapScriptSig found for script-path spend on input ${i}`
+          );
+        }
+      }
+    }
+
+    signedPsbt.finalizeAllInputs();
+    const tx = signedPsbt.extractTransaction();
+    return tx.toHex();
+  } catch (err) {
+    console.log("err", err);
+    throw new Error(
+      `Phantom signing failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+}
+
 async function signPsbt(
   psbtHex: string,
   sourceAddress: string,
@@ -400,6 +482,8 @@ async function signPsbt(
       );
     case PROVIDER_ID_OKX:
       return signPsbtWithOKX(psbtHex, scriptLeafData);
+    case PROVIDER_ID_PHANTOM:
+      return signPsbtWithPhantom(psbtHex, sourceAddress, scriptLeafData);
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -561,7 +645,8 @@ const Signer: React.FC<{
           <h3>Signed Transactions (Commit, Reveal):</h3>
           <p className="tx-hex">{signedTx}</p>
         </div>
-        <button onClick={onBroadcast}>Broadcast Transactions</button>
+        <button onClick={onBroadcast}>Test Broadcast Transactions</button>
+        <p>Note: Transaction will not be broadcasted to the network.</p>
       </>
     )}
   </div>
@@ -613,6 +698,16 @@ function WalletComponent() {
     if (window.okxwallet && !providers.find((p) => p.id === PROVIDER_ID_OKX)) {
       providers.push({ id: PROVIDER_ID_OKX, name: "OKX Wallet", icon: "" });
     }
+    if (
+      window.phantom?.bitcoin &&
+      !providers.find((p) => p.id === PROVIDER_ID_PHANTOM)
+    ) {
+      providers.push({
+        id: PROVIDER_ID_PHANTOM,
+        name: "Phantom",
+        icon: "",
+      });
+    }
 
     if (providers?.length > 0) {
       setAvailableProviders(providers);
@@ -661,6 +756,33 @@ function WalletComponent() {
           err instanceof Error
             ? err.message
             : "An unknown error occurred with OKX Wallet."
+        );
+      }
+      return;
+    }
+
+    if (provider === PROVIDER_ID_PHANTOM && window.phantom?.bitcoin) {
+      try {
+        const accounts = await window.phantom.bitcoin.requestAccounts();
+        const paymentAccount = accounts.find(
+          (acc) => acc.addressType === "p2tr" && acc.purpose === "payment"
+        );
+
+        if (paymentAccount) {
+          const paymentAddress: ComposeAddressEntry = {
+            address: paymentAccount.address,
+            xOnlyPublicKey: paymentAccount.publicKey.slice(-64),
+          };
+          setAddress(paymentAddress);
+          handleFetchUtxos(paymentAddress.address);
+        } else {
+          setError("Could not find a P2TR payment address in Phantom wallet.");
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "An unknown error occurred with Phantom Wallet."
         );
       }
       return;
