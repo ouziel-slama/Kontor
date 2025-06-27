@@ -2059,6 +2059,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.4",
+ "axum-server",
+ "axum-test",
+ "backon",
+ "base64 0.22.1",
+ "bip39",
+ "bitcoin",
+ "bon",
+ "ciborium",
+ "clap",
+ "deadpool",
+ "futures-util",
+ "hex",
+ "indexmap 2.10.0",
+ "libsql",
+ "lru",
+ "macro",
+ "proptest",
+ "rayon",
+ "reqwest",
+ "rustls 0.23.28",
+ "rustls-native-certs 0.8.1",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tower 0.5.2",
+ "tower-http 0.6.6",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "wasmtime",
+ "wit-component",
+ "zmq",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2183,61 +2229,6 @@ checksum = "2735847566356cd2179a2a38264839308f7079fa96e6bd5a42d740460e003c56"
 dependencies = [
  "crossbeam",
  "rayon",
-]
-
-[[package]]
-name = "kontor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.8.4",
- "axum-server",
- "axum-test",
- "backon",
- "base64 0.22.1",
- "bip39",
- "bitcoin",
- "bon",
- "ciborium",
- "clap",
- "deadpool",
- "futures-util",
- "hex",
- "indexmap 2.10.0",
- "kontor-macro",
- "libsql",
- "lru",
- "proptest",
- "rayon",
- "reqwest",
- "rustls 0.23.28",
- "rustls-native-certs 0.8.1",
- "scopeguard",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.12",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "tower 0.5.2",
- "tower-http 0.6.6",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "wasmtime",
- "wit-component",
- "zmq",
-]
-
-[[package]]
-name = "kontor-macro"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -2525,6 +2516,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
