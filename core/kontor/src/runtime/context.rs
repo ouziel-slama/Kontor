@@ -18,26 +18,27 @@ pub struct Context {
     pub table: ResourceTable,
     pub component_cache: ComponentCache,
     pub storage: Storage,
-}
-
-impl Clone for Context {
-    fn clone(&self) -> Self {
-        Self {
-            engine: self.engine.clone(),
-            table: ResourceTable::new(),
-            component_cache: self.component_cache.clone(),
-            storage: self.storage.clone(),
-        }
-    }
+    pub contract_id: String,
 }
 
 impl Context {
-    pub fn new(engine: Engine, storage: Storage) -> Self {
+    pub fn new(engine: Engine, storage: Storage, contract_id: String) -> Self {
         Self {
             engine,
             table: ResourceTable::new(),
             component_cache: ComponentCache::new(),
             storage,
+            contract_id,
+        }
+    }
+
+    pub fn with_contract_id(&self, contract_id: String) -> Self {
+        Self {
+            engine: self.engine.clone(),
+            table: ResourceTable::new(),
+            component_cache: self.component_cache.clone(),
+            storage: self.storage.clone(),
+            contract_id,
         }
     }
 }
@@ -50,15 +51,15 @@ impl ContractImports for Context {
 
 impl storage::Host for Context {
     async fn set(&mut self, key: String, value: Vec<u8>) -> Result<()> {
-        self.storage.set(&key, &value).await
+        self.storage.set(&self.contract_id, &key, &value).await
     }
 
     async fn get(&mut self, key: String) -> Result<Option<Vec<u8>>> {
-        self.storage.get(&key).await
+        self.storage.get(&self.contract_id, &key).await
     }
 
     async fn delete(&mut self, key: String) -> Result<bool> {
-        self.storage.delete(&key).await
+        self.storage.delete(&self.contract_id, &key).await
     }
 }
 
@@ -79,8 +80,7 @@ impl foreign::HostForeign for Context {
 
     async fn call(&mut self, handle: Resource<Foreign>, expr: String) -> Result<String> {
         let rep = self.table.get(&handle)?;
-        let mut context = self.clone();
-        context.storage.contract_id = rep.address.clone();
+        let context = self.with_contract_id(rep.address.clone());
         rep.call(context, &expr)
             .await
             .context("Foreign call failed")

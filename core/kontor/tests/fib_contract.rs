@@ -24,11 +24,10 @@ async fn test_fib_contract() -> Result<()> {
 
     let storage = Storage {
         conn: writer.connection(),
-        contract_id: "test".to_string(),
         tx_id: 1,
         height: 1,
     };
-    let host_ctx = Context::new(engine.clone(), storage);
+    let host_ctx = Context::new(engine.clone(), storage, "fib".to_string());
     let mut store = Store::new(&engine, host_ctx);
     let mut linker = Linker::new(&engine);
     Contract::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s)?;
