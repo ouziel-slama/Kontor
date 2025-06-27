@@ -22,30 +22,6 @@ use indexer::{
     utils::{MockTransaction, new_test_db},
 };
 
-/*
- * TEST DESIGN
- *
- * The property tests creates a vector of Segments, each being either a unbroken
- * Series of sequential blocks, or some kind of rollback.
- *
- * The Segments are then converted into a vector of Steps and a model.
- * Each Step consists of an Event sent to the Reactor with an optional expectation of a
- * StartMessage.
- *
- * The model is the expected state of the database at the end of the test.
- *
- *
- * TEST DATA AND MODEL NOTES
- *  - In the event of an ImplicitRollback (triggered by unexpected height pr prev_hash mismatch, as
- *    opposed to a BlockRemove message) the Reactor will throw away the triggering block and
- *    re-request it with a StartMessage. We thus have to send it twice in order for the Reactor to
- *    persist it.
- *  - An ImplicitRollback at the end of the test won't take effect since the Reactor will only
- *    know about it once the next block arrives.
- *  - An ExplicitRollback past the initial block (to a non-existant block/hash) will be
- *    ignored.
- */
-
 #[derive(Debug)]
 enum Segment {
     Series(usize),
@@ -216,6 +192,30 @@ proptest! {
         .. ProptestConfig::default()
     })]
 
+    /**
+    TEST DESIGN
+
+    The property tests creates a vector of Segments, each being either a unbroken
+    Series of sequential blocks, or some kind of rollback.
+
+    The Segments are then converted into a vector of Steps and a model.
+    Each Step consists of an Event sent to the Reactor with an optional expectation of a
+    StartMessage.
+
+    The model is the expected state of the database at the end of the test.
+
+
+    TEST DATA AND MODEL NOTES
+     - In the event of an ImplicitRollback (triggered by unexpected height pr prev_hash mismatch, as
+       opposed to a BlockRemove message) the Reactor will throw away the triggering block and
+       re-request it with a StartMessage. We thus have to send it twice in order for the Reactor to
+       persist it.
+     - An ImplicitRollback at the end of the test won't take effect since the Reactor will only
+       know about it once the next block arrives.
+     - An ExplicitRollback past the initial block (to a non-existant block/hash) will be
+       ignored.
+
+    */
     #[test]
     fn test_reactor_rollbacks(vec in gen_segment_vec()) {
         let rt = tokio::runtime::Runtime::new().unwrap();
