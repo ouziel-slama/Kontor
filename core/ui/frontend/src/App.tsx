@@ -21,6 +21,7 @@ const PROVIDER_ID_LEATHER = "LeatherProvider";
 const PROVIDER_ID_UNISAT = "unisat";
 const PROVIDER_ID_OKX = "okxwallet";
 const PROVIDER_ID_PHANTOM = "phantom";
+const PROVIDER_ID_HORIZON = "HorizonWalletProvider";
 const ADDRESS_TYPE_P2TR = "p2tr";
 
 const electrsUrl = import.meta.env.VITE_ELECTRS_URL;
@@ -172,7 +173,7 @@ const convertKebabToSnake = (obj: Record<string, any>): Record<string, any> => {
   }, {} as Record<string, any>);
 };
 
-async function fetchUtxosFromApi(address: string): Promise<Utxo[]> {
+async function fetchUtxos(address: string): Promise<Utxo[]> {
   const response = await fetch(`${electrsUrl}/address/${address}/utxo`);
   if (!response.ok) {
     throw new Error("Failed to fetch UTXOs");
@@ -180,7 +181,7 @@ async function fetchUtxosFromApi(address: string): Promise<Utxo[]> {
   return response.json();
 }
 
-async function composeTransactionOnApi(
+async function composeCommitReveal(
   address: ComposeAddressEntry,
   utxos: Utxo[],
   inputData: string
@@ -199,7 +200,7 @@ async function composeTransactionOnApi(
   return data.result;
 }
 
-async function broadcastTransactionOnApi(
+async function broadcastTestMempoolAccept(
   signedTx: string
 ): Promise<TestMempoolAcceptResult[]> {
   const response = await fetch(
@@ -374,11 +375,7 @@ async function signPsbtWithOKX(
     const tx = signedPsbt.extractTransaction();
     return tx.toHex();
   } catch (err) {
-    throw new Error(
-      `OKX signing failed: ${
-        err instanceof Error ? err.message : "Unknown error"
-      }`
-    );
+    throw new Error(`OKX signing failed: ${err}`);
   }
 }
 
@@ -450,12 +447,7 @@ async function signPsbtWithPhantom(
     const tx = signedPsbt.extractTransaction();
     return tx.toHex();
   } catch (err) {
-    console.log("err", err);
-    throw new Error(
-      `Phantom signing failed: ${
-        err instanceof Error ? err.message : "Unknown error"
-      }`
-    );
+    throw new Error(`Phantom signing failed: ${err}`);
   }
 }
 
@@ -490,7 +482,6 @@ async function signPsbt(
 }
 
 // --- UI Components ---
-
 const ErrorMessage: React.FC<{ error: string }> = ({ error }) => {
   if (!error) return null;
   return <p className="error">{error}</p>;
@@ -609,7 +600,9 @@ const Composer: React.FC<{
   inputData: string;
   setInputData: (d: string) => void;
   onCompose: () => void;
-}> = ({ inputData, setInputData, onCompose }) => (
+  disabled?: boolean;
+  disabledMessage?: string;
+}> = ({ inputData, setInputData, onCompose, disabled, disabledMessage }) => (
   <div className="compose-section">
     <div className="input-container">
       <input
@@ -628,7 +621,10 @@ const Composer: React.FC<{
         }}
       />
     </div>
-    <button onClick={onCompose}>Compose Commit/Reveal Transactions</button>
+    {disabled && disabledMessage && <p className="error">{disabledMessage}</p>}
+    <button onClick={onCompose} disabled={disabled}>
+      Compose Commit/Reveal Transactions
+    </button>
   </div>
 );
 
@@ -690,6 +686,17 @@ function WalletComponent() {
   const [provider, setProvider] = useState<string>("");
   const [availableProviders, setAvailableProviders] = useState<Provider[]>([]);
 
+  const handleProviderChange = (newProvider: string) => {
+    setProvider(newProvider);
+    setAddress(undefined);
+    setUtxos([]);
+    setInputData("");
+    setSignedTx("");
+    setBroadcastedTx([]);
+    setComposeResult(undefined);
+    setError("");
+  };
+
   useEffect(() => {
     const providers = getProviders();
     if (window.unisat && !providers.find((p) => p.id === PROVIDER_ID_UNISAT)) {
@@ -719,147 +726,163 @@ function WalletComponent() {
 
   const handleGetAddresses = async () => {
     setError("");
-    if (provider === PROVIDER_ID_UNISAT && window.unisat) {
-      try {
-        const accounts = await window.unisat.requestAccounts();
-        const publicKey = await window.unisat.getPublicKey();
-        if (accounts.length > 0) {
-          const paymentAddress: ComposeAddressEntry = {
-            address: accounts[0],
-            xOnlyPublicKey: publicKey,
-          };
-          setAddress(paymentAddress);
-          handleFetchUtxos(paymentAddress.address);
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An unknown error occurred with UniSat."
-        );
-      }
-      return;
-    }
-
-    if (provider === PROVIDER_ID_OKX && window.okxwallet) {
-      try {
-        const { address, publicKey } = await window.okxwallet.bitcoin.connect();
-
-        const paymentAddress: ComposeAddressEntry = {
-          address,
-          xOnlyPublicKey: publicKey,
-        };
-        setAddress(paymentAddress);
-        handleFetchUtxos(paymentAddress.address);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An unknown error occurred with OKX Wallet."
-        );
-      }
-      return;
-    }
-
-    if (provider === PROVIDER_ID_PHANTOM && window.phantom?.bitcoin) {
-      try {
-        const accounts = await window.phantom.bitcoin.requestAccounts();
-        const paymentAccount = accounts.find(
-          (acc) => acc.addressType === "p2tr" && acc.purpose === "payment"
-        );
-
-        if (paymentAccount) {
-          const paymentAddress: ComposeAddressEntry = {
-            address: paymentAccount.address,
-            xOnlyPublicKey: paymentAccount.publicKey.slice(-64),
-          };
-          setAddress(paymentAddress);
-          handleFetchUtxos(paymentAddress.address);
-        } else {
-          setError("Could not find a P2TR payment address in Phantom wallet.");
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An unknown error occurred with Phantom Wallet."
-        );
-      }
-      return;
-    }
-
     try {
-      const getAddresses = () =>
-        satsConnectRequest(
-          "getAddresses",
-          {
-            purposes: [
-              AddressPurpose.Payment,
-              AddressPurpose.Ordinals,
-              AddressPurpose.Stacks,
-            ],
-          },
-          provider
-        );
-      let response = await getAddresses();
+      switch (provider) {
+        case PROVIDER_ID_UNISAT:
+          if (window.unisat) {
+            const accounts = await window.unisat.requestAccounts();
+            const publicKey = await window.unisat.getPublicKey();
+            if (accounts.length > 0) {
+              const paymentAddress: ComposeAddressEntry = {
+                address: accounts[0],
+                xOnlyPublicKey: publicKey,
+              };
+              setAddress(paymentAddress);
+              handleFetchUtxos(paymentAddress.address);
+            }
+          }
+          break;
+        case PROVIDER_ID_OKX:
+          if (window.okxwallet) {
+            const { address, publicKey } =
+              await window.okxwallet.bitcoin.connect();
 
-      if (response.status === "error") {
-        if (response.error.code === RpcErrorCode.ACCESS_DENIED) {
-          await satsConnectRequest(
-            "wallet_requestPermissions",
-            undefined,
-            provider
-          );
-          response = await getAddresses();
-        } else {
-          throw new Error(response.error.message || "Failed to get addresses.");
+            const paymentAddress: ComposeAddressEntry = {
+              address,
+              xOnlyPublicKey: publicKey,
+            };
+            setAddress(paymentAddress);
+            handleFetchUtxos(paymentAddress.address);
+          }
+          break;
+        case PROVIDER_ID_PHANTOM:
+          if (window.phantom?.bitcoin) {
+            const accounts = await window.phantom.bitcoin.requestAccounts();
+            const paymentAccount = accounts.find(
+              (acc) => acc.addressType === "p2tr" && acc.purpose === "payment"
+            );
+
+            if (paymentAccount) {
+              const paymentAddress: ComposeAddressEntry = {
+                address: paymentAccount.address,
+                xOnlyPublicKey: paymentAccount.publicKey.slice(-64),
+              };
+              setAddress(paymentAddress);
+              handleFetchUtxos(paymentAddress.address);
+            } else {
+              setError(
+                "Could not find a P2TR payment address in Phantom wallet."
+              );
+            }
+          }
+          break;
+        case PROVIDER_ID_XVERSE: {
+          const getAddresses = () =>
+            satsConnectRequest(
+              "getAddresses",
+              {
+                purposes: [
+                  AddressPurpose.Payment,
+                  AddressPurpose.Ordinals,
+                  AddressPurpose.Stacks,
+                ],
+              },
+              provider
+            );
+          let response = await getAddresses();
+
+          if (response.status === "error") {
+            if (response.error.code === RpcErrorCode.ACCESS_DENIED) {
+              await satsConnectRequest(
+                "wallet_requestPermissions",
+                undefined,
+                provider
+              );
+              response = await getAddresses();
+            } else {
+              throw new Error(
+                response.error.message || "Failed to get addresses."
+              );
+            }
+          }
+
+          if (response.status === "success") {
+            const paymentAddress = (
+              response.result.addresses as XverseAddressEntry[]
+            ).find(
+              (addr) =>
+                (addr as XverseAddressEntry).addressType === ADDRESS_TYPE_P2TR
+            );
+
+            if (paymentAddress) {
+              const composeAddress: ComposeAddressEntry = {
+                address: paymentAddress.address,
+                xOnlyPublicKey: paymentAddress.publicKey,
+              };
+              setAddress(composeAddress);
+              handleFetchUtxos(composeAddress.address);
+            } else {
+              setError("Could not find a P2TR (Taproot) payment address.");
+            }
+          }
+          break;
         }
-      }
+        case PROVIDER_ID_LEATHER: {
+          const getAddresses = () =>
+            satsConnectRequest(
+              "getAddresses",
+              {
+                purposes: [
+                  AddressPurpose.Payment,
+                  AddressPurpose.Ordinals,
+                  AddressPurpose.Stacks,
+                ],
+              },
+              provider
+            );
+          let response = await getAddresses();
 
-      if (response.status === "success") {
-        const paymentAddress = (
-          response.result.addresses as (
-            | XverseAddressEntry
-            | LeatherAddressEntry
-          )[]
-        ).find(
-          (addr) =>
-            (addr as XverseAddressEntry).addressType === ADDRESS_TYPE_P2TR ||
-            (addr as LeatherAddressEntry).type === ADDRESS_TYPE_P2TR
-        );
+          if (response.status === "error") {
+            throw new Error(
+              response.error.message || "Failed to get addresses."
+            );
+          }
 
-        if (paymentAddress) {
-          const composeAddress: ComposeAddressEntry = {
-            address: paymentAddress.address,
-            xOnlyPublicKey:
-              (paymentAddress as LeatherAddressEntry).tweakedPublicKey ||
-              paymentAddress.publicKey,
-          };
-          setAddress(composeAddress);
-          handleFetchUtxos(composeAddress.address);
-        } else {
-          setError("Could not find a P2TR (Taproot) payment address.");
+          if (response.status === "success") {
+            const paymentAddress = (
+              response.result.addresses as unknown as LeatherAddressEntry[]
+            ).find(
+              (addr) => (addr as LeatherAddressEntry).type === ADDRESS_TYPE_P2TR
+            );
+
+            if (paymentAddress) {
+              const composeAddress: ComposeAddressEntry = {
+                address: paymentAddress.address,
+                xOnlyPublicKey: (paymentAddress as LeatherAddressEntry)
+                  .tweakedPublicKey,
+              };
+              setAddress(composeAddress);
+              handleFetchUtxos(composeAddress.address);
+            } else {
+              setError("Could not find a P2TR (Taproot) payment address.");
+            }
+          }
+          break;
         }
-      } else {
-        setError(response.error?.message || "Failed to get addresses.");
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to get addresses or UTXOs"
-      );
+      const providerName =
+        availableProviders.find((p) => p.id === provider)?.name || provider;
+      setError(`Error with ${providerName}: ${err}`);
     }
   };
 
   const handleFetchUtxos = async (addr: string) => {
     try {
-      const utxoData = await fetchUtxosFromApi(addr);
+      const utxoData = await fetchUtxos(addr);
       setUtxos(utxoData);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An unknown error occurred while fetching UTXOs."
-      );
+      setError(`An error occurred while fetching UTXOs: ${err}`);
     }
   };
 
@@ -867,18 +890,10 @@ function WalletComponent() {
     if (!address || utxos.length === 0) return;
     setError("");
     try {
-      const kontorData = await composeTransactionOnApi(
-        address,
-        utxos,
-        inputData
-      );
+      const kontorData = await composeCommitReveal(address, utxos, inputData);
       setComposeResult(kontorData);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Failed to compose transaction: ${err.message}`
-          : "An unknown error occurred during composition."
-      );
+      setError(`An error occurred while composing: ${err}`);
     }
   };
 
@@ -904,11 +919,7 @@ function WalletComponent() {
 
       setSignedTx([commitSignResult, revealSignResult].join(","));
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Failed to sign transaction: ${err.message}`
-          : "An unknown error occurred during signing."
-      );
+      setError(`An error occurred while signing: ${err}`);
     }
   };
 
@@ -916,27 +927,32 @@ function WalletComponent() {
     if (!signedTx) return;
     setError("");
     try {
-      const result = await broadcastTransactionOnApi(signedTx);
+      const result = await broadcastTestMempoolAccept(signedTx);
       setBroadcastedTx(result);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Failed to broadcast: ${err.message}`
-          : "An unknown error occurred while broadcasting."
-      );
+      setError(`An error occurred while broadcasting: ${err}`);
     }
   };
 
+  const isUnisat = provider === PROVIDER_ID_UNISAT;
+  const unisatMessage =
+    "Unisat does not provide the necessary x-only public key for composing a taproot transaction.";
+
+  const isHorizon = provider === PROVIDER_ID_HORIZON;
+  const horizonMessage = "Horizon does not yet support taproot :)";
   return (
     <div className="wallet-container">
       <h1>COMPOSE</h1>
       <ProviderSelector
         provider={provider}
-        setProvider={setProvider}
+        setProvider={handleProviderChange}
         availableProviders={availableProviders}
       />
-      <button onClick={handleGetAddresses}>Get Wallet Addresses</button>
+      <button onClick={handleGetAddresses} disabled={isHorizon}>
+        Get Wallet Addresses
+      </button>
 
+      {isHorizon && <p className="error">{horizonMessage}</p>}
       <ErrorMessage error={error} />
 
       {address && <AddressInfo address={address} utxos={utxos} />}
@@ -948,6 +964,8 @@ function WalletComponent() {
           inputData={inputData}
           setInputData={setInputData}
           onCompose={handleCompose}
+          disabled={isUnisat}
+          disabledMessage={isUnisat ? unisatMessage : undefined}
         />
       )}
 
