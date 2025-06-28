@@ -5,6 +5,7 @@ use indexer::{
     runtime::{ComponentCache, Runtime, Storage},
     utils::new_test_db,
 };
+use wasmtime::component::wasm_wave::{to_string as to_wave, value::Value};
 
 #[tokio::test]
 async fn test_fib_contract() -> Result<()> {
@@ -14,7 +15,7 @@ async fn test_fib_contract() -> Result<()> {
     let runtime = Runtime::new(storage, component_cache, "fib".to_string())?;
 
     let n = 8;
-    let expr = format!("fib({})", n);
+    let expr = format!("fib({})", to_wave(&Value::from(n))?);
     let result = runtime.execute(&expr).await?;
     assert_eq!(result, "21");
     Ok(())
