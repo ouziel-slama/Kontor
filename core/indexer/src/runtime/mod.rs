@@ -1,6 +1,5 @@
 mod component_cache;
 mod dot_path_buf;
-mod foreign;
 mod storage;
 mod types;
 mod wit;
@@ -13,15 +12,14 @@ pub use wit::Contract;
 
 use std::{fs::read, path::Path};
 
-use crate::runtime::wit::{ContractImports, Foreign};
+use crate::runtime::wit::ContractImports;
 use wit::kontor::*;
 
-use anyhow::{Context as AnyhowContext, Result, anyhow};
+use anyhow::{Result, anyhow};
 use wasmtime::{
     Engine, Store,
     component::{
-        Component, HasSelf, Linker, Resource, ResourceTable,
-        wasm_wave::parser::Parser as WaveParser,
+        Component, HasSelf, Linker, ResourceTable, wasm_wave::parser::Parser as WaveParser,
     },
 };
 use wit_component::ComponentEncoder;
@@ -162,23 +160,9 @@ impl built_in::storage::Host for Runtime {
     }
 }
 
-impl built_in::foreign::Host for Runtime {}
-
-impl built_in::foreign::HostForeign for Runtime {
-    async fn new(&mut self, contract_id: String) -> Result<Resource<Foreign>> {
-        Ok(self.table.push(Foreign::new(contract_id))?)
-    }
-
-    async fn call(&mut self, handle: Resource<Foreign>, expr: String) -> Result<String> {
-        let rep = self.table.get(&handle)?;
-        let context = self.with_contract_id(rep.contract_id.clone())?;
-        rep.call(context, &expr)
-            .await
-            .context("Foreign call failed")
-    }
-
-    async fn drop(&mut self, handle: Resource<Foreign>) -> Result<()> {
-        let _rep: Foreign = self.table.delete(handle)?;
-        Ok(())
+impl built_in::foreign::Host for Runtime {
+    async fn call(&mut self, contract_id: String, expr: String) -> Result<String> {
+        let context = self.with_contract_id(contract_id)?;
+        context.execute(&expr).await
     }
 }
