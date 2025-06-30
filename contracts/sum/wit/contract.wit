@@ -8,5 +8,9 @@ world contract {
         y: u64,
     }
 
-    export sum: func(args: sum-args) -> u64;
+    record sum-return {
+        value: u64,
+    }
+
+    export sum: func(args: sum-args) -> sum-return;
 }

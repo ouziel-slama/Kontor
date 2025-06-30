@@ -14,14 +14,20 @@ mod sum {
         pub y: u64,
     }
 
+    impl SumArgs {
+        pub fn wave_type() -> wasm_wave::value::Type {
+            wasm_wave::value::Type::record(vec![
+                ("x".to_string(), wasm_wave::value::Type::U64),
+                ("y".to_string(), wasm_wave::value::Type::U64),
+            ])
+            .unwrap()
+        }
+    }
+
     impl From<SumArgs> for wasm_wave::value::Value {
         fn from(value: SumArgs) -> Self {
             wasm_wave::value::Value::make_record(
-                &wasm_wave::value::Type::record(vec![
-                    ("x".to_string(), wasm_wave::value::Type::U64),
-                    ("y".to_string(), wasm_wave::value::Type::U64),
-                ])
-                .unwrap(),
+                &SumArgs::wave_type(),
                 vec![
                     ("x", wasm_wave::value::Value::make_u64(value.x)),
                     ("y", wasm_wave::value::Value::make_u64(value.y)),
@@ -31,13 +37,74 @@ mod sum {
         }
     }
 
-    pub fn sum(args: SumArgs) -> u64 {
+    impl From<wasm_wave::value::Value> for SumArgs {
+        fn from(value: wasm_wave::value::Value) -> Self {
+            let fields = value.unwrap_record().collect::<Vec<_>>();
+
+            let mut x = None;
+            let mut y = None;
+            for (name, val) in fields {
+                match name.as_ref() {
+                    "x" => x = Some(val.unwrap_u64()),
+                    "y" => y = Some(val.unwrap_u64()),
+                    name => panic!("Unknown field: {name}"),
+                }
+            }
+            let x = x.unwrap();
+            let y = y.unwrap();
+
+            SumArgs { x, y }
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct SumReturn {
+        pub value: u64,
+    }
+
+    impl SumReturn {
+        pub fn wave_type() -> wasm_wave::value::Type {
+            wasm_wave::value::Type::record(vec![("value".to_string(), wasm_wave::value::Type::U64)])
+                .unwrap()
+        }
+    }
+
+    impl From<SumReturn> for wasm_wave::value::Value {
+        fn from(value: SumReturn) -> Self {
+            wasm_wave::value::Value::make_record(
+                &SumReturn::wave_type(),
+                vec![("value", wasm_wave::value::Value::make_u64(value.value))],
+            )
+            .unwrap()
+        }
+    }
+
+    impl From<wasm_wave::value::Value> for SumReturn {
+        fn from(value: wasm_wave::value::Value) -> Self {
+            let fields = value.unwrap_record().collect::<Vec<_>>();
+
+            let mut value = None;
+            for (name, val) in fields {
+                match name.as_ref() {
+                    "value" => value = Some(val.unwrap_u64()),
+                    name => panic!("Unknown field: {name}"),
+                }
+            }
+            let value = value.unwrap();
+
+            SumReturn { value }
+        }
+    }
+
+    pub fn sum(args: SumArgs) -> SumReturn {
         let expr = format!(
             "sum({})",
             wasm_wave::to_string(&wasm_wave::value::Value::from(args)).unwrap(),
         );
-        let result = foreign::call(CONTRACT_ID, expr.as_str());
-        result.parse::<u64>().unwrap_or(0)
+        let ret = foreign::call(CONTRACT_ID, expr.as_str());
+        wasm_wave::from_str::<wasm_wave::value::Value>(&SumReturn::wave_type(), &ret)
+            .unwrap()
+            .into()
     }
 }
 
@@ -45,10 +112,13 @@ impl Guest for Fib {
     fn fib(n: u64) -> u64 {
         match n {
             0 | 1 => n,
-            _ => sum::sum(sum::SumArgs {
-                x: Self::fib(n - 1),
-                y: Self::fib(n - 2),
-            }),
+            _ => {
+                sum::sum(sum::SumArgs {
+                    x: Self::fib(n - 1),
+                    y: Self::fib(n - 2),
+                })
+                .value
+            }
         }
     }
 }

@@ -1,8 +1,10 @@
 macros::contract!(name = "sum");
 
 impl Guest for Sum {
-    fn sum(args: SumArgs) -> u64 {
-        args.x + args.y
+    fn sum(args: SumArgs) -> SumReturn {
+        SumReturn {
+            value: args.x + args.y,
+        }
     }
 }
 
