@@ -10,7 +10,7 @@ pub use storage::Storage;
 pub use types::default_val_for_type;
 pub use wit::Contract;
 
-use std::{fs::read, path::Path};
+use std::{fs::read, io::Read, path::Path};
 
 use wit::kontor::*;
 
@@ -91,11 +91,15 @@ impl Runtime {
             Some(component) => component,
             None => {
                 let path = Path::new(&format!(
-                    "../../contracts/target/wasm32-unknown-unknown/debug/{}.wasm",
+                    "../../contracts/target/wasm32-unknown-unknown/release/{}.wasm.br",
                     self.contract_id,
                 ))
                 .canonicalize()?;
-                let module_bytes = read(path)?;
+                let compressed_bytes = read(path)?;
+                let mut decompressor = brotli::Decompressor::new(&compressed_bytes[..], 4096);
+                let mut module_bytes = Vec::new();
+                decompressor.read_to_end(&mut module_bytes)?;
+
                 let component_bytes = ComponentEncoder::default()
                     .module(&module_bytes)?
                     .validate(true)

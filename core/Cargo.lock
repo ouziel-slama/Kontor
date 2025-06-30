@@ -2071,6 +2071,7 @@ dependencies = [
  "bip39",
  "bitcoin",
  "bon",
+ "brotli",
  "ciborium",
  "clap",
  "deadpool",
