@@ -210,6 +210,8 @@ impl<T: Tx + 'static, I: BlockchainInfo, F: BlockFetcher> Reconciler<T, I, F> {
                     self.state.mempool_cache.values().cloned().collect(),
                 ));
             }
+        } else if target_height == height {
+            info!("solo RPC Fetcher caught up: {}", target_height);
         }
 
         Ok(events)
