@@ -1,23 +1,14 @@
-wit_bindgen::generate!({
-    world: "contract",
-    path: "wit",
-    generate_all,
-});
+macros::contract!(name = "fib");
 
-use kontor::built_in::foreign;
-use wasm_wave::{to_string as to_wave, value::Value};
-
-struct Contract;
-
-impl Guest for Contract {
+impl Guest for Fib {
     fn fib(n: u64) -> u64 {
         match n {
             0 | 1 => n,
             _ => {
                 let expr = format!(
                     "sum({}, {})",
-                    to_wave(&Value::from(Self::fib(n - 1))).unwrap(),
-                    to_wave(&Value::from(Self::fib(n - 2))).unwrap()
+                    to_wave(&WaveValue::from(Self::fib(n - 1))).unwrap(),
+                    to_wave(&WaveValue::from(Self::fib(n - 2))).unwrap()
                 );
                 let result = foreign::call("sum", expr.as_str());
                 result.parse::<u64>().unwrap_or(0)
@@ -26,4 +17,4 @@ impl Guest for Contract {
     }
 }
 
-export!(Contract);
+export!(Fib);

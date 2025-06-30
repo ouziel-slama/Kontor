@@ -2079,7 +2079,6 @@ dependencies = [
  "indexmap 2.10.0",
  "libsql",
  "lru",
- "macro",
  "proptest",
  "rayon",
  "reqwest",
@@ -2509,9 +2508,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "macro"
+name = "macros"
 version = "0.1.0"
 dependencies = [
+ "darling",
  "proc-macro2",
  "quote",
  "syn",

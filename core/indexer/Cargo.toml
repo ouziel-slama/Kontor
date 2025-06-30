@@ -11,8 +11,6 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-macro = { path = "../macro" }
-
 anyhow = { workspace = true }
 backon = { version = "1.4", features = ["tokio-sleep"] }
 base64 = "0.22"
