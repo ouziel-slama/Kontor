@@ -10,5 +10,5 @@
 **/.vscode
 **/*.dylib
 **/*.so
-!/core/kontor/sqlean*/**/*.so
-!/core/kontor/sqlean*/**/*.dylib
+!/core/indexer/sqlean*/**/*.so
+!/core/indexer/sqlean*/**/*.dylib
