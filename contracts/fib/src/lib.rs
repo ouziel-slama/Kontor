@@ -29,8 +29,8 @@ mod sum {
             wasm_wave::value::Value::make_record(
                 &SumArgs::wave_type(),
                 vec![
-                    ("x", wasm_wave::value::Value::make_u64(value.x)),
-                    ("y", wasm_wave::value::Value::make_u64(value.y)),
+                    ("x", wasm_wave::value::Value::from(value.x)),
+                    ("y", wasm_wave::value::Value::from(value.y)),
                 ],
             )
             .unwrap()
@@ -73,7 +73,7 @@ mod sum {
         fn from(value: SumReturn) -> Self {
             wasm_wave::value::Value::make_record(
                 &SumReturn::wave_type(),
-                vec![("value", wasm_wave::value::Value::make_u64(value.value))],
+                vec![("value", wasm_wave::value::Value::from(value.value))],
             )
             .unwrap()
         }
@@ -97,10 +97,12 @@ mod sum {
     }
 
     pub fn sum(args: SumArgs) -> SumReturn {
-        let expr = format!(
-            "sum({})",
-            wasm_wave::to_string(&wasm_wave::value::Value::from(args)).unwrap(),
-        );
+        let expr = [
+            "sum(",
+            &wasm_wave::to_string(&wasm_wave::value::Value::from(args)).unwrap(),
+            ")",
+        ]
+        .join("");
         let ret = foreign::call(CONTRACT_ID, expr.as_str());
         wasm_wave::from_str::<wasm_wave::value::Value>(&SumReturn::wave_type(), &ret)
             .unwrap()
