@@ -1,13 +1,9 @@
-wit_bindgen::generate!({
-  path: "wit/world.wit",
-});
+macros::contract!(name = "sum");
 
-struct Contract;
-
-impl Guest for Contract {
-  fn sum(x: u64, y: u64) -> u64 {
-    x + y
-  }
+impl Guest for Sum {
+    fn sum(x: u64, y: u64) -> u64 {
+        x + y
+    }
 }
 
-export!(Contract);
+export!(Sum);

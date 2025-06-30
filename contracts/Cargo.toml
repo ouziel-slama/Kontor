@@ -2,6 +2,16 @@
 members = ["fib", "sum"]
 resolver = "2"
 
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [workspace.dependencies]
-wit-bindgen = "0.42.1"
-kontor-macro = { path = "../core/macro" }
+macros = { path = "../core/macros" }
+
+# IMPORTANT
+wit-bindgen = "0.43.0"
+wasm-wave = "0.235.0"
