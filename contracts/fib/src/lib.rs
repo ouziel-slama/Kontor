@@ -2,7 +2,7 @@ macros::contract!(name = "fib");
 
 // macros::import!(name = "sum", path = "../sum/wit/contract.wit");
 mod sum {
-    use wasm_wave::wasm::WasmValue;
+    use wasm_wave::wasm::WasmValue as _;
 
     use super::foreign;
 
@@ -16,9 +16,9 @@ mod sum {
 
     impl SumArgs {
         pub fn wave_type() -> wasm_wave::value::Type {
-            wasm_wave::value::Type::record(vec![
-                ("x".to_string(), wasm_wave::value::Type::U64),
-                ("y".to_string(), wasm_wave::value::Type::U64),
+            wasm_wave::value::Type::record([
+                ("x", wasm_wave::value::Type::U64),
+                ("y", wasm_wave::value::Type::U64),
             ])
             .unwrap()
         }
@@ -28,7 +28,7 @@ mod sum {
         fn from(value: SumArgs) -> Self {
             wasm_wave::value::Value::make_record(
                 &SumArgs::wave_type(),
-                vec![
+                [
                     ("x", wasm_wave::value::Value::from(value.x)),
                     ("y", wasm_wave::value::Value::from(value.y)),
                 ],
@@ -39,7 +39,7 @@ mod sum {
 
     impl From<wasm_wave::value::Value> for SumArgs {
         fn from(value: wasm_wave::value::Value) -> Self {
-            let fields = value.unwrap_record().collect::<Vec<_>>();
+            let fields = value.unwrap_record();
 
             let mut x = None;
             let mut y = None;
@@ -64,8 +64,7 @@ mod sum {
 
     impl SumReturn {
         pub fn wave_type() -> wasm_wave::value::Type {
-            wasm_wave::value::Type::record(vec![("value".to_string(), wasm_wave::value::Type::U64)])
-                .unwrap()
+            wasm_wave::value::Type::record([("value", wasm_wave::value::Type::U64)]).unwrap()
         }
     }
 
@@ -73,7 +72,7 @@ mod sum {
         fn from(value: SumReturn) -> Self {
             wasm_wave::value::Value::make_record(
                 &SumReturn::wave_type(),
-                vec![("value", wasm_wave::value::Value::from(value.value))],
+                [("value", wasm_wave::value::Value::from(value.value))],
             )
             .unwrap()
         }
@@ -81,7 +80,7 @@ mod sum {
 
     impl From<wasm_wave::value::Value> for SumReturn {
         fn from(value: wasm_wave::value::Value) -> Self {
-            let fields = value.unwrap_record().collect::<Vec<_>>();
+            let fields = value.unwrap_record();
 
             let mut value = None;
             for (name, val) in fields {
