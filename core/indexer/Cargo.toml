@@ -53,7 +53,10 @@ proptest = "1.6"
 lru = "0.15"
 wasmtime = { workspace = true }
 wit-component = { workspace = true }
+lru = { workspace = true }
+rand = "0.9.1"
 brotli = "8"
+
 
 [dev-dependencies]
 sha2 = "0.10"
