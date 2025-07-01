@@ -29,7 +29,7 @@ impl<T: Tx + 'static> CtrlChannel<T> {
         start_height: u64,
         last_hash: Option<BlockHash>,
     ) -> Result<Receiver<Event<T>>> {
-        let (event_tx, event_rx) = mpsc::channel(100);
+        let (event_tx, event_rx) = mpsc::channel(10);
 
         self.ctrl_tx
             .send(StartMessage {
