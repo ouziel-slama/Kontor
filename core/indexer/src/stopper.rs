@@ -7,16 +7,16 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-#[cfg(unix)]
+#[cfg(not(windows))]
 use tokio::signal::unix::{SignalKind, signal};
 
-#[cfg(unix)]
+#[cfg(not(windows))]
 async fn sigterm_listener() {
     let mut stream = signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
     stream.recv().await;
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 async fn sigterm_listener() {
     // On non-unix platforms, this future never resolves.
     std::future::pending::<()>().await;
