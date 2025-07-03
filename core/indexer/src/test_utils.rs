@@ -130,13 +130,7 @@ pub fn sign_key_spend(
 ) -> Result<()> {
     let sighash_type = TapSighashType::Default;
 
-    // Create a clean transaction copy for sighash calculation (no witness data)
-    let mut clean_tx = key_spend_tx.clone();
-    for input in &mut clean_tx.input {
-        input.witness.clear();
-    }
-
-    let mut sighasher = SighashCache::new(clean_tx);
+    let mut sighasher = SighashCache::new(key_spend_tx.clone());
     let sighash = sighasher
         .taproot_key_spend_signature_hash(input_index, &Prevouts::All(prevouts), sighash_type)
         .expect("Failed to construct sighash");
@@ -202,11 +196,6 @@ pub fn sign_multiple_key_spend(
 ) -> Result<()> {
     let sighash_type = TapSighashType::Default;
     let tweaked_sender = keypair.tap_tweak(secp, None);
-
-    // Clear all witnesses first
-    for input in &mut key_spend_tx.input {
-        input.witness.clear();
-    }
 
     // Create a single sighasher instance
     let mut sighasher = SighashCache::new(key_spend_tx.clone());

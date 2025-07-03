@@ -136,6 +136,7 @@ async fn test_taproot_transaction() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_compose_progressive_size_limit_testnet() -> Result<()> {
     logging::setup();
 
@@ -238,7 +239,6 @@ async fn test_compose_progressive_size_limit_testnet() -> Result<()> {
 
         assert_eq!(result.len(), 2, "Expected exactly two transaction results");
 
-        // Log results
         let commit_accepted = result[0].allowed;
         let reveal_accepted = result[1].allowed;
         let status = if commit_accepted && reveal_accepted {
@@ -272,7 +272,7 @@ async fn test_compose_progressive_size_limit_testnet() -> Result<()> {
                 "400KB commit transaction should be rejected: {}",
                 result[0].reject_reason.as_deref().unwrap_or("none")
             );
-            info!("✅ 400KB correctly rejected due to Bitcoin's tx-size limit");
+            info!("400KB correctly rejected due to Bitcoin's tx-size limit");
             break;
         }
 

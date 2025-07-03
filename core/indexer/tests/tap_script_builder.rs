@@ -4,6 +4,8 @@ use bitcoin::opcodes::all::OP_ENDIF;
 use bitcoin::script::Instruction;
 
 use indexer::api::compose::build_tap_script_and_script_address;
+use indexer::logging;
+use tracing::info;
 
 // Generate a random XOnlyPublicKey for testing
 fn generate_test_key() -> XOnlyPublicKey {
@@ -227,75 +229,54 @@ async fn test_build_tap_script_and_script_address_large_chunking() -> Result<()>
 #[tokio::test]
 async fn test_build_tap_script_progressive_size_limit() -> Result<()> {
     let key = generate_test_key();
+    logging::setup();
 
-    // Start with a larger size and use bigger increments
-    let mut current_size = 500_000; // Start with 500KB (where previous test left off)
+    // Test progressive sizes: 500KB -> 600KB -> ... -> 5.5MB
+    let mut current_size = 500_000; // Start with 500KB
     let increment = 100_000; // Increase by 100KB each iteration
-    let max_attempts = 50; // Test up to ~5.5MB
+    let max_size = 5_500_000; // Test up to 5.5MB
 
-    let mut last_successful_size = 0;
-    let mut attempts = 0;
-
-    println!("Testing progressive data size limits...");
-
-    while attempts < max_attempts {
+    while current_size <= max_size {
         let data = vec![0xFF; current_size];
 
-        match build_tap_script_and_script_address(key, data.clone()) {
-            Ok((script, _, _)) => {
-                last_successful_size = current_size;
-                let script_size = script.len();
-                let num_chunks = (current_size + 519) / 520; // Round up division
+        // Should succeed - let any errors propagate
+        let (script, _, _) = build_tap_script_and_script_address(key, data.clone())?;
 
-                println!(
-                    "✓ Success: {} bytes data ({} KB) -> {} bytes script, {} chunks",
-                    current_size,
-                    current_size / 1024,
-                    script_size,
-                    num_chunks
-                );
+        // Verify basic script structure
+        let instructions = script.instructions().collect::<Result<Vec<_>, _>>()?;
+        assert!(
+            instructions.len() > 6,
+            "Script should have basic structure for size {}",
+            current_size
+        );
 
-                // Verify the script can be parsed
-                let instructions = script.instructions().collect::<Result<Vec<_>, _>>()?;
-                assert!(instructions.len() > 6, "Script should have basic structure");
+        // Verify chunking worked correctly
+        let expected_chunks = (current_size + 519) / 520; // Ceiling division: how many 520-byte chunks needed
+        let actual_chunks = instructions.len() - 7; // Total instructions minus fixed structure
+        info!(
+            "expected_chunks: {}, actual_chunks: {}",
+            expected_chunks, actual_chunks,
+        );
+        assert_eq!(
+            actual_chunks, expected_chunks,
+            "Chunk count mismatch for size {}",
+            current_size
+        );
 
-                current_size += increment;
-                attempts += 1;
-            }
-            Err(e) => {
-                println!(
-                    "✗ Failed at {} bytes ({} KB): {}",
-                    current_size,
-                    current_size / 1024,
-                    e
-                );
-                break;
-            }
-        }
+        // Verify script contains the data
+        assert!(
+            script.len() > current_size,
+            "Script should be larger than input data for size {}",
+            current_size
+        );
+
+        current_size += increment;
     }
 
-    if attempts >= max_attempts {
-        println!(
-            "⚠ Reached maximum attempts ({}) without failure",
-            max_attempts
-        );
-        println!(
-            "Last tested size: {} bytes ({} KB)",
-            current_size - increment,
-            (current_size - increment) / 1024
-        );
-    }
-
-    println!(
-        "Maximum successful data size: {} bytes ({} KB)",
-        last_successful_size,
-        last_successful_size / 1024
-    );
-
-    // Ensure we successfully tested at least some sizes
+    // Test that we successfully handled large data sizes
     assert!(
-        last_successful_size > 0,
-        "Should have at least one successful size"
+        current_size > 5_000_000,
+        "Should have tested sizes over 5MB"
     );
 
     Ok(())
