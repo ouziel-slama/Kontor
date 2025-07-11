@@ -109,18 +109,65 @@ mod sum {
     }
 }
 
-impl Guest for Fib {
-    fn fib(n: u64) -> u64 {
+mod runtime {
+    pub trait Storage {
+        fn get_int(&self) -> u64;
+        fn set_int(&self, value: u64);
+    }
+}
+
+mod memory_storage {
+    use super::runtime::Storage;
+    
+    static mut INT_REF: u64 = 0;
+
+    pub struct MemoryStorage;
+
+    impl MemoryStorage {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    impl Storage for MemoryStorage {
+        fn get_int(&self) -> u64 {
+            unsafe { INT_REF }
+        }
+
+        fn set_int(&self, value: u64) {
+            unsafe { INT_REF = value }
+        }
+    }
+}
+
+mod storage_utils {
+    use super::runtime::Storage;
+
+    pub fn store_and_return_int<S: Storage>(storage: &S, x: u64) -> u64 {
+        storage.set_int(x);
+        storage.get_int()
+    }
+}
+
+impl Fib {
+    fn raw_fib(n: u64) -> u64 {
         match n {
             0 | 1 => n,
             _ => {
                 sum::sum(sum::SumArgs {
-                    x: Self::fib(n - 1),
-                    y: Self::fib(n - 2),
+                    x: Self::raw_fib(n - 1),
+                    y: Self::raw_fib(n - 2),
                 })
                 .value
             }
         }
+    }
+}
+
+impl Guest for Fib {
+    fn fib(n: u64) -> u64 {
+        let storage = memory_storage::MemoryStorage::new();
+        storage_utils::store_and_return_int(&storage, Self::raw_fib(n))
     }
 }
 
