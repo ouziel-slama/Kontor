@@ -140,6 +140,16 @@ mod memory_storage {
     }
 }
 
+impl runtime::Storage for kontor::contract::stor::Storage {
+    fn get_int(&self) -> u64 {
+        self.get_int()
+    }
+
+    fn set_int(&self, value: u64) {
+        self.set_int(value)
+    }
+}
+
 mod storage_utils {
     use super::runtime::Storage;
 
@@ -166,7 +176,8 @@ impl Fib {
 
 impl Guest for Fib {
     fn fib(n: u64) -> u64 {
-        let storage = memory_storage::MemoryStorage::new();
+        let storage = kontor::contract::stor::Storage::new();
+        // let storage = memory_storage::MemoryStorage::new();
         storage_utils::store_and_return_int(&storage, Self::raw_fib(n))
     }
 }
