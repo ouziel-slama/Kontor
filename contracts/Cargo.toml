@@ -3,15 +3,16 @@ members = ["fib", "sum"]
 resolver = "2"
 
 [profile.release]
-opt-level = "s"
-strip = true
+opt-level = "z"
 lto = true
 codegen-units = 1
+strip = true
 panic = "abort"
 
 [workspace.dependencies]
-macros = { path = "../core/macros" }
-
 # IMPORTANT
 wit-bindgen = "0.43.0"
 wasm-wave = "0.235.0"
+
+macros = { path = "../core/macros" }
+stdlib = { path = "../core/stdlib" }
