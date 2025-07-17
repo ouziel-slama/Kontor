@@ -379,7 +379,7 @@ pub fn gen_numbered_block(height: u64, prev_hash: &BlockHash) -> Block<MockTrans
         height,
         hash,
         prev_hash: *prev_hash,
-        transactions: vec![],
+        transactions: vec![MockTransaction::new(height as u32)],
     }
 }
 
