@@ -1,14 +1,14 @@
 use anyhow::Result;
+use async_once::AsyncOnce;
+use lazy_static::lazy_static;
 use libsql::Connection;
 use proptest::test_runner::FileFailurePersistence;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::time::{Duration, sleep, timeout};
-use lazy_static::lazy_static;
-use async_once::AsyncOnce;
 
-use tokio_util::sync::CancellationToken;
 use std::sync::{Arc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 use bitcoin::BlockHash;
 
@@ -55,14 +55,17 @@ struct Database {
 // setup shared database used across all test runs; the mutex will force tests to run
 // in sequence, which is still faster than creating a new database for each run.
 lazy_static! {
-   static ref SHARED_DATABASE : AsyncOnce<Arc<Mutex<Database>>> = AsyncOnce::new(async {
-       Mutex::new(new_db_wrapper().await).into()
-   });
+    static ref SHARED_DATABASE: AsyncOnce<Arc<Mutex<Database>>> =
+        AsyncOnce::new(async { Mutex::new(new_db_wrapper().await).into() });
 }
 
 async fn new_db_wrapper() -> Database {
     let (reader, writer, _temp_dir) = new_db().await.unwrap();
-    Database{ reader, writer, _temp_dir }
+    Database {
+        reader,
+        writer,
+        _temp_dir,
+    }
 }
 
 async fn new_db() -> Result<(database::Reader, database::Writer, TempDir)> {
