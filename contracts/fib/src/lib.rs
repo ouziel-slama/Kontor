@@ -1,6 +1,6 @@
 macros::contract!(name = "fib");
 
-use stdlib::{storage_utils, memory_storage};
+use stdlib::{store_and_return_int, memory_storage};
 
 // macros::import!(name = "sum", path = "../sum/wit/contract.wit");
 mod sum {
@@ -129,7 +129,7 @@ impl Fib {
 impl Guest for Fib {
     fn fib(n: u64) -> u64 {
         let storage = memory_storage::MemoryStorage::new();
-        storage_utils::store_and_return_int(&storage, Self::raw_fib(n))
+        store_and_return_int(&storage, Self::raw_fib(n))
     }
 }
 
