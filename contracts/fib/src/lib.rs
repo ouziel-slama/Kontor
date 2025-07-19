@@ -135,9 +135,130 @@ mod sum {
     }
 }
 
+// provided by stdlib
+trait GetStorage {
+    fn get_str(&self, path: &str) -> Option<String>;
+    fn get_u64(&self, path: &str) -> Option<u64>;
+}
+
+trait SetStorage {
+    fn set_str(&self, path: &str, value: &str);
+    fn set_u64(&self, path: &str, value: u64);
+}
+
+trait Storage: GetStorage + SetStorage {}
+
+impl GetStorage for context::ViewStorage {
+    fn get_str(&self, path: &str) -> Option<String> {
+        self.get_str(path)
+    }
+
+    fn get_u64(&self, path: &str) -> Option<u64> {
+        self.get_u64(path)
+    }
+}
+
+impl GetStorage for context::ProcStorage {
+    fn get_str(&self, path: &str) -> Option<String> {
+        self.get_str(path)
+    }
+
+    fn get_u64(&self, path: &str) -> Option<u64> {
+        self.get_u64(path)
+    }
+}
+
+impl SetStorage for context::ProcStorage {
+    fn set_str(&self, path: &str, value: &str) {
+        self.set_str(path, value)
+    }
+
+    fn set_u64(&self, path: &str, value: u64) {
+        self.set_u64(path, value)
+    }
+}
+
+impl Storage for context::ProcStorage {}
+
+trait Store {
+    fn __set(&self, storage: impl SetStorage, path: &str);
+}
+
+struct Map<K: ToString, V: Store> {
+    _k: std::marker::PhantomData<K>,
+    _v: std::marker::PhantomData<V>,
+}
+
+// #[storage]
+struct FibValue {
+    value: u64,
+}
+
+// generated
+impl Store for FibValue {
+    fn __set(&self, storage: impl SetStorage, path: &str) {
+        storage.set_u64(&[path, "value"].join("."), self.value);
+    }
+}
+
+// generated
+struct FibValueWrapper {
+    pub prefix: String,
+}
+
+impl FibValueWrapper {
+    pub fn value(&self, storage: impl GetStorage) -> Option<u64> {
+        storage.get_u64(&[&self.prefix, "value"].join("."))
+    }
+
+    pub fn set_value(&self, storage: impl SetStorage, value: u64) {
+        storage.set_u64(&[&self.prefix, "value"].join("."), value)
+    }
+}
+
+// #[root_storage]
+struct FibStorage {
+    cache: Map<String, FibValue>,
+}
+
+struct FibStorageCacheWrapper {
+    pub prefix: String,
+}
+
+impl FibStorageCacheWrapper {
+    pub fn get<K: ToString>(&self, key: K) -> FibValueWrapper {
+        FibValueWrapper {
+            prefix: [&self.prefix, "cache", &key.to_string()].join("."),
+        }
+    }
+
+    pub fn set<K: ToString>(&self, storage: impl SetStorage, key: K, value: FibValue) {
+        value.__set(
+            storage,
+            &[&self.prefix, "cache", &key.to_string()].join("."),
+        )
+    }
+}
+
+// generated
+struct RootStorage;
+
+impl RootStorage {
+    pub fn cache() -> FibStorageCacheWrapper {
+        FibStorageCacheWrapper {
+            prefix: "fib".to_string(),
+        }
+    }
+}
+
 impl Fib {
     fn raw_fib(ctx: &ProcContext, n: u64) -> u64 {
-        match n {
+        let cache = RootStorage::cache();
+        if let Some(v) = cache.get(n).value(ctx.storage()) {
+            return v;
+        }
+
+        let value = match n {
             0 | 1 => n,
             _ => {
                 sum::sum(
@@ -149,7 +270,9 @@ impl Fib {
                 )
                 .value
             }
-        }
+        };
+        cache.set(ctx.storage(), n, FibValue { value });
+        value
     }
 }
 
