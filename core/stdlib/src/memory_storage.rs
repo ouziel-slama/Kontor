@@ -1,9 +1,11 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, LazyLock};
 use super::storage_interface::Storage;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
-static STRING_STORAGE: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-static U64_STORAGE: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static STRING_STORAGE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static U64_STORAGE: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct MemoryStorage;
 
@@ -39,4 +41,4 @@ impl Storage for MemoryStorage {
         let u64_storage = U64_STORAGE.lock().unwrap();
         string_storage.contains_key(&path) || u64_storage.contains_key(&path)
     }
-} 
+}

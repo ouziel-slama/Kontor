@@ -1,6 +1,6 @@
 macros::contract!(name = "fib");
 
-use stdlib::{store_and_return_int, memory_storage, storage_interface::Storage};
+use stdlib::{memory_storage, storage_interface::Storage, store_and_return_int};
 
 // Implement Storage trait directly on the generated proc-storage resource
 impl Storage for storage::ProcStorage {

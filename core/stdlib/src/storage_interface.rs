@@ -4,4 +4,4 @@ pub trait Storage {
     fn get_u64(&self, path: String) -> Option<u64>;
     fn set_u64(&self, path: String, value: u64);
     fn exists(&self, path: String) -> bool;
-} 
+}
