@@ -10,3 +10,17 @@ pub trait WriteStorage {
 }
 
 pub trait ReadWriteStorage: ReadStorage + WriteStorage {}
+
+pub trait ReadContext {
+    fn read_storage(&self) -> impl ReadStorage;
+}
+
+pub trait WriteContext {
+    fn write_storage(&self) -> impl WriteStorage;
+}
+
+pub trait ReadWriteContext: ReadContext + WriteContext {}
+
+pub trait Store {
+    fn __set(&self, storage: impl WriteStorage, path: &str);
+}

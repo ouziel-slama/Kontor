@@ -1,10 +1,5 @@
 macros::contract!(name = "fib");
 
-use stdlib::{
-    storage_interface::{ReadStorage, ReadWriteStorage, WriteStorage},
-    store_and_return_int,
-};
-
 // macros::import!(name = "sum", path = "../sum/wit/contract.wit");
 mod sum {
     use wasm_wave::wasm::WasmValue as _;
@@ -115,86 +110,6 @@ mod sum {
     }
 }
 
-// provided by stdlib
-impl ReadStorage for context::ViewStorage {
-    fn get_str(&self, path: &str) -> Option<String> {
-        self.get_str(path)
-    }
-
-    fn get_u64(&self, path: &str) -> Option<u64> {
-        self.get_u64(path)
-    }
-
-    fn exists(&self, path: &str) -> bool {
-        self.exists(path)
-    }
-}
-
-impl ReadStorage for context::ProcStorage {
-    fn get_str(&self, path: &str) -> Option<String> {
-        self.get_str(path)
-    }
-
-    fn get_u64(&self, path: &str) -> Option<u64> {
-        self.get_u64(path)
-    }
-
-    fn exists(&self, path: &str) -> bool {
-        self.exists(path)
-    }
-}
-
-impl WriteStorage for context::ProcStorage {
-    fn set_str(&self, path: &str, value: &str) {
-        self.set_str(path, value)
-    }
-
-    fn set_u64(&self, path: &str, value: u64) {
-        self.set_u64(path, value)
-    }
-}
-
-impl ReadWriteStorage for context::ProcStorage {}
-
-trait ReadContext {
-    fn read_storage(&self) -> impl ReadStorage;
-}
-
-trait WriteContext {
-    fn write_storage(&self) -> impl WriteStorage;
-}
-
-trait ReadWriteContext: ReadContext + WriteContext {}
-
-impl ReadContext for &context::ViewContext {
-    fn read_storage(&self) -> impl ReadStorage {
-        self.storage()
-    }
-}
-
-impl ReadContext for &context::ProcContext {
-    fn read_storage(&self) -> impl ReadStorage {
-        self.storage()
-    }
-}
-
-impl WriteContext for &context::ProcContext {
-    fn write_storage(&self) -> impl WriteStorage {
-        self.storage()
-    }
-}
-
-impl ReadWriteContext for &context::ProcContext {}
-
-trait Store {
-    fn __set(&self, storage: impl WriteStorage, path: &str);
-}
-
-struct Map<K: ToString, V: Store> {
-    _k: std::marker::PhantomData<K>,
-    _v: std::marker::PhantomData<V>,
-}
-
 // #[storage]
 struct FibValue {
     value: u64,
@@ -289,7 +204,7 @@ impl Fib {
 
 impl Guest for Fib {
     fn fib(ctx: &ProcContext, n: u64) -> u64 {
-        store_and_return_int(&ctx.storage(), "fib", Self::raw_fib(ctx, n))
+        Self::raw_fib(ctx, n)
     }
 }
 
