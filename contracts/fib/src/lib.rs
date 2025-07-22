@@ -1,29 +1,9 @@
 macros::contract!(name = "fib");
 
-use stdlib::{memory_storage, storage_interface::Storage, store_and_return_int};
-
-// Implement Storage trait directly on the generated proc-storage resource
-impl Storage for storage::ProcStorage {
-    fn get_str(&self, path: String) -> Option<String> {
-        self.get_str(&path)
-    }
-
-    fn set_str(&self, path: String, value: String) {
-        self.set_str(&path, &value);
-    }
-
-    fn get_u64(&self, path: String) -> Option<u64> {
-        self.get_u64(&path)
-    }
-
-    fn set_u64(&self, path: String, value: u64) {
-        self.set_u64(&path, value);
-    }
-
-    fn exists(&self, path: String) -> bool {
-        self.exists(&path)
-    }
-}
+use stdlib::{
+    storage_interface::{ReadStorage, ReadWriteStorage, WriteStorage},
+    store_and_return_int,
+};
 
 // macros::import!(name = "sum", path = "../sum/wit/contract.wit");
 mod sum {
@@ -136,19 +116,6 @@ mod sum {
 }
 
 // provided by stdlib
-trait ReadStorage {
-    fn get_str(&self, path: &str) -> Option<String>;
-    fn get_u64(&self, path: &str) -> Option<u64>;
-    fn exists(&self, path: &str) -> bool;
-}
-
-trait WriteStorage {
-    fn set_str(&self, path: &str, value: &str);
-    fn set_u64(&self, path: &str, value: u64);
-}
-
-trait ReadWriteStorage: ReadStorage + WriteStorage {}
-
 impl ReadStorage for context::ViewStorage {
     fn get_str(&self, path: &str) -> Option<String> {
         self.get_str(path)
@@ -298,7 +265,7 @@ impl Storage {
 impl Fib {
     fn raw_fib(ctx: &ProcContext, n: u64) -> u64 {
         let cache = Storage::cache();
-        if let Some(v) = cache.get(n).value(ctx.storage()) {
+        if let Some(v) = cache.get(ctx, n).map(|v| v.value(ctx)) {
             return v;
         }
 
@@ -322,9 +289,7 @@ impl Fib {
 
 impl Guest for Fib {
     fn fib(ctx: &ProcContext, n: u64) -> u64 {
-        let storage = memory_storage::MemoryStorage::new();
-        let _storage = ctx.storage();
-        store_and_return_int(&storage, "fib".to_string(), Self::raw_fib(ctx, n))
+        store_and_return_int(&ctx.storage(), "fib", Self::raw_fib(ctx, n))
     }
 }
 

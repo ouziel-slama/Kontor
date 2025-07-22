@@ -1,7 +1,12 @@
-pub trait Storage {
-    fn get_str(&self, path: String) -> Option<String>;
-    fn set_str(&self, path: String, value: String);
-    fn get_u64(&self, path: String) -> Option<u64>;
-    fn set_u64(&self, path: String, value: u64);
-    fn exists(&self, path: String) -> bool;
+pub trait ReadStorage {
+    fn get_str(&self, path: &str) -> Option<String>;
+    fn get_u64(&self, path: &str) -> Option<u64>;
+    fn exists(&self, path: &str) -> bool;
 }
+
+pub trait WriteStorage {
+    fn set_str(&self, path: &str, value: &str);
+    fn set_u64(&self, path: &str, value: u64);
+}
+
+pub trait ReadWriteStorage: ReadStorage + WriteStorage {}
