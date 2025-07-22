@@ -1,3 +1,5 @@
+use stdlib::DotPathBuf;
+
 macros::contract!(name = "fib");
 
 // macros::import!(name = "sum", path = "../sum/wit/contract.wit");
@@ -117,26 +119,26 @@ struct FibValue {
 
 // generated
 impl Store for FibValue {
-    fn __set(&self, storage: impl WriteStorage, path: &str) {
-        storage.set_u64(&[path, "value"].join("."), self.value);
+    fn __set(&self, storage: impl WriteStorage, base_path: DotPathBuf) {
+        storage.set_u64(&base_path.push("value").to_string(), self.value);
     }
 }
 
 // generated
 struct FibValueWrapper {
-    pub prefix: String,
+    pub base_path: DotPathBuf,
 }
 
 impl FibValueWrapper {
     pub fn value(&self, ctx: impl ReadContext) -> u64 {
         ctx.read_storage()
-            .get_u64(&[&self.prefix, "value"].join("."))
+            .get_u64(&self.base_path.push("value").to_string())
             .unwrap()
     }
 
     pub fn set_value(&self, ctx: impl WriteContext, value: u64) {
         ctx.write_storage()
-            .set_u64(&[&self.prefix, "value"].join("."), value)
+            .set_u64(&self.base_path.push("value").to_string(), value)
     }
 }
 
@@ -146,23 +148,19 @@ struct FibStorage {
 }
 
 struct FibStorageCacheWrapper {
-    pub prefix: String,
+    pub base_path: DotPathBuf,
 }
 
 impl FibStorageCacheWrapper {
     pub fn get<K: ToString>(&self, ctx: impl ReadContext, key: K) -> Option<FibValueWrapper> {
+        let base_path = self.base_path.push(key.to_string());
         ctx.read_storage()
-            .exists(&format!("{}.cache.{}.", &self.prefix, key.to_string()))
-            .then_some(FibValueWrapper {
-                prefix: [&self.prefix, "cache", &key.to_string()].join("."),
-            })
+            .exists(&base_path.to_string())
+            .then_some(FibValueWrapper { base_path })
     }
 
     pub fn set<K: ToString>(&self, ctx: impl WriteContext, key: K, value: FibValue) {
-        value.__set(
-            ctx.write_storage(),
-            &[&self.prefix, "cache", &key.to_string()].join("."),
-        )
+        value.__set(ctx.write_storage(), self.base_path.push(key.to_string()))
     }
 }
 
@@ -172,7 +170,7 @@ struct Storage;
 impl Storage {
     pub fn cache() -> FibStorageCacheWrapper {
         FibStorageCacheWrapper {
-            prefix: "fib".to_string(),
+            base_path: DotPathBuf::new().push("cache"),
         }
     }
 }
