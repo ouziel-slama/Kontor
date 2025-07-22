@@ -1,11 +1,9 @@
 mod component_cache;
-mod dot_path_buf;
 mod storage;
 mod types;
 mod wit;
 
 pub use component_cache::ComponentCache;
-pub use dot_path_buf::DotPathBuf;
 use serde::{Deserialize, Serialize};
 pub use storage::Storage;
 pub use types::default_val_for_type;

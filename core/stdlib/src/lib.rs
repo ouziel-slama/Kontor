@@ -1,10 +1,10 @@
-pub mod memory_storage;
-pub mod storage_interface;
-use self::storage_interface::Storage;
+mod dot_path_buf;
+mod storage_interface;
 
-pub fn store_and_return_int<S: Storage>(storage: &S, path: String, x: u64) -> u64 {
-    storage.set_u64(path.clone(), x);
+pub use dot_path_buf::*;
+pub use storage_interface::*;
 
-    let retrieved = storage.get_u64(path);
-    retrieved.unwrap_or(0)
+pub struct Map<K: ToString, V: Store> {
+    _k: std::marker::PhantomData<K>,
+    _v: std::marker::PhantomData<V>,
 }

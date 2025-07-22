@@ -1,29 +1,8 @@
+#![allow(dead_code)]
+
+use stdlib::DotPathBuf;
+
 macros::contract!(name = "fib");
-
-use stdlib::{memory_storage, storage_interface::Storage, store_and_return_int};
-
-// Implement Storage trait directly on the generated proc-storage resource
-impl Storage for storage::ProcStorage {
-    fn get_str(&self, path: String) -> Option<String> {
-        self.get_str(&path)
-    }
-
-    fn set_str(&self, path: String, value: String) {
-        self.set_str(&path, &value);
-    }
-
-    fn get_u64(&self, path: String) -> Option<u64> {
-        self.get_u64(&path)
-    }
-
-    fn set_u64(&self, path: String, value: u64) {
-        self.set_u64(&path, value);
-    }
-
-    fn exists(&self, path: String) -> bool {
-        self.exists(&path)
-    }
-}
 
 // macros::import!(name = "sum", path = "../sum/wit/contract.wit");
 mod sum {
@@ -135,9 +114,77 @@ mod sum {
     }
 }
 
+// #[storage]
+struct FibValue {
+    value: u64,
+}
+
+// generated
+impl Store for FibValue {
+    fn __set(&self, storage: impl WriteStorage, base_path: DotPathBuf) {
+        storage.set_u64(&base_path.push("value").to_string(), self.value);
+    }
+}
+
+// generated
+struct FibValueWrapper {
+    pub base_path: DotPathBuf,
+}
+
+impl FibValueWrapper {
+    pub fn value(&self, ctx: impl ReadContext) -> u64 {
+        ctx.read_storage()
+            .get_u64(&self.base_path.push("value").to_string())
+            .unwrap()
+    }
+
+    pub fn set_value(&self, ctx: impl WriteContext, value: u64) {
+        ctx.write_storage()
+            .set_u64(&self.base_path.push("value").to_string(), value)
+    }
+}
+
+// #[root_storage]
+struct FibStorage {
+    cache: Map<String, FibValue>,
+}
+
+struct FibStorageCacheWrapper {
+    pub base_path: DotPathBuf,
+}
+
+impl FibStorageCacheWrapper {
+    pub fn get<K: ToString>(&self, ctx: impl ReadContext, key: K) -> Option<FibValueWrapper> {
+        let base_path = self.base_path.push(key.to_string());
+        ctx.read_storage()
+            .exists(&base_path.to_string())
+            .then_some(FibValueWrapper { base_path })
+    }
+
+    pub fn set<K: ToString>(&self, ctx: impl WriteContext, key: K, value: FibValue) {
+        value.__set(ctx.write_storage(), self.base_path.push(key.to_string()))
+    }
+}
+
+// generated
+struct Storage;
+
+impl Storage {
+    pub fn cache() -> FibStorageCacheWrapper {
+        FibStorageCacheWrapper {
+            base_path: DotPathBuf::new().push("cache"),
+        }
+    }
+}
+
 impl Fib {
     fn raw_fib(ctx: &ProcContext, n: u64) -> u64 {
-        match n {
+        let cache = Storage::cache();
+        if let Some(v) = cache.get(ctx, n).map(|v| v.value(ctx)) {
+            return v;
+        }
+
+        let value = match n {
             0 | 1 => n,
             _ => {
                 sum::sum(
@@ -149,15 +196,15 @@ impl Fib {
                 )
                 .value
             }
-        }
+        };
+        cache.set(ctx, n, FibValue { value });
+        value
     }
 }
 
 impl Guest for Fib {
     fn fib(ctx: &ProcContext, n: u64) -> u64 {
-        let storage = memory_storage::MemoryStorage::new();
-        let _storage = ctx.storage();
-        store_and_return_int(&storage, "fib".to_string(), Self::raw_fib(ctx, n))
+        Self::raw_fib(ctx, n)
     }
 }
 
