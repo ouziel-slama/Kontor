@@ -17,16 +17,18 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     let cancel_token = CancellationToken::new();
 
     let mut blocks = new_numbered_blockchain(3);
+    let initial_mempool: Vec<MockTransaction> =
+        [1, 2, 3].iter().map(|i| MockTransaction::new(*i)).collect();
 
-    let mock = MockBlockchain::new(blocks.clone());
+    let mut mock = MockBlockchain::new(blocks.clone());
+    mock.set_mempool(initial_mempool.clone());
     let (ctrl, ctrl_rx) = CtrlChannel::<MockTransaction>::create();
-
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
-
     let (zmq_tx, zmq_rx) = mpsc::unbounded_channel();
 
     let mut rec = reconciler::Reconciler::new(
         cancel_token.clone(),
+        mock.clone(),
         mock.clone(),
         mock.clone(),
         rpc_rx,
@@ -78,7 +80,7 @@ async fn test_reconciler_switch_to_zmq_after_catchup() -> Result<()> {
     blocks.extend(more_blocks.iter().cloned());
 
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::MempoolSet(vec![]));
+    assert_eq!(e, Event::MempoolSet(initial_mempool));
 
     let tx1 = blocks[4 - 1].transactions[0].clone();
     let tx1_id = tx1.txid();
@@ -134,13 +136,18 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
 
     let mut blocks = new_numbered_blockchain(3);
 
-    let mock = MockBlockchain::new(blocks.clone());
+    let initial_mempool: Vec<MockTransaction> =
+        [1, 2, 3].iter().map(|i| MockTransaction::new(*i)).collect();
+
+    let mut mock = MockBlockchain::new(blocks.clone());
+    mock.set_mempool(initial_mempool.clone());
     let (ctrl, ctrl_rx) = CtrlChannel::<MockTransaction>::create();
     let (_rpc_tx, rpc_rx) = mpsc::channel(10);
     let (zmq_tx, zmq_rx) = mpsc::unbounded_channel();
 
     let mut rec = reconciler::Reconciler::new(
         cancel_token.clone(),
+        mock.clone(),
         mock.clone(),
         mock.clone(),
         rpc_rx,
@@ -171,10 +178,14 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
             .is_ok()
     );
 
+    // TODO this is racy, decide how to handle arrival of the block before the mempool txs
+
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::MempoolSet(vec![]));
+    assert_eq!(e, Event::MempoolSet(initial_mempool));
     let e = event_rx.recv().await.unwrap();
-    assert_eq!(e, Event::MempoolRemove(vec![]));
+    let tx = blocks[4 - 1].transactions[0].clone();
+    let tx_id = tx.txid();
+    assert_eq!(e, Event::MempoolRemove(vec![tx_id]));
     let e = event_rx.recv().await.unwrap();
     assert_eq!(e, Event::BlockInsert((4, blocks[4 - 1].clone())));
 
@@ -196,8 +207,6 @@ async fn test_reconciler_zmq_rollback_message() -> Result<()> {
 
     let e = event_rx.recv().await.unwrap();
     assert_eq!(e, Event::BlockRemove(BlockId::Hash(blocks[2 - 1].hash)));
-
-    // TODO would we want an explicit MempoolRemove message here?
 
     cancel_token.cancel();
     let _ = handle.await;
