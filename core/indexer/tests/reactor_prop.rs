@@ -1,7 +1,6 @@
 use anyhow::Result;
-use async_once::AsyncOnce;
-use lazy_static::lazy_static;
 use libsql::Connection;
+use once_cell::sync::Lazy;
 use proptest::test_runner::FileFailurePersistence;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -52,12 +51,31 @@ struct Database {
     _temp_dir: TempDir,
 }
 
+struct DatabaseFactory {
+    database: Arc<Mutex<Option<Database>>>,
+}
+
+impl DatabaseFactory {
+    pub fn new() -> Self {
+        Self {
+            database: Mutex::new(None).into(),
+        }
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    pub async fn get_database(&mut self) -> Arc<Mutex<Option<Database>>> {
+        let mut db = self.database.lock().unwrap();
+        if db.is_none() {
+            *db = Some(new_db_wrapper().await);
+        }
+        self.database.clone()
+    }
+}
+
 // setup shared database used across all test runs; the mutex will force tests to run
 // in sequence, which is still faster than creating a new database for each run.
-lazy_static! {
-    static ref SHARED_DATABASE: AsyncOnce<Arc<Mutex<Database>>> =
-        AsyncOnce::new(async { Mutex::new(new_db_wrapper().await).into() });
-}
+static SHARED_DATABASE: Lazy<Arc<Mutex<DatabaseFactory>>> =
+    Lazy::new(|| Mutex::new(DatabaseFactory::new()).into());
 
 async fn new_db_wrapper() -> Database {
     let (reader, writer, _temp_dir) = new_db().await.unwrap();
@@ -84,7 +102,7 @@ async fn new_db() -> Result<(database::Reader, database::Writer, TempDir)> {
 }
 
 async fn await_block_at_height(conn: &Connection, height: u64) -> BlockRow {
-    for _i in 0..10 {
+    for _i in 0..100 {
         match queries::select_block_at_height(conn, height).await {
             Ok(Some(row)) => return row,
             Ok(None) => {}
@@ -236,7 +254,9 @@ proptest! {
         // test run to force sequential execution of the test runs.
         #[allow(clippy::await_holding_lock)]
         rt.block_on(async {
-            let db = SHARED_DATABASE.get().await.lock().unwrap();
+            let db_mutex = (*SHARED_DATABASE).lock().unwrap().get_database().await;
+            let mut db_binding = db_mutex.lock().unwrap();
+            let db = db_binding.as_mut().unwrap();
 
             // wipe blocks from earlier runs
             let conn = &db.writer.connection();
