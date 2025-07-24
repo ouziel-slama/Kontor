@@ -111,6 +111,13 @@ pub async fn insert_contract_state(conn: &Connection, row: ContractStateRow) -> 
 
 const BASE_CONTRACT_STATE_QUERY: &str = include_str!("sql/base_contract_state_query.sql");
 
+fn base_contract_state_query() -> String {
+    BASE_CONTRACT_STATE_QUERY
+        .replace("{{path_operator}}", "=")
+        .replace("{{path_prefix}}", "")
+        .replace("{{path_suffix}}", "")
+}
+
 pub async fn get_latest_contract_state(
     conn: &Connection,
     contract_id: &str,
@@ -130,7 +137,7 @@ pub async fn get_latest_contract_state(
                     deleted
                 {}
                 "#,
-                BASE_CONTRACT_STATE_QUERY
+                base_contract_state_query()
             ),
             ((":contract_id", contract_id), (":path", path)),
         )
@@ -151,7 +158,7 @@ pub async fn get_latest_contract_state_value(
                 SELECT value
                 {}
                 "#,
-                BASE_CONTRACT_STATE_QUERY
+                base_contract_state_query()
             ),
             ((":contract_id", contract_id), (":path", path)),
         )
@@ -181,8 +188,12 @@ pub async fn delete_contract_state(
     )
 }
 
-const BASE_EXISTS_CONTRACT_STATE_QUERY: &str =
-    include_str!("sql/base_exists_contract_state_query.sql");
+fn base_exists_contract_state_query() -> String {
+    BASE_CONTRACT_STATE_QUERY
+        .replace("{{path_operator}}", "LIKE")
+        .replace("{{path_prefix}}", "")
+        .replace("{{path_suffix}}", "|| '%'")
+}
 
 pub async fn exists_contract_state(
     conn: &Connection,
@@ -196,7 +207,7 @@ pub async fn exists_contract_state(
                 SELECT value
                 {}
                 "#,
-                BASE_EXISTS_CONTRACT_STATE_QUERY
+                base_exists_contract_state_query()
             ),
             ((":contract_id", contract_id), (":path", path)),
         )
