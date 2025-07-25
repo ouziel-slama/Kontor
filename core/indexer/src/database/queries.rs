@@ -3,7 +3,7 @@ use libsql::{Connection, de::from_row, named_params, params};
 use thiserror::Error as ThisError;
 
 use crate::database::types::{
-    ContractId, ContractRow, PaginationMeta, TransactionCursor, TransactionRow,
+    ContractAddress, ContractRow, PaginationMeta, TransactionCursor, TransactionRow,
 };
 
 use super::types::{BlockRow, ContractStateRow};
@@ -122,7 +122,7 @@ fn base_contract_state_query() -> String {
 
 pub async fn get_latest_contract_state(
     conn: &Connection,
-    contract_id: &str,
+    contract_id: i64,
     path: &str,
 ) -> Result<Option<ContractStateRow>, Error> {
     let mut rows = conn
@@ -150,7 +150,7 @@ pub async fn get_latest_contract_state(
 
 pub async fn get_latest_contract_state_value(
     conn: &Connection,
-    contract_id: &str,
+    contract_id: i64,
     path: &str,
 ) -> Result<Option<Vec<u8>>, Error> {
     let mut rows = conn
@@ -173,7 +173,7 @@ pub async fn delete_contract_state(
     conn: &Connection,
     height: i64,
     tx_id: i64,
-    contract_id: &str,
+    contract_id: i64,
     path: &str,
 ) -> Result<bool, Error> {
     Ok(
@@ -199,7 +199,7 @@ fn base_exists_contract_state_query() -> String {
 
 pub async fn exists_contract_state(
     conn: &Connection,
-    contract_id: &str,
+    contract_id: i64,
     path: &str,
 ) -> Result<bool, Error> {
     let mut rows = conn
@@ -217,18 +217,18 @@ pub async fn exists_contract_state(
     Ok(rows.next().await?.is_some())
 }
 
-pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<(), Error> {
+pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<i64, Error> {
     conn.execute(
         "INSERT INTO contracts (name, height, tx_index, bytes) VALUES (?, ?, ?, ?)",
         params![row.name, row.height, row.tx_index, row.bytes],
     )
     .await?;
-    Ok(())
+    Ok(conn.last_insert_rowid())
 }
 
-pub async fn get_contract_bytes(
+pub async fn get_contract_bytes_by_address(
     conn: &Connection,
-    id: ContractId,
+    address: &ContractAddress,
 ) -> Result<Option<Vec<u8>>, Error> {
     let mut rows = conn
         .query(
@@ -236,13 +236,46 @@ pub async fn get_contract_bytes(
         SELECT bytes FROM contracts
         WHERE name = :name
         AND height = :height
-        AND tx_index = :tx_index"#,
+        AND tx_index = :tx_index
+        "#,
             (
-                (":name", id.name),
-                (":height", id.height),
-                (":tx_index", id.tx_index),
+                (":name", address.name.clone()),
+                (":height", address.height),
+                (":tx_index", address.tx_index),
             ),
         )
+        .await?;
+    Ok(rows.next().await?.map(|r| r.get(0)).transpose()?)
+}
+
+pub async fn get_contract_id_from_address(
+    conn: &Connection,
+    address: &ContractAddress,
+) -> Result<Option<i64>, Error> {
+    let mut rows = conn
+        .query(
+            r#"
+        SELECT id FROM contracts
+        WHERE name = :name
+        AND height = :height
+        AND tx_index = :tx_index
+        "#,
+            (
+                (":name", address.name.clone()),
+                (":height", address.height),
+                (":tx_index", address.tx_index),
+            ),
+        )
+        .await?;
+    Ok(rows.next().await?.map(|r| r.get(0)).transpose()?)
+}
+
+pub async fn get_contract_bytes_by_id(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<Vec<u8>>, Error> {
+    let mut rows = conn
+        .query("SELECT bytes FROM contracts WHERE id = ?", params![id])
         .await?;
     Ok(rows.next().await?.map(|r| r.get(0)).transpose()?)
 }

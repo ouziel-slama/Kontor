@@ -5,13 +5,14 @@ use indexer::{
     config::Config,
     database::{
         queries::{
-            delete_contract_state, exists_contract_state, get_contract_bytes,
-            get_latest_contract_state, get_latest_contract_state_value, get_transaction_by_id,
-            get_transaction_by_txid, get_transactions_at_height, insert_block, insert_contract,
-            insert_contract_state, insert_transaction, select_block_at_height,
-            select_block_by_height_or_hash, select_block_latest,
+            delete_contract_state, exists_contract_state, get_contract_bytes_by_address,
+            get_contract_bytes_by_id, get_contract_id_from_address, get_latest_contract_state,
+            get_latest_contract_state_value, get_transaction_by_id, get_transaction_by_txid,
+            get_transactions_at_height, insert_block, insert_contract, insert_contract_state,
+            insert_transaction, select_block_at_height, select_block_by_height_or_hash,
+            select_block_latest,
         },
-        types::{BlockRow, ContractId, ContractRow, ContractStateRow, TransactionRow},
+        types::{BlockRow, ContractAddress, ContractRow, ContractStateRow, TransactionRow},
     },
     logging,
     test_utils::{new_mock_block_hash, new_test_db},
@@ -97,12 +98,12 @@ async fn test_contract_state_operations() -> Result<()> {
     let tx_id = insert_transaction(&conn, tx).await?;
 
     // Test contract state insertion and retrieval
-    let contract_id = "test_contract_123";
+    let contract_id = 123;
     let path = "test/path";
     let value = vec![1, 2, 3, 4];
 
     let contract_state = ContractStateRow::builder()
-        .contract_id(contract_id.to_string())
+        .contract_id(contract_id)
         .tx_id(tx_id)
         .height(height as i64)
         .path(path.to_string())
@@ -158,7 +159,7 @@ async fn test_contract_state_operations() -> Result<()> {
 
     let updated_value = vec![5, 6, 7, 8];
     let updated_contract_state = ContractStateRow::builder()
-        .contract_id(contract_id.to_string())
+        .contract_id(contract_id)
         .tx_id(tx_id2)
         .height(height2 as i64)
         .path(path.to_string())
@@ -186,8 +187,8 @@ async fn test_contract_state_operations() -> Result<()> {
 
     let count = conn
         .query(
-            "SELECT COUNT(*) FROM contract_state WHERE contract_id = ? AND path = ?",
-            vec![contract_id, path],
+            "SELECT COUNT(*) FROM contract_state WHERE contract_id = :contract_id AND path = :path",
+            ((":contract_id", contract_id), (":path", path)),
         )
         .await?
         .next()
@@ -422,15 +423,19 @@ async fn test_contracts() -> Result<()> {
         .name("test".to_string())
         .build();
     insert_contract(&conn, row.clone()).await?;
-    let option_bytes = get_contract_bytes(
-        &conn,
-        ContractId::builder()
-            .height(0)
-            .tx_index(1)
-            .name("test".to_string())
-            .build(),
-    )
-    .await?;
-    assert_eq!(option_bytes.unwrap(), row.bytes);
+    let address = ContractAddress::builder()
+        .height(0)
+        .tx_index(1)
+        .name("test".to_string())
+        .build();
+    let bytes = get_contract_bytes_by_address(&conn, &address)
+        .await?
+        .unwrap();
+    assert_eq!(bytes, row.bytes);
+    let id = get_contract_id_from_address(&conn, &address)
+        .await?
+        .unwrap();
+    let bytes = get_contract_bytes_by_id(&conn, id).await?.unwrap();
+    assert_eq!(bytes, row.bytes);
     Ok(())
 }
