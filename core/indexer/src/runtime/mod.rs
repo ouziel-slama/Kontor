@@ -130,7 +130,7 @@ impl Runtime {
 
                 let component = Component::from_binary(&self.engine, &component_bytes)?;
                 self.component_cache
-                    .put(self.contract_id.clone(), component.clone());
+                    .put(self.contract_id, component.clone());
                 component
             }
         })
