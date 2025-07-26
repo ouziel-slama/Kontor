@@ -43,15 +43,10 @@ pub struct Runtime {
     pub table: Arc<Mutex<ResourceTable>>,
     pub component_cache: ComponentCache,
     pub storage: Storage,
-    pub signer: String,
 }
 
 impl Runtime {
-    pub async fn new(
-        storage: Storage,
-        component_cache: ComponentCache,
-        signer: String,
-    ) -> Result<Self> {
+    pub async fn new(storage: Storage, component_cache: ComponentCache) -> Result<Self> {
         let mut config = wasmtime::Config::new();
         config.async_support(true);
         config.wasm_component_model(true);
@@ -61,7 +56,6 @@ impl Runtime {
             table: Arc::new(Mutex::new(ResourceTable::new())),
             component_cache,
             storage,
-            signer,
         };
         Ok(runtime)
     }
@@ -103,9 +97,9 @@ impl Runtime {
 
     pub async fn execute(
         &self,
+        signer: Option<&str>,
         contract_address: &ContractAddress,
         expr: &str,
-        ctx: Option<Context>,
     ) -> Result<String> {
         let contract_id = self
             .storage
@@ -133,17 +127,18 @@ impl Runtime {
         let mut params = call.to_wasm_params(func_param_types.to_vec())?;
         let context_param = {
             let mut table = self.table.lock().await;
-            match resource_type {
-                t if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>())
-                    && ctx.is_none_or(|c| c == Context::Proc) =>
+            match (resource_type, signer) {
+                (t, Some(signer))
+                    if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
                 {
                     table
-                        .push(ProcContext { contract_id })?
+                        .push(ProcContext {
+                            signer: signer.to_string(),
+                            contract_id,
+                        })?
                         .try_into_resource_any(&mut store)
                 }
-                t if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>())
-                    && ctx.is_none_or(|c| c == Context::View) =>
-                {
+                (t, None) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => {
                     table
                         .push(ViewContext { contract_id })?
                         .try_into_resource_any(&mut store)
@@ -180,18 +175,17 @@ impl built_in::foreign::Host for Runtime {
         _: Resource<ViewContext>,
         expr: String,
     ) -> Result<String> {
-        self.execute(&contract_address, &expr, Some(Context::View))
-            .await
+        self.execute(None, &contract_address, &expr).await
     }
 
     async fn call_proc(
         &mut self,
         contract_address: ContractAddress,
-        _: Resource<ProcContext>,
+        resource: Resource<ProcContext>,
         expr: String,
     ) -> Result<String> {
-        self.execute(&contract_address, &expr, Some(Context::Proc))
-            .await
+        let signer = self.table.lock().await.get(&resource)?.signer.clone();
+        self.execute(Some(&signer), &contract_address, &expr).await
     }
 }
 
@@ -378,8 +372,8 @@ impl built_in::context::HostProcContext for Runtime {
         Ok(table.push(ProcStorage { contract_id })?)
     }
 
-    async fn signer(&mut self, _: Resource<ProcContext>) -> Result<String> {
-        Ok(self.signer.clone())
+    async fn signer(&mut self, resource: Resource<ProcContext>) -> Result<String> {
+        Ok(self.table.lock().await.get(&resource)?.signer.clone())
     }
 
     async fn view_context(

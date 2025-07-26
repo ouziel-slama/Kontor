@@ -12,4 +12,5 @@ pub struct ViewContext {
 
 pub struct ProcContext {
     pub contract_id: i64,
+    pub signer: String,
 }
