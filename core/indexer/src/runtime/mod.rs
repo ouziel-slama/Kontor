@@ -29,12 +29,16 @@ use wasmtime::{
 };
 use wit_component::ComponentEncoder;
 
-use crate::runtime::wit::{ProcContext, ProcStorage, ViewContext, ViewStorage};
+use crate::runtime::wit::{HasContractId, ProcContext, ProcStorage, ViewContext, ViewStorage};
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Context {
-    View,
-    Proc,
+pub fn serialize_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    ciborium::into_writer(value, &mut buffer)?;
+    Ok(buffer)
+}
+
+pub fn deserialize_cbor<T: for<'a> Deserialize<'a>>(buffer: &[u8]) -> Result<T> {
+    Ok(ciborium::from_reader(&mut Cursor::new(buffer))?)
 }
 
 #[derive(Clone)]
@@ -166,6 +170,76 @@ impl Runtime {
             "Functions with multiple return values are not supported"
         ))
     }
+
+    async fn _get_str<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        path: String,
+    ) -> Result<Option<String>> {
+        let table = self.table.lock().await;
+        let _self = table.get(&resource)?;
+        let bs = self
+            .storage
+            .get(_self.get_contract_id(), &path)
+            .await?
+            .ok_or(anyhow!("Key not found"))?;
+        deserialize_cbor(&bs)
+    }
+
+    async fn _get_u64<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        path: String,
+    ) -> Result<Option<u64>> {
+        let table = self.table.lock().await;
+        let _self = table.get(&resource)?;
+        let bs = self
+            .storage
+            .get(_self.get_contract_id(), &path)
+            .await?
+            .ok_or(anyhow!("Key not found"))?;
+        deserialize_cbor(&bs)
+    }
+
+    async fn _is_void<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        path: String,
+    ) -> Result<bool> {
+        let table = self.table.lock().await;
+        let _self = table.get(&resource)?;
+        let contract_id = _self.get_contract_id();
+        let bs = self.storage.get(contract_id, &path).await?;
+        Ok(if let Some(bs) = bs {
+            bs.is_empty()
+        } else if self.storage.exists(contract_id, &path).await? {
+            false
+        } else {
+            panic!("Key not found in is_void check")
+        })
+    }
+
+    async fn _exists<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        path: String,
+    ) -> Result<bool> {
+        let table = self.table.lock().await;
+        let _self = table.get(&resource)?;
+        self.storage.exists(_self.get_contract_id(), &path).await
+    }
+
+    async fn _matching_path<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        regexp: String,
+    ) -> Result<Option<String>> {
+        let table = self.table.lock().await;
+        let _self = table.get(&resource)?;
+        self.storage
+            .matching_path(_self.get_contract_id(), &regexp)
+            .await
+    }
 }
 
 impl built_in::foreign::Host for Runtime {
@@ -191,29 +265,13 @@ impl built_in::foreign::Host for Runtime {
 
 impl built_in::storage::Host for Runtime {}
 
-pub fn serialize_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>> {
-    let mut buffer = Vec::new();
-    ciborium::into_writer(value, &mut buffer)?;
-    Ok(buffer)
-}
-
-pub fn deserialize_cbor<T: for<'a> Deserialize<'a>>(buffer: &[u8]) -> Result<T> {
-    Ok(ciborium::from_reader(&mut Cursor::new(buffer))?)
-}
-
 impl built_in::storage::HostViewStorage for Runtime {
     async fn get_str(
         &mut self,
         resource: Resource<ViewStorage>,
         path: String,
     ) -> Result<Option<String>> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        let bs = self
-            .storage
-            .get(contract_id, &path)
-            .await?
-            .ok_or(anyhow!("Key not found"))?;
-        deserialize_cbor(&bs)
+        self._get_str(resource, path).await
     }
 
     async fn get_u64(
@@ -221,30 +279,15 @@ impl built_in::storage::HostViewStorage for Runtime {
         resource: Resource<ViewStorage>,
         path: String,
     ) -> Result<Option<u64>> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        let bs = self
-            .storage
-            .get(contract_id, &path)
-            .await?
-            .ok_or(anyhow!("Key not found"))?;
-        deserialize_cbor(&bs)
+        self._get_u64(resource, path).await
     }
 
     async fn is_void(&mut self, resource: Resource<ViewStorage>, path: String) -> Result<bool> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        let bs = self.storage.get(contract_id, &path).await?;
-        Ok(if let Some(bs) = bs {
-            bs.is_empty()
-        } else if self.storage.exists(contract_id, &path).await? {
-            false
-        } else {
-            panic!("Key not found in is_void check")
-        })
+        self._is_void(resource, path).await
     }
 
     async fn exists(&mut self, resource: Resource<ViewStorage>, path: String) -> Result<bool> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage.exists(contract_id, &path).await
+        self._exists(resource, path).await
     }
 
     async fn matching_path(
@@ -252,8 +295,7 @@ impl built_in::storage::HostViewStorage for Runtime {
         resource: Resource<ViewStorage>,
         regexp: String,
     ) -> Result<Option<String>> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage.matching_path(contract_id, &regexp).await
+        self._matching_path(resource, regexp).await
     }
 
     async fn drop(&mut self, rep: Resource<ViewStorage>) -> Result<()> {
@@ -268,13 +310,7 @@ impl built_in::storage::HostProcStorage for Runtime {
         resource: Resource<ProcStorage>,
         path: String,
     ) -> Result<Option<String>> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        let bs = self
-            .storage
-            .get(contract_id, &path)
-            .await?
-            .ok_or(anyhow!("Key not found"))?;
-        deserialize_cbor(&bs)
+        self._get_str(resource, path).await
     }
 
     async fn set_str(
@@ -293,13 +329,7 @@ impl built_in::storage::HostProcStorage for Runtime {
         resource: Resource<ProcStorage>,
         path: String,
     ) -> Result<Option<u64>> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        let bs = self
-            .storage
-            .get(contract_id, &path)
-            .await?
-            .ok_or(anyhow!("Key not found"))?;
-        deserialize_cbor(&bs)
+        self._get_u64(resource, path).await
     }
 
     async fn set_u64(
@@ -319,20 +349,11 @@ impl built_in::storage::HostProcStorage for Runtime {
     }
 
     async fn is_void(&mut self, resource: Resource<ProcStorage>, path: String) -> Result<bool> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        let bs = self.storage.get(contract_id, &path).await?;
-        Ok(if let Some(bs) = bs {
-            bs.is_empty()
-        } else if self.storage.exists(contract_id, &path).await? {
-            false
-        } else {
-            panic!("Key not found in is_void check")
-        })
+        self._is_void(resource, path).await
     }
 
     async fn exists(&mut self, resource: Resource<ProcStorage>, path: String) -> Result<bool> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage.exists(contract_id, &path).await
+        self._exists(resource, path).await
     }
 
     async fn matching_path(
@@ -340,8 +361,7 @@ impl built_in::storage::HostProcStorage for Runtime {
         resource: Resource<ProcStorage>,
         regexp: String,
     ) -> Result<Option<String>> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage.matching_path(contract_id, &regexp).await
+        self._matching_path(resource, regexp).await
     }
 
     async fn drop(&mut self, rep: Resource<ProcStorage>) -> Result<()> {
