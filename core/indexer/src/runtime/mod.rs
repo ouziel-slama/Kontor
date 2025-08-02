@@ -29,7 +29,6 @@ use wasmtime::{
         Component, HasSelf, Linker, Resource, ResourceTable,
         wasm_wave::{
             parser::Parser as WaveParser, to_string as to_wave_string, value::Value as WaveValue,
-            wasm::WasmValue,
         },
     },
 };
@@ -127,8 +126,10 @@ impl Runtime {
         let mut store = self.make_store();
         let instance = linker.instantiate_async(&mut store, &component).await?;
         let call = WaveParser::new(expr).parse_raw_func_call()?;
+        let fallback_name = "fallback";
         let fallback_expr = format!(
-            "fallback({}, {})",
+            "{}({}, {})",
+            fallback_name,
             to_wave_string(&WaveValue::from(signer))?,
             to_wave_string(&WaveValue::from(expr))?
         );
@@ -174,8 +175,8 @@ impl Runtime {
             )
         } else {
             let func = instance
-                .get_func(&mut store, "fallback")
-                .ok_or(anyhow!("Fallback function not found"))?;
+                .get_func(&mut store, fallback_name)
+                .ok_or(anyhow!("{fallback_name} function not found"))?;
             let call = WaveParser::new(&fallback_expr).parse_raw_func_call()?;
             let params = call.to_wasm_params(
                 func.params(&store)
@@ -197,11 +198,16 @@ impl Runtime {
         }
 
         if results.len() == 1 {
-            if call.name() == "fallback" {
-                return Ok(results[0].unwrap_string().to_string());
+            let result = results.remove(0);
+            return if call.name() == fallback_name {
+                if let wasmtime::component::Val::String(return_expr) = result {
+                    Ok(return_expr)
+                } else {
+                    Err(anyhow!("{fallback_name} did not return a string"))
+                }
             } else {
-                return results[0].to_wave();
-            }
+                result.to_wave()
+            };
         }
 
         Err(anyhow!(
