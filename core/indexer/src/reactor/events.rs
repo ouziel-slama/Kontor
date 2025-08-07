@@ -121,12 +121,11 @@ impl TopicTree {
                     next_tree.dispatch(event, topic_values, depth + 1);
                 }
                 let key = &event.topic_keys[depth];
-                if let Some(data_value) = data.get(key) {
-                    if data_value == value {
-                        if let Some(next_tree) = self.children.get(value) {
-                            next_tree.dispatch(event, topic_values, depth + 1);
-                        }
-                    }
+                if let Some(data_value) = data.get(key)
+                    && data_value == value
+                    && let Some(next_tree) = self.children.get(value)
+                {
+                    next_tree.dispatch(event, topic_values, depth + 1);
                 }
             }
         }

@@ -120,8 +120,8 @@ pub fn run_fetcher<C: BitcoinRpc>(
                                             new_backoff_unlimited(),
                                             cancel_token.clone(),
                                         )
-                                        .await {
-                                            if let Ok(block) = retry(
+                                        .await
+                                            && let Ok(block) = retry(
                                                 || bitcoin.get_block(&block_hash),
                                                 "get block",
                                                 new_backoff_unlimited(),
@@ -130,7 +130,6 @@ pub fn run_fetcher<C: BitcoinRpc>(
                                             .await {
                                                 let _ = tx.send((target_height, height, block)).await;
                                             }
-                                        }
                                         drop(permit);
                                     }
                                 );

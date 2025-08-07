@@ -252,12 +252,11 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
                             if event.is_failure() {
                                 return Err(anyhow!("Received failure event from monitor socket: {:?}", event));
                             }
-                            if let MonitorMessage::HandshakeSucceeded = event {
-                                if tx.send(ZmqEvent::Connected).is_err() {
+                            if let MonitorMessage::HandshakeSucceeded = event
+                                && tx.send(ZmqEvent::Connected).is_err() {
                                     info!("Send channel is closed, exiting");
                                     return Ok(())
                                 }
-                            }
                         },
                         Some(Err(e)) => {
                             return Err(e.context("Received Err from monitor socket thread, exiting"));
@@ -274,14 +273,13 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
                     match option_message {
                         Some(Ok((sequence_number, data_message))) => {
                             if let Some(sn) = sequence_number {
-                                if let Some(n) = last_sequence_number {
-                                    if sn != n.wrapping_add(1) {
+                                if let Some(n) = last_sequence_number
+                                    && sn != n.wrapping_add(1) {
                                         return Err(anyhow!(
                                             "Received out of sequence messages: {} {}",
                                             n, sn
                                         ));
                                     }
-                                }
                                 last_sequence_number = sequence_number;
                             }
 
@@ -292,12 +290,11 @@ pub async fn run<T: Tx + 'static, C: BitcoinRpc>(
                                     f,
                                     last_raw_transaction.clone(),
                             ).await {
-                                if let Some(e) = event {
-                                    if tx.send(e).is_err() {
+                                if let Some(e) = event
+                                    && tx.send(e).is_err() {
                                         info!("Send channel is closed, exiting");
                                         return Ok(())
                                     }
-                                }
                                 last_raw_transaction = raw_transaction;
                             }
                         },

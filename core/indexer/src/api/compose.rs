@@ -54,10 +54,10 @@ impl ComposeInputs {
             Address::from_str(&query.address)?.require_network(bitcoin::Network::Bitcoin)?;
         let address_type = address.address_type();
 
-        if let Some(address_type) = address_type {
-            if address_type != AddressType::P2tr {
-                return Err(anyhow!("Invalid address type"));
-            }
+        if let Some(address_type) = address_type
+            && address_type != AddressType::P2tr
+        {
+            return Err(anyhow!("Invalid address type"));
         }
         let x_only_public_key = XOnlyPublicKey::from_str(&query.x_only_public_key)?;
 
@@ -583,13 +583,13 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
             true,
         );
 
-        if let Some(v) = change_amount {
-            if v > 546 {
-                reveal_transaction.output.push(TxOut {
-                    value: Amount::from_sat(v),
-                    script_pubkey: params.address.script_pubkey(),
-                });
-            }
+        if let Some(v) = change_amount
+            && v > 546
+        {
+            reveal_transaction.output.push(TxOut {
+                value: Amount::from_sat(v),
+                script_pubkey: params.address.script_pubkey(),
+            });
         };
     }
     let reveal_transaction_hex = hex::encode(serialize_tx(&reveal_transaction));

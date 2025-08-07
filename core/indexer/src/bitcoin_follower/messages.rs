@@ -160,15 +160,15 @@ impl DataMessage {
                 _ => Err(anyhow!("Received message with unknown flag: {}", flag)),
             }
         } else if multipart[0] == RAWTX.as_bytes() {
-            return Ok((
+            Ok((
                 None,
                 DataMessage::RawTransaction(encode::deserialize::<Transaction>(&multipart[1])?),
-            ));
+            ))
         } else {
-            return Err(anyhow!(
+            Err(anyhow!(
                 "Received multipart message for unknown topic {:?})",
                 String::from_utf8(multipart[0].clone()).unwrap_or("Non-UTF8 string".to_string())
-            ));
+            ))
         }
     }
 }
