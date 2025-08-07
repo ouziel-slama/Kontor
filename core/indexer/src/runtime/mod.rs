@@ -27,12 +27,16 @@ use wasmtime::{
     Engine, Store,
     component::{
         Component, HasSelf, Linker, Resource, ResourceTable,
-        wasm_wave::parser::Parser as WaveParser,
+        wasm_wave::{
+            parser::Parser as WaveParser, to_string as to_wave_string, value::Value as WaveValue,
+        },
     },
 };
 use wit_component::ComponentEncoder;
 
-use crate::runtime::wit::{HasContractId, ProcContext, ProcStorage, ViewContext, ViewStorage};
+use crate::runtime::wit::{
+    HasContractId, ProcContext, ProcStorage, Signer, ViewContext, ViewStorage,
+};
 
 pub fn serialize_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut buffer = Vec::new();
@@ -122,42 +126,66 @@ impl Runtime {
         let mut store = self.make_store();
         let instance = linker.instantiate_async(&mut store, &component).await?;
         let call = WaveParser::new(expr).parse_raw_func_call()?;
-        let func = instance
-            .get_func(&mut store, call.name())
-            .ok_or(anyhow!("Function not found"))?;
-
-        let func_params = func.params(&store);
-        let func_param_types = func_params.iter().map(|(_, t)| t).collect::<Vec<_>>();
-        let (func_ctx_param_type, func_param_types) = func_param_types
-            .split_first()
-            .ok_or(anyhow!("Context parameter not found"))?;
-        let resource_type = match func_ctx_param_type {
-            wasmtime::component::Type::Borrow(t) => Ok(t),
-            _ => Err(anyhow!("Unsupported context type")),
-        }?;
-        let mut params = call.to_wasm_params(func_param_types.to_vec())?;
-        let context_param = {
-            let mut table = self.table.lock().await;
-            match (resource_type, signer) {
-                (t, Some(signer))
-                    if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
-                {
-                    table
-                        .push(ProcContext {
-                            signer: signer.to_string(),
-                            contract_id,
-                        })?
-                        .try_into_resource_any(&mut store)
-                }
-                (t, None) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => {
-                    table
-                        .push(ViewContext { contract_id })?
-                        .try_into_resource_any(&mut store)
-                }
+        let fallback_name = "fallback";
+        let fallback_expr = format!(
+            "{}({}, {})",
+            fallback_name,
+            to_wave_string(&WaveValue::from(signer))?,
+            to_wave_string(&WaveValue::from(expr))?
+        );
+        let (func, call, params) = if let Some(func) = instance.get_func(&mut store, call.name()) {
+            let func_params = func.params(&store);
+            let func_param_types = func_params.iter().map(|(_, t)| t).collect::<Vec<_>>();
+            let (func_ctx_param_type, func_param_types) = func_param_types
+                .split_first()
+                .ok_or(anyhow!("Context parameter not found"))?;
+            let params = call.to_wasm_params(func_param_types.to_vec())?;
+            let resource_type = match func_ctx_param_type {
+                wasmtime::component::Type::Borrow(t) => Ok(t),
                 _ => Err(anyhow!("Unsupported context type")),
-            }
-        }?;
-        params.insert(0, wasmtime::component::Val::Resource(context_param));
+            }?;
+            let context_param = {
+                let mut table = self.table.lock().await;
+                match (resource_type, signer) {
+                    (t, Some(signer))
+                        if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
+                    {
+                        table
+                            .push(ProcContext {
+                                signer: signer.to_string(),
+                                contract_id,
+                            })?
+                            .try_into_resource_any(&mut store)
+                    }
+                    (t, _) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => {
+                        table
+                            .push(ViewContext { contract_id })?
+                            .try_into_resource_any(&mut store)
+                    }
+                    _ => Err(anyhow!("Unsupported context type")),
+                }
+            }?;
+            (
+                func,
+                call,
+                vec![wasmtime::component::Val::Resource(context_param)]
+                    .into_iter()
+                    .chain(params)
+                    .collect(),
+            )
+        } else {
+            let func = instance
+                .get_func(&mut store, fallback_name)
+                .ok_or(anyhow!("{fallback_name} function not found"))?;
+            let call = WaveParser::new(&fallback_expr).parse_raw_func_call()?;
+            let params = call.to_wasm_params(
+                func.params(&store)
+                    .iter()
+                    .map(|(_, t)| t)
+                    .collect::<Vec<_>>(),
+            )?;
+            (func, call, params)
+        };
 
         let mut results = func
             .results(&store)
@@ -170,7 +198,16 @@ impl Runtime {
         }
 
         if results.len() == 1 {
-            return results[0].to_wave();
+            let result = results.remove(0);
+            return if call.name() == fallback_name {
+                if let wasmtime::component::Val::String(return_expr) = result {
+                    Ok(return_expr)
+                } else {
+                    Err(anyhow!("{fallback_name} did not return a string"))
+                }
+            } else {
+                result.to_wave()
+            };
         }
 
         Err(anyhow!(
@@ -250,23 +287,21 @@ impl Runtime {
 }
 
 impl built_in::foreign::Host for Runtime {
-    async fn call_view(
+    async fn call(
         &mut self,
         contract_address: ContractAddress,
-        _: Resource<ViewContext>,
+        signer: Option<Resource<Signer>>,
         expr: String,
     ) -> Result<String> {
-        self.execute(None, &contract_address, &expr).await
-    }
-
-    async fn call_proc(
-        &mut self,
-        contract_address: ContractAddress,
-        resource: Resource<ProcContext>,
-        expr: String,
-    ) -> Result<String> {
-        let signer = self.table.lock().await.get(&resource)?.signer.clone();
-        self.execute(Some(&signer), &contract_address, &expr).await
+        let signer = if let Some(resource) = signer {
+            let table = self.table.lock().await;
+            let _self = table.get(&resource)?;
+            Some(_self.signer.clone())
+        } else {
+            None
+        };
+        self.execute(signer.as_deref(), &contract_address, &expr)
+            .await
     }
 }
 
@@ -386,8 +421,19 @@ impl built_in::context::HostViewContext for Runtime {
         Ok(table.push(ViewStorage { contract_id })?)
     }
 
-    async fn drop(&mut self, rep: Resource<ViewContext>) -> Result<()> {
-        let _res = self.table.lock().await.delete(rep)?;
+    async fn drop(&mut self, resource: Resource<ViewContext>) -> Result<()> {
+        let _res = self.table.lock().await.delete(resource)?;
+        Ok(())
+    }
+}
+
+impl built_in::context::HostSigner for Runtime {
+    async fn to_string(&mut self, resource: Resource<Signer>) -> Result<String> {
+        Ok(self.table.lock().await.get(&resource)?.signer.clone())
+    }
+
+    async fn drop(&mut self, resource: Resource<Signer>) -> Result<()> {
+        let _res = self.table.lock().await.delete(resource)?;
         Ok(())
     }
 }
@@ -399,8 +445,10 @@ impl built_in::context::HostProcContext for Runtime {
         Ok(table.push(ProcStorage { contract_id })?)
     }
 
-    async fn signer(&mut self, resource: Resource<ProcContext>) -> Result<String> {
-        Ok(self.table.lock().await.get(&resource)?.signer.clone())
+    async fn signer(&mut self, resource: Resource<ProcContext>) -> Result<Resource<Signer>> {
+        let mut table = self.table.lock().await;
+        let signer = table.get(&resource)?.signer.clone();
+        Ok(table.push(Signer { signer })?)
     }
 
     async fn view_context(
