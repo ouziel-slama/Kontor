@@ -6,7 +6,6 @@ use indexer::{
         queries::{get_contract_id_from_address, insert_block},
         types::BlockRow,
     },
-    logging,
     runtime::{
         ComponentCache, ContractAddress, Runtime, Storage, deserialize_cbor, load_native_contracts,
     },
@@ -16,7 +15,6 @@ use wasmtime::component::wasm_wave::{to_string as to_wave, value::Value};
 
 #[tokio::test]
 async fn test_fib_contract() -> Result<()> {
-    logging::setup();
     let (_, writer, _test_db_dir) = new_test_db(&Config::parse()).await?;
     let conn = writer.connection();
     let height = 1;

@@ -148,14 +148,12 @@ impl Runtime {
             .ok_or(anyhow!("Context/signer parameter not found"))?;
         let mut params = call.to_wasm_params(func_param_types.to_vec())?;
         let resource_type = match func_ctx_param_type {
-            // Case for contexts
             wasmtime::component::Type::Borrow(t) => Ok(*t),
             _ => Err(anyhow!("Unsupported context type")),
         }?;
         {
             let mut table = self.table.lock().await;
             match (resource_type, signer) {
-                // Cases for context
                 (t, Some(signer))
                     if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
                 {
@@ -180,7 +178,6 @@ impl Runtime {
                                 .try_into_resource_any(&mut store)?,
                         ),
                     ),
-                // Case for signer
                 (t, signer) if t.eq(&wasmtime::component::ResourceType::host::<FallContext>()) => {
                     params.insert(
                         0,
