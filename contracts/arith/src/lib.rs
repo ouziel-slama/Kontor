@@ -34,7 +34,7 @@ impl OperandWrapper {
 impl Store for Op {
     fn __set(&self, ctx: &impl WriteContext, base_path: DotPathBuf) {
         match self {
-            Op::Id => ctx.write_storage().set_void(&base_path.push("id")),
+            Op::Id => ().__set(ctx, base_path.push("id")),
             Op::Sum(operand) => operand.__set(ctx, base_path.push("sum")),
             Op::Mul(operand) => operand.__set(ctx, base_path.push("mul")),
             Op::Div(operand) => operand.__set(ctx, base_path.push("div")),
@@ -92,7 +92,7 @@ impl Store for ArithStorage {
     fn __set(&self, ctx: &impl WriteContext, base_path: DotPathBuf) {
         match self.last_op {
             Some(op) => op.__set(ctx, base_path.push("last_op")),
-            None => ctx.write_storage().set_void(&base_path.push("last_op")),
+            None => ().__set(ctx, base_path.push("last_op")),
         }
     }
 }
@@ -119,7 +119,7 @@ impl Storage {
         let base_path = DotPathBuf::new().push("last_op");
         match value {
             Some(op) => op.__set(ctx, base_path),
-            None => ctx.write_storage().set_void(&base_path),
+            None => ().__set(ctx, base_path),
         }
     }
 }

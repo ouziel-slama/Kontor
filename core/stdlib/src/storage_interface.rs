@@ -55,3 +55,9 @@ impl Store for String {
         ctx.write_storage().set_str(&path, self);
     }
 }
+
+impl Store for () {
+    fn __set(&self, ctx: &impl WriteContext, path: DotPathBuf) {
+        ctx.write_storage().set_void(&path);
+    }
+}
