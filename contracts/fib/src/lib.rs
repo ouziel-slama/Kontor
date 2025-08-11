@@ -191,9 +191,7 @@ impl FibValueWrapper {
     }
 
     pub fn value(&self, ctx: &impl ReadContext) -> u64 {
-        ctx.read_storage()
-            .get_u64(&self.base_path.push("value"))
-            .unwrap()
+        ctx.__get(self.base_path.push("value")).unwrap()
     }
 
     pub fn set_value(&self, ctx: &impl WriteContext, value: u64) {

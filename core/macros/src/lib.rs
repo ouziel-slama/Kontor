@@ -119,11 +119,19 @@ pub fn contract(input: TokenStream) -> TokenStream {
             fn read_storage(&self) -> impl ReadStorage {
                 self.storage()
             }
+
+            fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T> {
+                T::__get(self, path)
+            }
         }
 
         impl ReadContext for context::ProcContext {
             fn read_storage(&self) -> impl ReadStorage {
                 self.storage()
+            }
+
+            fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T> {
+                T::__get(self, path)
             }
         }
 

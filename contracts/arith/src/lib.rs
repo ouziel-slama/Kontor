@@ -17,9 +17,7 @@ impl OperandWrapper {
     }
 
     pub fn y(&self, ctx: &impl ReadContext) -> u64 {
-        ctx.read_storage()
-            .get_u64(&self.base_path.push("y"))
-            .unwrap()
+        ctx.__get(self.base_path.push("y")).unwrap()
     }
 
     pub fn set_y(&self, ctx: &impl WriteContext, value: u64) {

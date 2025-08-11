@@ -20,6 +20,7 @@ pub trait ReadWriteStorage: ReadStorage + WriteStorage {}
 
 pub trait ReadContext {
     fn read_storage(&self) -> impl ReadStorage;
+    fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T>;
 }
 
 pub trait WriteContext {
@@ -59,5 +60,27 @@ impl Store for String {
 impl Store for () {
     fn __set(&self, ctx: &impl WriteContext, path: DotPathBuf) {
         ctx.write_storage().set_void(&path);
+    }
+}
+
+pub trait Retrieve: Clone {
+    fn __get(ctx: &impl ReadContext, base_path: DotPathBuf) -> Option<Self>;
+}
+
+impl Retrieve for u64 {
+    fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
+        ctx.read_storage().get_u64(&path)
+    }
+}
+
+impl Retrieve for i64 {
+    fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
+        ctx.read_storage().get_s64(&path)
+    }
+}
+
+impl Retrieve for String {
+    fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
+        ctx.read_storage().get_str(&path)
     }
 }

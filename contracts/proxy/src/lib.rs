@@ -27,15 +27,9 @@ impl Storage {
     pub fn contract_address(ctx: &impl ReadContext) -> foreign::ContractAddress {
         let base_path = DotPathBuf::new().push("contract_address");
         foreign::ContractAddress {
-            name: ctx.read_storage().get_str(&base_path.push("name")).unwrap(),
-            height: ctx
-                .read_storage()
-                .get_s64(&base_path.push("height"))
-                .unwrap(),
-            tx_index: ctx
-                .read_storage()
-                .get_s64(&base_path.push("tx_index"))
-                .unwrap(),
+            name: ctx.__get(base_path.push("name")).unwrap(),
+            height: ctx.__get(base_path.push("height")).unwrap(),
+            tx_index: ctx.__get(base_path.push("tx_index")).unwrap(),
         }
     }
 
