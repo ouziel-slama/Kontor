@@ -8,16 +8,15 @@ struct ProxyStorage {
 }
 
 impl Store for ProxyStorage {
-    fn __set(&self, ctx: &impl WriteContext, base_path: DotPathBuf) {
-        self.contract_address
-            .__set(ctx, base_path.push("contract_address"))
+    fn __set(ctx: &impl WriteContext, base_path: DotPathBuf, value: ProxyStorage) {
+        ctx.__set(base_path.push("contract_address"), value.contract_address)
     }
 }
 
 // generated
 impl ProxyStorage {
-    pub fn init(&self, ctx: &impl WriteContext) {
-        self.__set(ctx, DotPathBuf::new())
+    pub fn init(self, ctx: &impl WriteContext) {
+        ctx.__set(DotPathBuf::new(), self)
     }
 }
 
@@ -27,23 +26,14 @@ impl Storage {
     pub fn contract_address(ctx: &impl ReadContext) -> foreign::ContractAddress {
         let base_path = DotPathBuf::new().push("contract_address");
         foreign::ContractAddress {
-            name: ctx
-                .read_storage()
-                .get_str(&base_path.push("name").to_string())
-                .unwrap(),
-            height: ctx
-                .read_storage()
-                .get_s64(&base_path.push("height").to_string())
-                .unwrap(),
-            tx_index: ctx
-                .read_storage()
-                .get_s64(&base_path.push("tx_index").to_string())
-                .unwrap(),
+            name: ctx.__get(base_path.push("name")).unwrap(),
+            height: ctx.__get(base_path.push("height")).unwrap(),
+            tx_index: ctx.__get(base_path.push("tx_index")).unwrap(),
         }
     }
 
     pub fn set_contract_address(ctx: &impl WriteContext, contract_address: ContractAddress) {
-        contract_address.__set(ctx, DotPathBuf::new().push("contract_address"));
+        ctx.__set(DotPathBuf::new().push("contract_address"), contract_address);
     }
 }
 

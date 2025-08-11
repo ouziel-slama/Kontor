@@ -175,9 +175,8 @@ struct FibValue {
 
 // generated
 impl Store for FibValue {
-    fn __set(&self, ctx: &impl WriteContext, base_path: DotPathBuf) {
-        ctx.write_storage()
-            .set_u64(&base_path.push("value").to_string(), self.value);
+    fn __set(ctx: &impl WriteContext, base_path: DotPathBuf, value: FibValue) {
+        ctx.__set(base_path.push("value"), value.value);
     }
 }
 
@@ -192,14 +191,11 @@ impl FibValueWrapper {
     }
 
     pub fn value(&self, ctx: &impl ReadContext) -> u64 {
-        ctx.read_storage()
-            .get_u64(&self.base_path.push("value").to_string())
-            .unwrap()
+        ctx.__get(self.base_path.push("value")).unwrap()
     }
 
     pub fn set_value(&self, ctx: &impl WriteContext, value: u64) {
-        ctx.write_storage()
-            .set_u64(&self.base_path.push("value").to_string(), value)
+        ctx.__set(self.base_path.push("value"), value);
     }
 }
 
@@ -211,15 +207,15 @@ struct FibStorage {
 
 // generated
 impl Store for FibStorage {
-    fn __set(&self, ctx: &impl WriteContext, base_path: DotPathBuf) {
-        self.cache.__set(ctx, base_path.push("cache"))
+    fn __set(ctx: &impl WriteContext, base_path: DotPathBuf, value: FibStorage) {
+        ctx.__set(base_path.push("cache"), value.cache)
     }
 }
 
 // generated
 impl FibStorage {
-    pub fn init(&self, ctx: &impl WriteContext) {
-        self.__set(ctx, DotPathBuf::new())
+    pub fn init(self, ctx: &impl WriteContext) {
+        ctx.__set(DotPathBuf::new(), self)
     }
 }
 
@@ -230,13 +226,12 @@ struct FibStorageCacheWrapper {
 impl FibStorageCacheWrapper {
     pub fn get(&self, ctx: &impl ReadContext, key: u64) -> Option<FibValueWrapper> {
         let base_path = self.base_path.push(key.to_string());
-        ctx.read_storage()
-            .exists(&base_path.to_string())
+        ctx.exists(&base_path)
             .then_some(FibValueWrapper::new(ctx, base_path))
     }
 
     pub fn set(&self, ctx: &impl WriteContext, key: u64, value: FibValue) {
-        value.__set(ctx, self.base_path.push(key.to_string()))
+        ctx.__set(self.base_path.push(key.to_string()), value)
     }
 }
 

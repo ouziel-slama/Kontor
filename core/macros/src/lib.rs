@@ -43,7 +43,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
         use stdlib::*;
 
-        impl ReadStorage for context::ViewStorage {
+        impl ReadContext for context::ViewContext {
             fn get_str(&self, path: &str) -> Option<String> {
                 self.get_str(path)
             }
@@ -67,9 +67,13 @@ pub fn contract(input: TokenStream) -> TokenStream {
             fn matching_path(&self, regexp: &str) -> Option<String> {
                 self.matching_path(regexp)
             }
+
+            fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T> {
+                T::__get(self, path)
+            }
         }
 
-        impl ReadStorage for context::ProcStorage {
+        impl ReadContext for context::ProcContext {
             fn get_str(&self, path: &str) -> Option<String> {
                 self.get_str(path)
             }
@@ -93,9 +97,13 @@ pub fn contract(input: TokenStream) -> TokenStream {
             fn matching_path(&self, regexp: &str) -> Option<String> {
                 self.matching_path(regexp)
             }
+
+            fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T> {
+                T::__get(self, path)
+            }
         }
 
-        impl WriteStorage for context::ProcStorage {
+        impl WriteContext for context::ProcContext {
             fn set_str(&self, path: &str, value: &str) {
                 self.set_str(path, value)
             }
@@ -111,38 +119,19 @@ pub fn contract(input: TokenStream) -> TokenStream {
             fn set_void(&self, path: &str) {
                 self.set_void(path)
             }
-        }
 
-        impl ReadWriteStorage for context::ProcStorage {}
-
-        impl ReadContext for context::ViewContext {
-            fn read_storage(&self) -> impl ReadStorage {
-                self.storage()
-            }
-        }
-
-        impl ReadContext for context::ProcContext {
-            fn read_storage(&self) -> impl ReadStorage {
-                self.storage()
-            }
-        }
-
-        impl WriteContext for context::ProcContext {
-            fn write_storage(&self) -> impl WriteStorage {
-                self.storage()
+            fn __set<T: Store>(&self, path: DotPathBuf, value: T) {
+                T::__set(self, path, value)
             }
         }
 
         impl ReadWriteContext for context::ProcContext {}
 
         impl Store for foreign::ContractAddress {
-            fn __set(&self, ctx: &impl WriteContext, base_path: DotPathBuf) {
-                ctx.write_storage()
-                    .set_str(&base_path.push("name").to_string(), &self.name);
-                ctx.write_storage()
-                    .set_s64(&base_path.push("height").to_string(), self.height);
-                ctx.write_storage()
-                    .set_s64(&base_path.push("tx_index").to_string(), self.tx_index);
+            fn __set(ctx: &impl WriteContext, base_path: DotPathBuf, value: foreign::ContractAddress) {
+                ctx.__set(base_path.push("name"), value.name);
+                ctx.__set(base_path.push("height"), value.height);
+                ctx.__set(base_path.push("tx_index"), value.tx_index);
             }
         }
 

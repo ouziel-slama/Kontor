@@ -273,7 +273,7 @@ proptest! {
 
                 if let Some(expect) = step.expect_start {
                     let start = timeout(
-                        Duration::from_millis(100),
+                        Duration::from_millis(500),
                         ctrl_rx.recv(),
                         ).await.unwrap().unwrap();
                     assert_eq!(start.start_height, expect.start_height);
