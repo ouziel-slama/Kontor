@@ -62,19 +62,9 @@ impl OpWrapper {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Store)]
 struct ArithStorage {
     pub last_op: Option<Op>,
-}
-
-// generated
-impl Store for ArithStorage {
-    fn __set(ctx: &impl WriteContext, base_path: DotPathBuf, value: ArithStorage) {
-        match value.last_op {
-            Some(op) => ctx.__set(base_path.push("last_op"), op),
-            None => ctx.__set(base_path.push("last_op"), ()),
-        }
-    }
 }
 
 impl ArithStorage {

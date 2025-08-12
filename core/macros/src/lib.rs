@@ -246,14 +246,6 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
         impl ReadWriteContext for context::ProcContext {}
 
-        // impl stdlib::Store for foreign::ContractAddress {
-        //     fn __set(ctx: &impl WriteContext, base_path: DotPathBuf, value: foreign::ContractAddress) {
-        //         ctx.__set(base_path.push("name"), value.name);
-        //         ctx.__set(base_path.push("height"), value.height);
-        //         ctx.__set(base_path.push("tx_index"), value.tx_index);
-        //     }
-        // }
-
         struct #name;
     };
 
