@@ -27,48 +27,48 @@ impl<K: ToString + Clone, V: Store> Store for Map<K, V> {
 
 impl Store for u64 {
     fn __set(ctx: &impl WriteContext, path: DotPathBuf, value: u64) {
-        ctx.set_u64(&path, value);
+        ctx.__set_u64(&path, value);
     }
 }
 
 impl Store for i64 {
     fn __set(ctx: &impl WriteContext, path: DotPathBuf, value: i64) {
-        ctx.set_s64(&path, value);
+        ctx.__set_s64(&path, value);
     }
 }
 
 impl Store for &str {
     fn __set(ctx: &impl WriteContext, path: DotPathBuf, value: &str) {
-        ctx.set_str(&path, value);
+        ctx.__set_str(&path, value);
     }
 }
 
 impl Store for String {
     fn __set(ctx: &impl WriteContext, path: DotPathBuf, value: String) {
-        ctx.set_str(&path, &value);
+        ctx.__set_str(&path, &value);
     }
 }
 
 impl Store for () {
     fn __set(ctx: &impl WriteContext, path: DotPathBuf, _: ()) {
-        ctx.set_void(&path);
+        ctx.__set_void(&path);
     }
 }
 
 impl Retrieve for u64 {
     fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
-        ctx.get_u64(&path)
+        ctx.__get_u64(&path)
     }
 }
 
 impl Retrieve for i64 {
     fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
-        ctx.get_s64(&path)
+        ctx.__get_s64(&path)
     }
 }
 
 impl Retrieve for String {
     fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
-        ctx.get_str(&path)
+        ctx.__get_str(&path)
     }
 }

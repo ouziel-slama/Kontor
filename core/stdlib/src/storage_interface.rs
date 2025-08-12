@@ -1,20 +1,20 @@
 use crate::DotPathBuf;
 
 pub trait ReadContext {
-    fn get_str(&self, path: &str) -> Option<String>;
-    fn get_u64(&self, path: &str) -> Option<u64>;
-    fn get_s64(&self, path: &str) -> Option<i64>;
-    fn exists(&self, path: &str) -> bool;
-    fn is_void(&self, path: &str) -> bool;
-    fn matching_path(&self, regexp: &str) -> Option<String>;
+    fn __get_str(&self, path: &str) -> Option<String>;
+    fn __get_u64(&self, path: &str) -> Option<u64>;
+    fn __get_s64(&self, path: &str) -> Option<i64>;
+    fn __exists(&self, path: &str) -> bool;
+    fn __is_void(&self, path: &str) -> bool;
+    fn __matching_path(&self, regexp: &str) -> Option<String>;
     fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T>;
 }
 
 pub trait WriteContext {
-    fn set_str(&self, path: &str, value: &str);
-    fn set_u64(&self, path: &str, value: u64);
-    fn set_s64(&self, path: &str, value: i64);
-    fn set_void(&self, path: &str);
+    fn __set_str(&self, path: &str, value: &str);
+    fn __set_u64(&self, path: &str, value: u64);
+    fn __set_s64(&self, path: &str, value: i64);
+    fn __set_void(&self, path: &str);
     fn __set<T: Store>(&self, path: DotPathBuf, value: T);
 }
 

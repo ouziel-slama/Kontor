@@ -44,27 +44,27 @@ pub fn contract(input: TokenStream) -> TokenStream {
         use stdlib::*;
 
         impl ReadContext for context::ViewContext {
-            fn get_str(&self, path: &str) -> Option<String> {
+            fn __get_str(&self, path: &str) -> Option<String> {
                 self.get_str(path)
             }
 
-            fn get_u64(&self, path: &str) -> Option<u64> {
+            fn __get_u64(&self, path: &str) -> Option<u64> {
                 self.get_u64(path)
             }
 
-            fn get_s64(&self, path: &str) -> Option<i64> {
+            fn __get_s64(&self, path: &str) -> Option<i64> {
                 self.get_s64(path)
             }
 
-            fn exists(&self, path: &str) -> bool {
+            fn __exists(&self, path: &str) -> bool {
                 self.exists(path)
             }
 
-            fn is_void(&self, path: &str) -> bool {
+            fn __is_void(&self, path: &str) -> bool {
                 self.is_void(path)
             }
 
-            fn matching_path(&self, regexp: &str) -> Option<String> {
+            fn __matching_path(&self, regexp: &str) -> Option<String> {
                 self.matching_path(regexp)
             }
 
@@ -74,27 +74,27 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         impl ReadContext for context::ProcContext {
-            fn get_str(&self, path: &str) -> Option<String> {
+            fn __get_str(&self, path: &str) -> Option<String> {
                 self.get_str(path)
             }
 
-            fn get_u64(&self, path: &str) -> Option<u64> {
+            fn __get_u64(&self, path: &str) -> Option<u64> {
                 self.get_u64(path)
             }
 
-            fn get_s64(&self, path: &str) -> Option<i64> {
+            fn __get_s64(&self, path: &str) -> Option<i64> {
                 self.get_s64(path)
             }
 
-            fn exists(&self, path: &str) -> bool {
+            fn __exists(&self, path: &str) -> bool {
                 self.exists(path)
             }
 
-            fn is_void(&self, path: &str) -> bool {
+            fn __is_void(&self, path: &str) -> bool {
                 self.is_void(path)
             }
 
-            fn matching_path(&self, regexp: &str) -> Option<String> {
+            fn __matching_path(&self, regexp: &str) -> Option<String> {
                 self.matching_path(regexp)
             }
 
@@ -104,19 +104,19 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         impl WriteContext for context::ProcContext {
-            fn set_str(&self, path: &str, value: &str) {
+            fn __set_str(&self, path: &str, value: &str) {
                 self.set_str(path, value)
             }
 
-            fn set_u64(&self, path: &str, value: u64) {
+            fn __set_u64(&self, path: &str, value: u64) {
                 self.set_u64(path, value)
             }
 
-            fn set_s64(&self, path: &str, value: i64) {
+            fn __set_s64(&self, path: &str, value: i64) {
                 self.set_s64(path, value)
             }
 
-            fn set_void(&self, path: &str) {
+            fn __set_void(&self, path: &str) {
                 self.set_void(path)
             }
 
