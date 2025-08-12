@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
     DataEnum, DataStruct, DeriveInput, Error, Fields, Ident, PathArguments, Result, Type,
-    parse_macro_input,
+    parse_macro_input, spanned::Spanned,
 };
 
 #[proc_macro_derive(Store)]
@@ -178,17 +178,66 @@ fn generate_struct_wrapper(
         Fields::Named(fields) => {
             let wrapper_name = Ident::new(&format!("{}Wrapper", type_name), type_name.span());
 
+            let mut special_wrappers = vec![];
+
             let getters = fields.named.iter().map(|field| {
                 let field_name = field.ident.as_ref().unwrap();
                 let field_name_str = field_name.to_string();
                 let field_ty = &field.ty;
 
-                quote! {
-                    pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> #field_ty {
-                        ctx.__get(self.base_path.push(#field_name_str)).unwrap()
-                    }
+                if is_map_type(field_ty) {
+                    let (k_ty, v_ty) = get_map_types(field_ty)?;
+                    let field_wrapper_name = Ident::new(&format!("{}{}Wrapper", type_name, to_pascal_case(&field_name.to_string())), field.span());
+
+                    let (get_return, get_body) = if is_primitive_type(&v_ty) {
+                        (quote! { Option<#v_ty> }, quote! { ctx.__get(self.base_path.push(key.to_string())) })
+                    } else {
+                        let v_wrapper_ty = get_wrapper_ident(&v_ty, field.span())?;
+                        (quote! { Option<#v_wrapper_ty> }, quote! { ctx.__exists(&base_path.push(key.to_string())).then(|| #v_wrapper_ty::new(ctx, base_path.push(key.to_string()))) })
+                    };
+
+                    special_wrappers.push(quote! {
+                        #[derive(Clone)]
+                        pub struct #field_wrapper_name {
+                            pub base_path: stdlib::DotPathBuf,
+                        }
+
+                        impl #field_wrapper_name {
+                            pub fn get(&self, ctx: &impl stdlib::ReadContext, key: #k_ty) -> #get_return {
+                                let base_path = self.base_path.push(key.to_string());
+                                #get_body
+                            }
+
+                            pub fn set(&self, ctx: &impl stdlib::WriteContext, key: #k_ty, value: #v_ty) {
+                                ctx.__set(self.base_path.push(key.to_string()), value)
+                            }
+
+                            pub fn load(&self, ctx: &impl stdlib::ReadContext) -> Map<#k_ty, #v_ty> {
+                                Map::new(&[])
+                            }
+                        }
+                    });
+
+                    Ok(quote! {
+                        pub fn #field_name(&self) -> #field_wrapper_name {
+                            #field_wrapper_name { base_path: self.base_path.push(#field_name_str) }
+                        }
+                    })
+                } else if is_primitive_type(field_ty) {
+                    Ok(quote! {
+                        pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> #field_ty {
+                            ctx.__get(self.base_path.push(#field_name_str)).unwrap()
+                        }
+                    })
+                } else {
+                    let field_wrapper_ty = get_wrapper_ident(field_ty, field.span())?;
+                    Ok(quote! {
+                        pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> #field_wrapper_ty {
+                            #field_wrapper_ty::new(ctx, self.base_path.push(#field_name_str))
+                        }
+                    })
                 }
-            });
+            }).collect::<syn::Result<Vec<_>>>()?;
 
             let setters = fields.named.iter().map(|field| {
                 let field_name = field.ident.as_ref().unwrap();
@@ -196,22 +245,43 @@ fn generate_struct_wrapper(
                 let field_ty = &field.ty;
                 let set_field_name = Ident::new(&format!("set_{}", field_name), field_name.span());
 
-                quote! {
-                    pub fn #set_field_name(&self, ctx: &impl stdlib::WriteContext, value: #field_ty) {
-                        ctx.__set(self.base_path.push(#field_name_str), value);
+                if is_map_type(field_ty) {
+                    quote! { }
+                } else {
+                    quote! {
+                        pub fn #set_field_name(&self, ctx: &impl stdlib::WriteContext, value: #field_ty) {
+                            ctx.__set(self.base_path.push(#field_name_str), value);
+                        }
                     }
                 }
-            });
+            }).collect::<Vec<_>>();
 
-            let load_fields = fields.named.iter().map(|field| {
-                let field_name = field.ident.as_ref().unwrap();
+            let load_fields = fields
+                .named
+                .iter()
+                .map(|field| {
+                    let field_name = field.ident.as_ref().unwrap();
+                    let _field_name_str = field_name.to_string();
+                    let field_ty = &field.ty;
 
-                quote! {
-                    #field_name: self.#field_name(ctx)
-                }
-            });
+                    if is_map_type(field_ty) {
+                        let (_k_ty, _v_ty) = get_map_types(field_ty)?;
+                        Ok(quote! {
+                            #field_name: self.#field_name().load(ctx)
+                        })
+                    } else if is_primitive_type(field_ty) {
+                        Ok(quote! {
+                            #field_name: self.#field_name(ctx)
+                        })
+                    } else {
+                        Ok(quote! {
+                            #field_name: self.#field_name(ctx).load(ctx)
+                        })
+                    }
+                })
+                .collect::<syn::Result<Vec<_>>>()?;
 
-            Ok(quote! {
+            let result = quote! {
                 #[derive(Clone)]
                 pub struct #wrapper_name {
                     pub base_path: stdlib::DotPathBuf,
@@ -233,12 +303,52 @@ fn generate_struct_wrapper(
                         }
                     }
                 }
-            })
+
+                #(#special_wrappers)*
+            };
+
+            Ok(result)
         }
         _ => Err(Error::new(
             type_name.span(),
             "Wrapper derive only supports structs with named fields",
         )),
+    }
+}
+
+fn is_map_type(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        type_path
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident == "Map")
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+fn get_map_types(ty: &Type) -> syn::Result<(Type, Type)> {
+    if let Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && segment.ident == "Map"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && args.args.len() == 2
+        && let (syn::GenericArgument::Type(k_ty), syn::GenericArgument::Type(v_ty)) =
+            (&args.args[0], &args.args[1])
+    {
+        return Ok((k_ty.clone(), v_ty.clone()));
+    }
+    Err(Error::new(ty.span(), "Expected Map<K, V> type"))
+}
+
+fn is_primitive_type(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        let segment = type_path.path.segments.last().map(|s| s.ident.to_string());
+        matches!(segment.as_deref(), Some("u64" | "i64" | "String"))
+    } else {
+        false
     }
 }
 
@@ -248,7 +358,6 @@ fn generate_enum_wrapper(
 ) -> syn::Result<proc_macro2::TokenStream> {
     let wrapper_name = Ident::new(&format!("{}Wrapper", type_name), type_name.span());
 
-    // Generate wrapper variants and collect errors
     let wrapper_variants: syn::Result<Vec<_>> = data_enum
         .variants
         .iter()
@@ -370,6 +479,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         });
 
         use kontor::built_in::*;
+        use kontor::built_in::foreign::ContractAddressWrapper;
 
         impl ReadContext for context::ViewContext {
             fn __get_str(&self, path: &str) -> Option<String> {
