@@ -2,7 +2,14 @@
 
 macros::contract!(name = "fib");
 
-// macros::import!(name = "arith", path = "../arith/wit/contract.wit");
+macros::import!(name = "arith", height = 0, tx_index = 0, path = "arith/wit");
+
+impl arith_next::Operand {
+    pub fn wave_type() -> wasm_wave::value::Type {
+        wasm_wave::value::Type::record([("y", wasm_wave::value::Type::U64)]).unwrap()
+    }
+}
+
 mod arith {
     use wasm_wave::wasm::WasmValue as _;
 
@@ -23,29 +30,29 @@ mod arith {
     }
 
     impl From<Operand> for wasm_wave::value::Value {
-        fn from(value: Operand) -> Self {
+        fn from(value_: Operand) -> Self {
             wasm_wave::value::Value::make_record(
                 &Operand::wave_type(),
-                [("y", wasm_wave::value::Value::from(value.y))],
+                [("y", wasm_wave::value::Value::from(value_.y))],
             )
             .unwrap()
         }
     }
 
     impl From<wasm_wave::value::Value> for Operand {
-        fn from(value: wasm_wave::value::Value) -> Self {
-            let fields = value.unwrap_record();
-
+        fn from(value_: wasm_wave::value::Value) -> Self {
             let mut y = None;
-            for (name, val) in fields {
-                match name.as_ref() {
-                    "y" => y = Some(val.unwrap_u64()),
-                    name => panic!("Unknown field: {name}"),
+
+            for (key_, val_) in value_.unwrap_record() {
+                match key_.as_ref() {
+                    "y" => y = Some(val_.unwrap_u64()),
+                    key_ => panic!("Unknown field: {key_}"),
                 }
             }
-            let y = y.unwrap();
 
-            Operand { y }
+            Self {
+                y: y.expect("Missing 'y' field"),
+            }
         }
     }
 
@@ -70,8 +77,8 @@ mod arith {
     }
 
     impl From<Op> for wasm_wave::value::Value {
-        fn from(value: Op) -> Self {
-            match value {
+        fn from(value_: Op) -> Self {
+            match value_ {
                 Op::Id => wasm_wave::value::Value::make_variant(&Op::wave_type(), "id", None),
                 Op::Sum(operand) => wasm_wave::value::Value::make_variant(
                     &Op::wave_type(),
@@ -94,14 +101,14 @@ mod arith {
     }
 
     impl From<wasm_wave::value::Value> for Op {
-        fn from(value: wasm_wave::value::Value) -> Self {
-            let (tag, value) = value.unwrap_variant();
-            match tag {
-                t if t.eq("id") => Op::Id,
-                t if t.eq("sum") => Op::Sum(value.unwrap().into_owned().into()),
-                t if t.eq("mul") => Op::Mul(value.unwrap().into_owned().into()),
-                t if t.eq("div") => Op::Div(value.unwrap().into_owned().into()),
-                _ => panic!("Unknown tag"),
+        fn from(value_: wasm_wave::value::Value) -> Self {
+            let (key_, val_) = value_.unwrap_variant();
+            match key_ {
+                key_ if key_.eq("id") => Op::Id,
+                key_ if key_.eq("sum") => Op::Sum(val_.unwrap().into_owned().into()),
+                key_ if key_.eq("mul") => Op::Mul(val_.unwrap().into_owned().into()),
+                key_ if key_.eq("div") => Op::Div(val_.unwrap().into_owned().into()),
+                key_ => panic!("Unknown tag {key_}"),
             }
         }
     }
@@ -118,29 +125,28 @@ mod arith {
     }
 
     impl From<ArithReturn> for wasm_wave::value::Value {
-        fn from(value: ArithReturn) -> Self {
+        fn from(value_: ArithReturn) -> Self {
             wasm_wave::value::Value::make_record(
                 &ArithReturn::wave_type(),
-                [("value", wasm_wave::value::Value::from(value.value))],
+                [("value", wasm_wave::value::Value::from(value_.value))],
             )
             .unwrap()
         }
     }
 
     impl From<wasm_wave::value::Value> for ArithReturn {
-        fn from(value: wasm_wave::value::Value) -> Self {
-            let fields = value.unwrap_record();
-
+        fn from(value_: wasm_wave::value::Value) -> Self {
             let mut value = None;
-            for (name, val) in fields {
-                match name.as_ref() {
-                    "value" => value = Some(val.unwrap_u64()),
-                    name => panic!("Unknown field: {name}"),
+
+            for (key_, val_) in value_.unwrap_record() {
+                match key_.as_ref() {
+                    "value" => value = Some(val_.unwrap_u64()),
+                    key_ => panic!("Unknown field: {key_}"),
                 }
             }
-            let value = value.unwrap();
-
-            ArithReturn { value }
+            ArithReturn {
+                value: value.expect("Missing 'value' field"),
+            }
         }
     }
 

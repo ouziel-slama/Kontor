@@ -1,12 +1,18 @@
 extern crate proc_macro;
 
+use std::fs;
+
+use anyhow::{anyhow, bail};
 use darling::{FromMeta, ast::NestedMeta};
+use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::quote;
 use syn::{
-    DataEnum, DataStruct, DeriveInput, Error, Fields, Ident, PathArguments, Result, Type,
+    DataEnum, DataStruct, DeriveInput, Error, Fields, Ident, PathArguments, Result, Type, TypePath,
     parse_macro_input, spanned::Spanned,
 };
+use wit_parser::{Resolve, TypeDefKind, WorldItem, WorldKey};
 
 #[proc_macro_derive(Store)]
 pub fn derive_store(input: TokenStream) -> TokenStream {
@@ -121,13 +127,6 @@ fn is_option_type(ty: &Type) -> bool {
     } else {
         false
     }
-}
-
-#[derive(FromMeta)]
-struct ContractConfig {
-    name: String,
-    world: Option<String>,
-    path: Option<String>,
 }
 
 fn to_pascal_case(name: &str) -> String {
@@ -575,6 +574,13 @@ fn generate_root_struct(
     }
 }
 
+#[derive(FromMeta)]
+struct ContractConfig {
+    name: String,
+    world: Option<String>,
+    path: Option<String>,
+}
+
 #[proc_macro]
 pub fn contract(input: TokenStream) -> TokenStream {
     let attr_args = NestedMeta::parse_meta_list(input.into()).unwrap();
@@ -684,4 +690,522 @@ pub fn contract(input: TokenStream) -> TokenStream {
     };
 
     boilerplate.into()
+}
+
+#[derive(FromMeta)]
+struct ImportConfig {
+    name: String,
+    height: i64,
+    tx_index: i64,
+    path: String,
+    world: Option<String>,
+}
+
+fn type_name(
+    resolve: &wit_parser::Resolve,
+    ty: &wit_parser::Type,
+) -> anyhow::Result<proc_macro2::TokenStream> {
+    match ty {
+        wit_parser::Type::U64 => Ok(quote! { u64 }),
+        wit_parser::Type::S64 => Ok(quote! { i64 }),
+        wit_parser::Type::String => Ok(quote! { String }),
+        wit_parser::Type::Id(id) => {
+            let ty_def = &resolve.types[*id];
+            let name = ty_def
+                .name
+                .as_ref()
+                .ok_or_else(|| anyhow!("Unnamed types are not supported"))?
+                .to_upper_camel_case();
+            let ident = Ident::new(&name, Span::call_site());
+            Ok(quote! { #ident })
+        }
+        _ => bail!("Unsupported WIT type: {:?}", ty),
+    }
+}
+
+fn print_typedef_record(
+    resolve: &wit_parser::Resolve,
+    name: &str,
+    record: &wit_parser::Record,
+) -> anyhow::Result<proc_macro2::TokenStream> {
+    let struct_name = Ident::new(&name.to_upper_camel_case(), Span::call_site());
+    let fields = record
+        .fields
+        .iter()
+        .map(|field| {
+            let field_name = Ident::new(&field.name.to_snake_case(), Span::call_site());
+            let field_ty = type_name(resolve, &field.ty)?;
+            Ok(quote! { pub #field_name: #field_ty })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(quote! {
+        #[derive(Debug, Clone)]
+        pub struct #struct_name {
+            #(#fields),*
+        }
+    })
+}
+
+fn print_typedef_enum(
+    name: &str,
+    enum_: &wit_parser::Enum,
+) -> anyhow::Result<proc_macro2::TokenStream> {
+    let enum_name = Ident::new(&name.to_upper_camel_case(), Span::call_site());
+    let variants = enum_.cases.iter().map(|case| {
+        let variant_name = Ident::new(&case.name.to_upper_camel_case(), Span::call_site());
+        quote! { #variant_name }
+    });
+
+    Ok(quote! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum #enum_name {
+            #(#variants),*
+        }
+    })
+}
+
+fn print_typedef_variant(
+    resolve: &wit_parser::Resolve,
+    name: &str,
+    variant: &wit_parser::Variant,
+) -> anyhow::Result<proc_macro2::TokenStream> {
+    let enum_name = Ident::new(&name.to_upper_camel_case(), Span::call_site());
+    let variants = variant
+        .cases
+        .iter()
+        .map(|case| {
+            let variant_name = Ident::new(&case.name.to_upper_camel_case(), Span::call_site());
+            match &case.ty {
+                Some(ty) => {
+                    let ty_name = type_name(resolve, ty)?;
+                    Ok(quote! { #variant_name(#ty_name) })
+                }
+                None => Ok(quote! { #variant_name }),
+            }
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(quote! {
+        #[derive(Debug, Clone)]
+        pub enum #enum_name {
+            #(#variants),*
+        }
+    })
+}
+
+#[proc_macro]
+pub fn import(input: TokenStream) -> TokenStream {
+    let attr_args = NestedMeta::parse_meta_list(input.clone().into()).unwrap();
+    let config = ImportConfig::from_list(&attr_args).unwrap();
+
+    let name = config.name;
+    let module_name = Ident::from_string(format!("{}_next", name).as_str()).unwrap();
+    let height = config.height;
+    let tx_index = config.tx_index;
+    let world = config.world.unwrap_or("contract".to_string());
+    let path = config.path;
+
+    assert!(fs::metadata(&path).is_ok());
+    let mut resolve = Resolve::new();
+    resolve.push_dir(&path).unwrap();
+
+    let (world_id, world) = resolve
+        .worlds
+        .iter()
+        .find(|(_, w)| w.name == "contract")
+        .unwrap();
+
+    let exports = world
+        .exports
+        .iter()
+        .filter_map(|e| match e {
+            (WorldKey::Name(name), WorldItem::Function(f))
+                if !["init"].contains(&name.as_str()) =>
+            {
+                Some(f)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for export in exports {
+        for param in export.params.iter().skip(1) {
+            if let (type_name, wit_parser::Type::Id(type_id)) = param {
+                let t = resolve.types.get(*type_id).unwrap();
+                eprintln!("{} param: {}: {:#?}", export.name, type_name, t);
+            }
+        }
+    }
+
+    let mut type_streams = Vec::new();
+    for (id, def) in resolve.types.iter().filter(|(_, def)| {
+        if let Some(name) = def.name.as_deref() {
+            ![
+                "contract-address",
+                "view-context",
+                "fall-context",
+                "proc-context",
+                "signer",
+            ]
+            .contains(&name)
+        } else {
+            false
+        }
+    }) {
+        let name = def.name.as_deref().expect("Filtered types have names");
+        let stream = match &def.kind {
+            TypeDefKind::Record(record) => print_typedef_record(&resolve, name, record),
+            TypeDefKind::Enum(enum_) => print_typedef_enum(name, enum_),
+            TypeDefKind::Variant(variant) => print_typedef_variant(&resolve, name, variant),
+            _ => panic!("Unsupported type definition kind: {:?}", def.kind),
+        }
+        .expect("Failed to generate type");
+        type_streams.push(stream);
+    }
+
+    quote! {
+        mod #module_name {
+            use wasm_wave::wasm::WasmValue as _;
+
+            use super::context;
+            use super::foreign;
+
+            const CONTRACT_NAME: &str = #name;
+
+            impl foreign::ContractAddress {
+                pub fn wave_type() -> wasm_wave::value::Type {
+                    wasm_wave::value::Type::record([
+                        ("name", wasm_wave::value::Type::STRING),
+                        ("height", wasm_wave::value::Type::S64),
+                        ("tx_index", wasm_wave::value::Type::S64),
+                    ])
+                    .unwrap()
+                }
+            }
+
+            impl From<foreign::ContractAddress> for wasm_wave::value::Value {
+                fn from(value_: foreign::ContractAddress) -> Self {
+                    wasm_wave::value::Value::make_record(
+                        &foreign::ContractAddress::wave_type(),
+                        [
+                            ("name", wasm_wave::value::Value::from(value_.name)),
+                            ("height", wasm_wave::value::Value::from(value_.height)),
+                            ("tx_index", wasm_wave::value::Value::from(value_.tx_index)),
+                        ],
+                    )
+                    .unwrap()
+                }
+            }
+
+            impl From<wasm_wave::value::Value> for foreign::ContractAddress {
+                fn from(value_: wasm_wave::value::Value) -> Self {
+                    let mut name = None;
+                    let mut height = None;
+                    let mut tx_index = None;
+
+                    for (key_, val_) in  value_.unwrap_record() {
+                        match key_.as_ref() {
+                            "name" => name = Some(val_.unwrap_string().into_owned()),
+                            "height" => height = Some(val_.unwrap_s64()),
+                            "tx_index" => tx_index = Some(val_.unwrap_s64()),
+                            key_ => panic!("Unknown field: {key_}"),
+                        }
+                    }
+
+                    Self {
+                        name: name.expect("Missing 'name' field"),
+                        height: height.expect("Missing 'height' field"),
+                        tx_index: tx_index.expect("Missing 'tx_index' field"),
+                    }
+                }
+            }
+
+             #(#type_streams)*
+        }
+    }
+    .into()
+}
+
+#[proc_macro_derive(Wavey)]
+pub fn derive_wave_value(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let wave_type_body = match &input.data {
+        syn::Data::Struct(data) => generate_struct_wave_type(data),
+        syn::Data::Enum(data) => generate_enum_wave_type(data),
+        _ => Err(Error::new(
+            name.span(),
+            "Wavey derive is only supported for structs and enums",
+        )),
+    };
+
+    let wave_type_body = match wave_type_body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let from_self_body = match &input.data {
+        syn::Data::Struct(data) => generate_struct_to_value(data, name),
+        syn::Data::Enum(data) => generate_enum_to_value(data, name),
+        _ => Err(Error::new(
+            name.span(),
+            "Wavey derive is only supported for structs and enums",
+        )),
+    };
+
+    let from_self_body = match from_self_body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let from_value_body = match &input.data {
+        syn::Data::Struct(data) => generate_struct_from_value(data, name),
+        syn::Data::Enum(data) => generate_enum_from_value(data, name),
+        _ => Err(Error::new(
+            name.span(),
+            "Wavey derive is only supported for structs and enums",
+        )),
+    };
+
+    let from_value_body = match from_value_body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    quote! {
+        impl #impl_generics #name #ty_generics #where_clause {
+            pub fn wave_type() -> wasm_wave::value::Type {
+                #wave_type_body
+            }
+        }
+
+        impl #impl_generics From<#name #ty_generics> for wasm_wave::value::Value #where_clause {
+            fn from(value_: #name #ty_generics) -> Self {
+                #from_self_body
+            }
+        }
+
+        impl #impl_generics From<wasm_wave::value::Value> for #name #ty_generics #where_clause {
+            fn from(value_: wasm_wave::value::Value) -> Self {
+                #from_value_body
+            }
+        }
+    }
+    .into()
+}
+
+fn generate_struct_wave_type(data: &DataStruct) -> syn::Result<proc_macro2::TokenStream> {
+    match &data.fields {
+        Fields::Named(fields) => {
+            let field_types = fields
+                .named
+                .iter()
+                .map(|field| {
+                    let field_name_str = field.ident.as_ref().unwrap().to_string();
+                    let field_ty = &field.ty;
+                    let wave_ty = type_to_wave_type(field_ty)?;
+                    Ok(quote! { (#field_name_str, #wave_ty) })
+                })
+                .collect::<syn::Result<Vec<_>>>()?;
+            Ok(quote! {
+                wasm_wave::value::Type::record([#(#field_types),*]).unwrap()
+            })
+        }
+        _ => Err(Error::new(
+            data.struct_token.span,
+            "Wavey derive only supports structs with named fields",
+        )),
+    }
+}
+
+fn generate_enum_wave_type(data: &DataEnum) -> syn::Result<proc_macro2::TokenStream> {
+    let variant_types = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name = variant.ident.to_string().to_lowercase();
+            match &variant.fields {
+                Fields::Unit => Ok(quote! { (#variant_name, None) }),
+                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                    let inner_ty = &fields.unnamed[0].ty;
+                    let inner_wave_ty = type_to_wave_type(inner_ty)?;
+                    Ok(quote! { (#variant_name, Some(#inner_wave_ty)) })
+                }
+                _ => Err(Error::new(
+                    variant.span(),
+                    "Wavey derive only supports unit or single-field tuple variants for enums",
+                )),
+            }
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+    Ok(quote! {
+        wasm_wave::value::Type::variant([#(#variant_types),*]).unwrap()
+    })
+}
+
+fn generate_struct_to_value(
+    data: &DataStruct,
+    name: &Ident,
+) -> syn::Result<proc_macro2::TokenStream> {
+    match &data.fields {
+        Fields::Named(fields) => {
+            let field_assigns = fields.named.iter().map(|field| {
+                let field_name = field.ident.as_ref().unwrap();
+                let field_name_str = field_name.to_string();
+                quote! { (#field_name_str, wasm_wave::value::Value::from(value_.#field_name)) }
+            });
+            Ok(quote! {
+                wasm_wave::value::Value::make_record(
+                    &#name::wave_type(),
+                    [#(#field_assigns),*],
+                ).unwrap()
+            })
+        }
+        _ => Err(Error::new(
+            data.struct_token.span,
+            "Wavey derive only supports structs with named fields",
+        )),
+    }
+}
+
+fn generate_enum_to_value(data: &DataEnum, name: &Ident) -> syn::Result<proc_macro2::TokenStream> {
+    let arms = data.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_name = variant_ident.to_string().to_lowercase();
+        match &variant.fields {
+            Fields::Unit => Ok(quote! {
+                #name::#variant_ident => wasm_wave::value::Value::make_variant(&#name::wave_type(), #variant_name, None)
+            }),
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => Ok(quote! {
+                #name::#variant_ident(operand) => wasm_wave::value::Value::make_variant(&#name::wave_type(), #variant_name, Some(wasm_wave::value::Value::from(operand)))
+            }),
+            _ => Err(Error::new(variant.span(), "Wavey derive only supports unit or single-field tuple variants for enums")),
+        }
+    }).collect::<syn::Result<Vec<_>>>()?;
+    Ok(quote! {
+        (match value_ {
+            #(#arms,)*
+        }).unwrap()
+    })
+}
+
+fn generate_struct_from_value(
+    data: &DataStruct,
+    name: &Ident,
+) -> syn::Result<proc_macro2::TokenStream> {
+    match &data.fields {
+        Fields::Named(fields) => {
+            let mut_inits = fields.named.iter().map(|field| {
+                let field_name = field.ident.as_ref().unwrap();
+                quote! { let mut #field_name = None; }
+            });
+            let match_arms = fields.named.iter().map(|field| {
+                let field_name = field.ident.as_ref().unwrap();
+                let field_name_str = field_name.to_string();
+                let unwrap_expr = unwrap_expr_for_type(&field.ty)
+                    .unwrap_or_else(|_| panic!("Could not unwrap expr for type: {:?}", &field.ty));
+                quote! { #field_name_str => #field_name = Some(val_.#unwrap_expr), }
+            });
+            let constructs = fields.named.iter().map(|field| {
+                let field_name = field.ident.as_ref().unwrap();
+                let field_name_str = field_name.to_string();
+                quote! { #field_name: #field_name.expect(format!("Missing '{}' field"), #field_name_str), }
+            });
+            Ok(quote! {
+                #(#mut_inits)*
+                for (key_, val_) in value_.unwrap_record() {
+                    match key_.as_ref() {
+                        #(#match_arms)*
+                        key_ => panic!("Unknown field: {key_}"),
+                    }
+                }
+                #name {
+                    #(#constructs)*
+                }
+            })
+        }
+        _ => Err(Error::new(
+            data.struct_token.span,
+            "Wavey derive only supports structs with named fields",
+        )),
+    }
+}
+
+fn generate_enum_from_value(
+    data: &DataEnum,
+    name: &Ident,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let arms = data.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_name = variant_ident.to_string().to_lowercase();
+        match &variant.fields {
+            Fields::Unit => Ok(quote! {
+                key_ if key_.eq(#variant_name) => #name::#variant_ident,
+            }),
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                let unwrap_expr = unwrap_expr_for_type(&fields.unnamed[0].ty)?;
+                Ok(quote! {
+                    key_ if key_.eq(#variant_name) => #name::#variant_ident(val_.unwrap().#unwrap_expr),
+                })
+            }
+            _ => Err(Error::new(variant.span(), "Wavey derive only supports unit or single-field tuple variants for enums")),
+        }
+    }).collect::<syn::Result<Vec<_>>>()?;
+    Ok(quote! {
+        let (key_, val_) = value_.unwrap_variant();
+        match key_ {
+            #(#arms)*
+            key_ => panic!("Unknown tag {key_}"),
+        }
+    })
+}
+
+fn type_to_wave_type(ty: &Type) -> syn::Result<proc_macro2::TokenStream> {
+    if let Some(prim) = get_wave_primitive_type(ty) {
+        Ok(prim)
+    } else {
+        Ok(quote! { #ty::wave_type() })
+    }
+}
+
+fn get_wave_primitive_type(ty: &Type) -> Option<proc_macro2::TokenStream> {
+    if let Type::Path(TypePath { qself: None, path }) = ty
+        && path.segments.len() == 1
+    {
+        let segment = &path.segments[0];
+        if segment.arguments == PathArguments::None {
+            match segment.ident.to_string().as_str() {
+                "u64" => Some(quote! { wasm_wave::value::Type::U64 }),
+                "i64" => Some(quote! { wasm_wave::value::Type::S64 }),
+                "String" => Some(quote! { wasm_wave::value::Type::STRING }),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn unwrap_expr_for_type(ty: &Type) -> syn::Result<proc_macro2::TokenStream> {
+    if let Type::Path(TypePath { qself: None, path }) = ty
+        && path.segments.len() == 1
+    {
+        let segment = &path.segments[0];
+        if segment.arguments == PathArguments::None {
+            let ident = segment.ident.to_string();
+            match ident.as_str() {
+                "u64" => return Ok(quote! { unwrap_u64() }),
+                "i64" => return Ok(quote! { unwrap_s64() }),
+                "String" => return Ok(quote! { unwrap_string().into_owned() }),
+                _ => {}
+            }
+        }
+    }
+    Ok(quote! { into_owned().into() })
 }
