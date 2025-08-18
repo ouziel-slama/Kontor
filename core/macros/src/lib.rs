@@ -711,16 +711,176 @@ fn type_name(
         wit_parser::Type::String => Ok(quote! { String }),
         wit_parser::Type::Id(id) => {
             let ty_def = &resolve.types[*id];
-            let name = ty_def
-                .name
-                .as_ref()
-                .ok_or_else(|| anyhow!("Unnamed types are not supported"))?
-                .to_upper_camel_case();
-            let ident = Ident::new(&name, Span::call_site());
-            Ok(quote! { #ident })
+            match ty_def.kind {
+                TypeDefKind::Option(inner) => {
+                    let inner_ty = type_name(resolve, &inner)?;
+                    Ok(quote! { Option<#inner_ty> })
+                }
+                TypeDefKind::Handle(wit_parser::Handle::Borrow(resource_id)) => {
+                    let resource_def = &resolve.types[resource_id];
+                    let resource_name = resource_def
+                        .name
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("Unnamed resource types are not supported"))?
+                        .to_upper_camel_case();
+                    let ident = Ident::new(&resource_name, Span::call_site());
+                    Ok(quote! { &context::#ident })
+                }
+                TypeDefKind::Record(_) | TypeDefKind::Enum(_) | TypeDefKind::Variant(_) => {
+                    let name = ty_def
+                        .name
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("Unnamed types are not supported"))?
+                        .to_upper_camel_case();
+                    let ident = Ident::new(&name, Span::call_site());
+                    Ok(quote! { #ident })
+                }
+                _ => bail!("Unsupported type definition kind: {:?}", ty_def.kind),
+            }
         }
         _ => bail!("Unsupported WIT type: {:?}", ty),
     }
+}
+
+fn value_type_for(
+    resolve: &Resolve,
+    ty: &wit_parser::Type,
+) -> anyhow::Result<proc_macro2::TokenStream> {
+    match ty {
+        wit_parser::Type::U64 => Ok(quote! { wasm_wave::value::Value::U64 }),
+        wit_parser::Type::S64 => Ok(quote! { wasm_wave::value::Value::S64 }),
+        wit_parser::Type::String => Ok(quote! { wasm_wave::value::Value::String }),
+        wit_parser::Type::Id(id) => {
+            let ty_def = &resolve.types[*id];
+
+            match ty_def.kind {
+                TypeDefKind::Option(inner) => {
+                    let inner_ty = type_name(resolve, &inner)?;
+                    Ok(quote! { wasm_wave::value::Type::option(<#inner_ty>::wave_type()) })
+                }
+                TypeDefKind::Handle(_) => {
+                    bail!("Resource handles cannot be used as return types");
+                }
+                TypeDefKind::Record(_) | TypeDefKind::Enum(_) | TypeDefKind::Variant(_) => {
+                    let name = ty_def
+                        .name
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("Unnamed return types are not supported"))?
+                        .to_upper_camel_case();
+                    let ident = Ident::new(&name, Span::call_site());
+                    Ok(quote! { <#ident>::wave_type() })
+                }
+                _ => bail!("Unsupported return type kind: {:?}", ty_def.kind),
+            }
+        }
+        _ => bail!("Unsupported return type: {:?}", ty),
+    }
+}
+
+fn generate_functions(
+    resolve: &Resolve,
+    export: &wit_parser::Function,
+    height: i64,
+    tx_index: i64,
+) -> anyhow::Result<proc_macro2::TokenStream> {
+    let fn_name = Ident::new(&export.name.to_snake_case(), Span::call_site());
+    let params = export
+        .params
+        .iter()
+        .map(|(name, ty)| {
+            let param_name = Ident::new(&name.to_snake_case(), Span::call_site());
+            let param_ty = type_name(resolve, ty)?;
+            Ok(quote! { #param_name: #param_ty })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let ret_ty = match &export.result {
+        Some(ty) => type_name(resolve, ty)?,
+        None => quote! { () },
+    };
+
+    let expr_parts = export
+            .params
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(_i, (name, ty))| {
+                let param_name = Ident::new(&name.to_snake_case(), Span::call_site());
+                Ok(match ty {
+                    wit_parser::Type::Id(id) if matches!(resolve.types[*id].kind, TypeDefKind::Option(_)) => {
+                        let _inner_ty = match resolve.types[*id].kind {
+                            TypeDefKind::Option(inner) => type_name(resolve, &inner)?,
+                            _ => unreachable!(),
+                        };
+                        quote! {
+                            match #param_name {
+                                Some(val) => wasm_wave::to_string(&wasm_wave::value::Value::from(val)).unwrap(),
+                                None => "null".to_string(),
+                            }
+                        }
+                    }
+                    _ => quote! {
+                        wasm_wave::to_string(&wasm_wave::value::Value::from(#param_name)).unwrap()
+                    },
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let expr = if expr_parts.is_empty() {
+        quote! { format!("{}()", stringify!(#fn_name)) }
+    } else {
+        quote! { format!("{}({})", stringify!(#fn_name), [#(#expr_parts),*].join(", ")) }
+    };
+
+    let ret_expr = match &export.result {
+        Some(ty) => {
+            let value_ty = value_type_for(resolve, ty)?;
+            let is_option = value_ty
+                .to_string()
+                .starts_with("wasm_wave :: value :: Type :: option");
+
+            if is_option {
+                quote! {
+                    wasm_wave::from_str::<wasm_wave::value::Value>(&#value_ty, &ret)
+                        .unwrap()
+                        .unwrap_option()
+                        .map(|v| v.into_owned().into())
+                }
+            } else {
+                quote! {
+                    wasm_wave::from_str::<wasm_wave::value::Value>(&#value_ty, &ret)
+                        .unwrap()
+                        .into()
+                }
+            }
+        }
+        None => quote! { () },
+    };
+
+    let (_, ctx_type) = export.params.first().unwrap();
+    let ctx_type_name = type_name(resolve, ctx_type)?;
+    let is_proc_context = ctx_type_name.to_string() == quote! { &context::ProcContext }.to_string();
+    let ctx_signer = if is_proc_context {
+        quote! { Some(&ctx.signer()) }
+    } else {
+        quote! { None }
+    };
+
+    Ok(quote! {
+        pub fn #fn_name(#(#params),*) -> #ret_ty {
+            let expr = #expr;
+            let ret = foreign::call(
+                &foreign::ContractAddress {
+                    name: CONTRACT_NAME.to_string(),
+                    height: #height,
+                    tx_index: #tx_index,
+                },
+                #ctx_signer,
+                expr.as_str(),
+            );
+            #ret_expr
+        }
+    })
 }
 
 fn print_typedef_record(
@@ -740,7 +900,7 @@ fn print_typedef_record(
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Wavey)]
         pub struct #struct_name {
             #(#fields),*
         }
@@ -787,7 +947,7 @@ fn print_typedef_variant(
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Wavey)]
         pub enum #enum_name {
             #(#variants),*
         }
@@ -800,20 +960,20 @@ pub fn import(input: TokenStream) -> TokenStream {
     let config = ImportConfig::from_list(&attr_args).unwrap();
 
     let name = config.name;
-    let module_name = Ident::from_string(format!("{}_next", name).as_str()).unwrap();
+    let module_name = Ident::from_string(name.to_string().as_str()).unwrap();
     let height = config.height;
     let tx_index = config.tx_index;
-    let world = config.world.unwrap_or("contract".to_string());
     let path = config.path;
+    let world_name = config.world.unwrap_or("contract".to_string());
 
     assert!(fs::metadata(&path).is_ok());
     let mut resolve = Resolve::new();
     resolve.push_dir(&path).unwrap();
 
-    let (world_id, world) = resolve
+    let (_world_id, world) = resolve
         .worlds
         .iter()
-        .find(|(_, w)| w.name == "contract")
+        .find(|(_, w)| w.name == world_name)
         .unwrap();
 
     let exports = world
@@ -829,17 +989,8 @@ pub fn import(input: TokenStream) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    for export in exports {
-        for param in export.params.iter().skip(1) {
-            if let (type_name, wit_parser::Type::Id(type_id)) = param {
-                let t = resolve.types.get(*type_id).unwrap();
-                eprintln!("{} param: {}: {:#?}", export.name, type_name, t);
-            }
-        }
-    }
-
     let mut type_streams = Vec::new();
-    for (id, def) in resolve.types.iter().filter(|(_, def)| {
+    for (_id, def) in resolve.types.iter().filter(|(_, def)| {
         if let Some(name) = def.name.as_deref() {
             ![
                 "contract-address",
@@ -864,9 +1015,18 @@ pub fn import(input: TokenStream) -> TokenStream {
         type_streams.push(stream);
     }
 
+    let mut func_streams = Vec::new();
+    for export in exports {
+        func_streams.push(
+            generate_functions(&resolve, export, height, tx_index)
+                .expect("Function didn't generate"),
+        )
+    }
+
     quote! {
         mod #module_name {
             use wasm_wave::wasm::WasmValue as _;
+            use stdlib::Wavey;
 
             use super::context;
             use super::foreign;
@@ -909,7 +1069,7 @@ pub fn import(input: TokenStream) -> TokenStream {
                             "name" => name = Some(val_.unwrap_string().into_owned()),
                             "height" => height = Some(val_.unwrap_s64()),
                             "tx_index" => tx_index = Some(val_.unwrap_s64()),
-                            key_ => panic!("Unknown field: {key_}"),
+                            key_ => panic!("Unknown field: {}", key_),
                         }
                     }
 
@@ -922,13 +1082,14 @@ pub fn import(input: TokenStream) -> TokenStream {
             }
 
              #(#type_streams)*
+             #(#func_streams)*
         }
     }
     .into()
 }
 
 #[proc_macro_derive(Wavey)]
-pub fn derive_wave_value(input: TokenStream) -> TokenStream {
+pub fn derive_wavey(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
     let generics = &input.generics;
@@ -1113,7 +1274,7 @@ fn generate_struct_from_value(
             let constructs = fields.named.iter().map(|field| {
                 let field_name = field.ident.as_ref().unwrap();
                 let field_name_str = field_name.to_string();
-                quote! { #field_name: #field_name.expect(format!("Missing '{}' field"), #field_name_str), }
+                quote! { #field_name: #field_name.expect(&format!("Missing '{}' field", #field_name_str)), }
             });
             Ok(quote! {
                 #(#mut_inits)*
