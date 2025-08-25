@@ -1,6 +1,7 @@
 use anyhow::Result;
 use bitcoin::FeeRate;
 use bitcoin::Network;
+use bitcoin::TapSighashType;
 use bitcoin::secp256k1::Keypair;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
@@ -15,25 +16,22 @@ use indexer::api::compose::ComposeInputs;
 use indexer::config::TestConfig;
 use indexer::test_utils;
 use indexer::witness_data::TokenBalance;
-use indexer::{bitcoin_client::Client, config::Config, logging};
+use indexer::{bitcoin_client::Client, logging};
 use std::str::FromStr;
 use tracing::info;
 
 #[tokio::test]
-#[ignore]
-async fn test_taproot_transaction() -> Result<()> {
-    // Initialize regtest client
-    let mut config = Config::try_parse()?;
-    config.bitcoin_rpc_url = "http://127.0.0.1:48332".to_string();
+async fn test_taproot_transaction_testnet() -> Result<()> {
+    // Initialize testnet client
+    let mut test_cfg = TestConfig::try_parse()?;
+    test_cfg.network = Network::Testnet4;
 
-    let client = Client::new_from_config(&config)?;
-    let mut test_config = TestConfig::try_parse()?;
-    test_config.network = Network::Testnet4;
+    let client = Client::new_from_config(&test_cfg)?;
 
     let secp = Secp256k1::new();
 
     let (seller_address, seller_child_key, _) =
-        test_utils::generate_taproot_address_from_mnemonic(&secp, &test_config, 0)?;
+        test_utils::generate_taproot_address_from_mnemonic(&secp, &test_cfg, 0)?;
 
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
@@ -75,7 +73,14 @@ async fn test_taproot_transaction() -> Result<()> {
     let tap_script = compose_outputs.tap_script;
 
     // Sign the attach transaction
-    test_utils::sign_key_spend(&secp, &mut attach_tx, &[utxo_for_output], &keypair, 0)?;
+    test_utils::sign_key_spend(
+        &secp,
+        &mut attach_tx,
+        &[utxo_for_output],
+        &keypair,
+        0,
+        Some(TapSighashType::All),
+    )?;
 
     let spend_tx_prevouts = vec![attach_tx.output[0].clone()];
 
@@ -136,22 +141,20 @@ async fn test_taproot_transaction() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_compose_progressive_size_limit_testnet() -> Result<()> {
     logging::setup();
 
     // Initialize testnet client
-    let mut config = Config::try_parse()?;
-    config.bitcoin_rpc_url = "http://127.0.0.1:48332".to_string();
-    let client = Client::new_from_config(&config)?;
+    let mut test_cfg = TestConfig::try_parse()?;
+    test_cfg.network = Network::Testnet4;
 
-    let mut test_config = TestConfig::try_parse()?;
-    test_config.network = Network::Testnet4;
+    let client = Client::new_from_config(&test_cfg)?;
+
     let secp = Secp256k1::new();
 
     // Generate taproot address and keys
     let (seller_address, seller_child_key, _) =
-        test_utils::generate_taproot_address_from_mnemonic(&secp, &test_config, 0)?;
+        test_utils::generate_taproot_address_from_mnemonic(&secp, &test_cfg, 0)?;
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
 

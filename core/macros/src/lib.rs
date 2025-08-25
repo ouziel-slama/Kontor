@@ -1,578 +1,27 @@
 extern crate proc_macro;
 
+use std::fs;
+
 use darling::{FromMeta, ast::NestedMeta};
+use heck::ToPascalCase;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    DataEnum, DataStruct, DeriveInput, Error, Fields, Ident, PathArguments, Result, Type,
-    parse_macro_input, spanned::Spanned,
-};
+use syn::{Data, DeriveInput, Error, Ident, parse_macro_input, spanned::Spanned};
 
-#[proc_macro_derive(Store)]
-pub fn derive_store(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
-    let generics = &input.generics;
+use wit_parser::{Resolve, TypeDefKind, WorldItem, WorldKey};
 
-    let body = match &input.data {
-        syn::Data::Struct(data_struct) => generate_struct_body(data_struct, name),
-        syn::Data::Enum(data_enum) => generate_enum_body(data_enum, name),
-        syn::Data::Union(_) => Err(Error::new(
-            name.span(),
-            "Store derive is not supported for unions",
-        )),
-    };
-
-    let body = match body {
-        Ok(body) => body,
-        Err(err) => return err.to_compile_error().into(),
-    };
-
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let expanded = quote! {
-        impl #impl_generics stdlib::Store for #name #ty_generics #where_clause {
-            fn __set(ctx: &impl stdlib::WriteContext, base_path: stdlib::DotPathBuf, value: #name #ty_generics) {
-                #body
-            }
-        }
-    };
-
-    TokenStream::from(expanded)
-}
-
-fn generate_struct_body(
-    data_struct: &DataStruct,
-    type_name: &Ident,
-) -> Result<proc_macro2::TokenStream> {
-    match &data_struct.fields {
-        Fields::Named(fields) => {
-            let field_sets = fields.named.iter().map(|field| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
-                let field_ty = &field.ty;
-
-                if is_option_type(field_ty) {
-                    quote! {
-                        match value.#field_name {
-                            Some(inner) => ctx.__set(base_path.push(#field_name_str), inner),
-                            None => ctx.__set(base_path.push(#field_name_str), ()),
-                        }
-                    }
-                } else {
-                    quote! {
-                        ctx.__set(base_path.push(#field_name_str), value.#field_name);
-                    }
-                }
-            });
-            Ok(quote! { #(#field_sets)* })
-        }
-        _ => Err(Error::new(
-            type_name.span(),
-            "Store derive only supports structs with named fields",
-        )),
-    }
-}
-
-fn generate_enum_body(data_enum: &DataEnum, type_name: &Ident) -> Result<proc_macro2::TokenStream> {
-    let arms = data_enum.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_name = variant_ident.to_string().to_lowercase();
-
-        match &variant.fields {
-            Fields::Unit => {
-                Ok(quote! {
-                    #type_name::#variant_ident => ctx.__set(base_path.push(#variant_name), ()),
-                })
-            }
-            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                Ok(quote! {
-                    #type_name::#variant_ident(inner) => ctx.__set(base_path.push(#variant_name), inner),
-                })
-            }
-            _ => Err(Error::new(
-                variant_ident.span(),
-                "Store derive only supports unit or single-field tuple variants",
-            )),
-        }
-    });
-
-    // Collect results, propagating any errors
-    let arms: Result<Vec<_>> = arms.collect();
-    let arms = arms?;
-
-    Ok(quote! {
-        match value {
-            #(#arms)*
-        }
-    })
-}
-
-fn is_option_type(ty: &Type) -> bool {
-    if let Type::Path(type_path) = ty {
-        type_path
-            .path
-            .segments
-            .last()
-            .map(|segment| {
-                segment.ident == "Option"
-                    && matches!(segment.arguments, PathArguments::AngleBracketed(_))
-            })
-            .unwrap_or(false)
-    } else {
-        false
-    }
-}
+mod import;
+mod root;
+mod store;
+mod utils;
+mod wavey;
+mod wrapper;
 
 #[derive(FromMeta)]
 struct ContractConfig {
     name: String,
     world: Option<String>,
     path: Option<String>,
-}
-
-fn to_pascal_case(name: &str) -> String {
-    name.split('-')
-        .map(|s| {
-            let mut c = s.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect()
-}
-
-#[proc_macro_derive(Wrapper)]
-pub fn derive_wrapper(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
-    let generics = &input.generics;
-
-    let body = match &input.data {
-        syn::Data::Struct(data_struct) => generate_struct_wrapper(data_struct, name),
-        syn::Data::Enum(data_enum) => generate_enum_wrapper(data_enum, name),
-        syn::Data::Union(_) => Err(Error::new(
-            name.span(),
-            "Wrapper derive is not supported for unions",
-        )),
-    };
-
-    let body = match body {
-        Ok(body) => body,
-        Err(err) => return err.to_compile_error().into(),
-    };
-
-    let (_impl_generics, _ty_generics, _where_clause) = generics.split_for_impl();
-    let expanded = quote! {
-        #body
-    };
-
-    TokenStream::from(expanded)
-}
-
-fn generate_struct_wrapper(
-    data_struct: &DataStruct,
-    type_name: &Ident,
-) -> syn::Result<proc_macro2::TokenStream> {
-    match &data_struct.fields {
-        Fields::Named(fields) => {
-            let wrapper_name = Ident::new(&format!("{}Wrapper", type_name), type_name.span());
-
-            let mut special_wrappers = vec![];
-
-            let getters = fields.named.iter().map(|field| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
-                let field_ty = &field.ty;
-
-                if is_map_type(field_ty) {
-                    let (k_ty, v_ty) = get_map_types(field_ty)?;
-                    let field_wrapper_name = Ident::new(&format!("{}{}Wrapper", type_name, to_pascal_case(&field_name.to_string())), field.span());
-
-                    let (get_return, get_body) = if is_primitive_type(&v_ty) {
-                        (quote! { Option<#v_ty> }, quote! { ctx.__get(self.base_path.push(key.to_string())) })
-                    } else {
-                        let v_wrapper_ty = get_wrapper_ident(&v_ty, field.span())?;
-                        (quote! { Option<#v_wrapper_ty> }, quote! { ctx.__exists(&base_path.push(key.to_string())).then(|| #v_wrapper_ty::new(ctx, base_path.push(key.to_string()))) })
-                    };
-
-                    special_wrappers.push(quote! {
-                        #[derive(Clone)]
-                        pub struct #field_wrapper_name {
-                            pub base_path: stdlib::DotPathBuf,
-                        }
-
-                        impl #field_wrapper_name {
-                            pub fn get(&self, ctx: &impl stdlib::ReadContext, key: #k_ty) -> #get_return {
-                                let base_path = self.base_path.push(key.to_string());
-                                #get_body
-                            }
-
-                            pub fn set(&self, ctx: &impl stdlib::WriteContext, key: #k_ty, value: #v_ty) {
-                                ctx.__set(self.base_path.push(key.to_string()), value)
-                            }
-
-                            pub fn load(&self, ctx: &impl stdlib::ReadContext) -> Map<#k_ty, #v_ty> {
-                                Map::new(&[])
-                            }
-                        }
-                    });
-
-                    Ok(quote! {
-                        pub fn #field_name(&self) -> #field_wrapper_name {
-                            #field_wrapper_name { base_path: self.base_path.push(#field_name_str) }
-                        }
-                    })
-                } else if is_option_type(field_ty) {
-                    let inner_ty = get_option_inner_type(field_ty)?;
-                    let base_path = quote! { self.base_path.push(#field_name_str) };
-                    if is_primitive_type(&inner_ty) {
-                        Ok(quote! {
-                            pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> Option<#inner_ty> {
-                                let base_path = #base_path;
-                                if ctx.__is_void(&base_path) {
-                                    None
-                                } else {
-                                    ctx.__get(base_path)
-                                }
-                            }
-                        })
-                    } else {
-                        let inner_wrapper_ty = get_wrapper_ident(&inner_ty, field.span())?;
-                        Ok(quote! {
-                            pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> Option<#inner_wrapper_ty> {
-                                let base_path = #base_path;
-                                if ctx.__is_void(&base_path) {
-                                    None
-                                } else {
-                                    Some(#inner_wrapper_ty::new(ctx, base_path))
-                                }
-                            }
-                        })
-                    }
-                } else if is_primitive_type(field_ty) {
-                    Ok(quote! {
-                        pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> #field_ty {
-                            ctx.__get(self.base_path.push(#field_name_str)).unwrap()
-                        }
-                    })
-                } else {
-                    let field_wrapper_ty = get_wrapper_ident(field_ty, field.span())?;
-                    Ok(quote! {
-                        pub fn #field_name(&self, ctx: &impl stdlib::ReadContext) -> #field_wrapper_ty {
-                            #field_wrapper_ty::new(ctx, self.base_path.push(#field_name_str))
-                        }
-                    })
-                }
-            }).collect::<syn::Result<Vec<_>>>()?;
-
-            let setters = fields.named.iter().map(|field| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
-                let field_ty = &field.ty;
-                let set_field_name = Ident::new(&format!("set_{}", field_name), field_name.span());
-
-                if is_map_type(field_ty) {
-                    Ok(quote! { })
-                } else if is_option_type(field_ty) {
-                    let inner_ty = get_option_inner_type(field_ty)?;
-                    Ok(quote! {
-                        pub fn #set_field_name(&self, ctx: &impl stdlib::WriteContext, value: Option<#inner_ty>) {
-                            let base_path = self.base_path.push(#field_name_str);
-                            match value {
-                                Some(inner) => ctx.__set(base_path, inner),
-                                None => ctx.__set(base_path, ()),
-                            }
-                        }
-                    })
-                } else {
-                    Ok(quote! {
-                        pub fn #set_field_name(&self, ctx: &impl stdlib::WriteContext, value: #field_ty) {
-                            ctx.__set(self.base_path.push(#field_name_str), value);
-                        }
-                    })
-                }
-            }).collect::<Result::<Vec<_>>>()?;
-
-            let load_fields = fields
-                .named
-                .iter()
-                .map(|field| {
-                    let field_name = field.ident.as_ref().unwrap();
-                    let _field_name_str = field_name.to_string();
-                    let field_ty = &field.ty;
-
-                    if is_map_type(field_ty) {
-                        let (_k_ty, _v_ty) = get_map_types(field_ty)?;
-                        Ok(quote! {
-                            #field_name: self.#field_name().load(ctx)
-                        })
-                    } else if is_option_type(field_ty) {
-                        let inner_ty = get_option_inner_type(field_ty)?;
-                        if is_primitive_type(&inner_ty) {
-                            Ok(quote! {
-                                #field_name: self.#field_name(ctx)
-                            })
-                        } else {
-                            Ok(quote! {
-                                #field_name: self.#field_name(ctx).map(|p| p.load(ctx))
-                            })
-                        }
-                    } else if is_primitive_type(field_ty) {
-                        Ok(quote! {
-                            #field_name: self.#field_name(ctx)
-                        })
-                    } else {
-                        Ok(quote! {
-                            #field_name: self.#field_name(ctx).load(ctx)
-                        })
-                    }
-                })
-                .collect::<syn::Result<Vec<_>>>()?;
-
-            let result = quote! {
-                #[derive(Clone)]
-                pub struct #wrapper_name {
-                    pub base_path: stdlib::DotPathBuf,
-                }
-
-                #[allow(dead_code)]
-                impl #wrapper_name {
-                    pub fn new(_: &impl stdlib::ReadContext, base_path: stdlib::DotPathBuf) -> Self {
-                        Self { base_path }
-                    }
-
-                    #(#getters)*
-
-                    #(#setters)*
-
-                    pub fn load(&self, ctx: &impl stdlib::ReadContext) -> #type_name {
-                        #type_name {
-                            #(#load_fields,)*
-                        }
-                    }
-                }
-
-                #(#special_wrappers)*
-            };
-
-            Ok(result)
-        }
-        _ => Err(Error::new(
-            type_name.span(),
-            "Wrapper derive only supports structs with named fields",
-        )),
-    }
-}
-
-fn is_map_type(ty: &Type) -> bool {
-    if let Type::Path(type_path) = ty {
-        type_path
-            .path
-            .segments
-            .last()
-            .map(|segment| segment.ident == "Map")
-            .unwrap_or(false)
-    } else {
-        false
-    }
-}
-
-fn get_map_types(ty: &Type) -> syn::Result<(Type, Type)> {
-    if let Type::Path(type_path) = ty
-        && let Some(segment) = type_path.path.segments.last()
-        && segment.ident == "Map"
-        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
-        && args.args.len() == 2
-        && let (syn::GenericArgument::Type(k_ty), syn::GenericArgument::Type(v_ty)) =
-            (&args.args[0], &args.args[1])
-    {
-        return Ok((k_ty.clone(), v_ty.clone()));
-    }
-    Err(Error::new(ty.span(), "Expected Map<K, V> type"))
-}
-
-fn is_primitive_type(ty: &Type) -> bool {
-    if let Type::Path(type_path) = ty {
-        let segment = type_path.path.segments.last().map(|s| s.ident.to_string());
-        matches!(segment.as_deref(), Some("u64" | "i64" | "String"))
-    } else {
-        false
-    }
-}
-
-fn generate_enum_wrapper(
-    data_enum: &DataEnum,
-    type_name: &Ident,
-) -> syn::Result<proc_macro2::TokenStream> {
-    let wrapper_name = Ident::new(&format!("{}Wrapper", type_name), type_name.span());
-
-    let wrapper_variants: syn::Result<Vec<_>> = data_enum
-        .variants
-        .iter()
-        .map(|variant| {
-            let variant_ident = &variant.ident;
-            match &variant.fields {
-                Fields::Unit => Ok(quote! { #variant_ident }),
-                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                    let inner_ty = &fields.unnamed[0].ty;
-                    let inner_wrapper_ty = get_wrapper_ident(inner_ty, variant.ident.span())?;
-                    Ok(quote! { #variant_ident(#inner_wrapper_ty) })
-                }
-                _ => Err(Error::new(
-                    variant.ident.span(),
-                    "Wrapper derive only supports unit or single-field tuple variants",
-                )),
-            }
-        })
-        .collect();
-
-    let wrapper_variants = wrapper_variants?;
-
-    let variant_names = data_enum
-        .variants
-        .iter()
-        .map(|variant| {
-            let variant_name = variant.ident.to_string().to_lowercase();
-            quote! { #variant_name }
-        })
-        .collect::<Vec<_>>();
-
-    let new_arms = data_enum.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_name = variant_ident.to_string().to_lowercase();
-
-        Ok(match &variant.fields {
-            Fields::Unit => quote! {
-                p if p.starts_with(base_path.push(#variant_name).as_ref()) => #wrapper_name::#variant_ident
-            },
-            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                let inner_wrapper_ty = get_wrapper_ident(&fields.unnamed[0].ty, variant.ident.span())?;
-                quote! {
-                    p if p.starts_with(base_path.push(#variant_name).as_ref()) => #wrapper_name::#variant_ident(#inner_wrapper_ty::new(ctx, base_path.push(#variant_name)))
-                }
-            }
-            _ => unreachable!(),
-        })
-    }).collect::<syn::Result<Vec<_>>>()?;
-
-    let load_arms = data_enum.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        match &variant.fields {
-            Fields::Unit => quote! {
-                #wrapper_name::#variant_ident => #type_name::#variant_ident
-            },
-            Fields::Unnamed(_) => quote! {
-                #wrapper_name::#variant_ident(inner_wrapper) => #type_name::#variant_ident(inner_wrapper.load(ctx))
-            },
-            _ => unreachable!(),
-        }
-    }).collect::<Vec<_>>();
-
-    Ok(quote! {
-        #[derive(Clone)]
-        pub enum #wrapper_name {
-            #(#wrapper_variants,)*
-        }
-
-        impl #wrapper_name {
-            pub fn new(ctx: &impl stdlib::ReadContext, base_path: stdlib::DotPathBuf) -> Self {
-                ctx.__matching_path(&format!(r"^{}.({})(\..*|$)", base_path, [#(#variant_names),*].join("|")))
-                    .map(|path| match path {
-                        #(#new_arms,)*
-                        _ => {
-                            panic!("Matching path not found")
-                        }
-                    })
-                    .unwrap()
-            }
-
-            pub fn load(&self, ctx: &impl stdlib::ReadContext) -> #type_name {
-                match self {
-                    #(#load_arms,)*
-                }
-            }
-        }
-    })
-}
-
-fn get_wrapper_ident(ty: &Type, span: proc_macro2::Span) -> syn::Result<Ident> {
-    if let Type::Path(type_path) = ty {
-        type_path
-            .path
-            .segments
-            .last()
-            .map(|segment| Ident::new(&format!("{}Wrapper", segment.ident), span))
-            .ok_or_else(|| Error::new(span, "Expected a named type for variant field"))
-    } else {
-        Err(Error::new(span, "Expected a named type for variant field"))
-    }
-}
-
-fn get_option_inner_type(ty: &Type) -> syn::Result<Type> {
-    if let Type::Path(type_path) = ty
-        && let Some(segment) = type_path.path.segments.last()
-        && segment.ident == "Option"
-        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
-        && args.args.len() == 1
-        && let syn::GenericArgument::Type(inner_ty) = &args.args[0]
-    {
-        return Ok(inner_ty.clone());
-    }
-    Err(Error::new(ty.span(), "Expected Option<T> type"))
-}
-
-#[proc_macro_derive(Root)]
-pub fn derive_root(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let name = &input.ident;
-    let generics = &input.generics;
-
-    let body = match &input.data {
-        syn::Data::Struct(data_struct) => generate_root_struct(data_struct, name),
-        _ => Err(Error::new(
-            name.span(),
-            "Root derive only supports structs with named fields",
-        )),
-    };
-
-    let body = match body {
-        Ok(body) => body,
-        Err(err) => return err.to_compile_error().into(),
-    };
-
-    let (_impl_generics, _ty_generics, _where_clause) = generics.split_for_impl();
-    let expanded = quote! {
-        #body
-    };
-
-    TokenStream::from(expanded)
-}
-
-fn generate_root_struct(
-    data_struct: &DataStruct,
-    type_name: &Ident,
-) -> syn::Result<proc_macro2::TokenStream> {
-    match &data_struct.fields {
-        Fields::Named(_) => {
-            let wrapper_name = Ident::new(&format!("{}Wrapper", type_name), type_name.span());
-            Ok(quote! {
-                impl #type_name {
-                    pub fn init(self, ctx: &impl stdlib::WriteContext) {
-                        ctx.__set(stdlib::DotPathBuf::new(), self)
-                    }
-                }
-
-                pub fn storage(ctx: &impl stdlib::ReadContext) -> #wrapper_name {
-                    #wrapper_name::new(ctx, stdlib::DotPathBuf::new())
-                }
-            })
-        }
-        _ => Err(Error::new(
-            type_name.span(),
-            "Root derive only supports structs with named fields",
-        )),
-    }
 }
 
 #[proc_macro]
@@ -582,7 +31,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
     let world = config.world.unwrap_or("contract".to_string());
     let path = config.path.unwrap_or("wit".to_string());
-    let name = Ident::from_string(&to_pascal_case(&config.name)).unwrap();
+    let name = Ident::from_string(&config.name.to_pascal_case()).unwrap();
     let boilerplate = quote! {
         use stdlib::*;
 
@@ -590,7 +39,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
             world: #world,
             path: #path,
             generate_all,
-            additional_derives: [stdlib::Store, stdlib::Wrapper],
+            additional_derives: [stdlib::Storage],
         });
 
         use kontor::built_in::*;
@@ -680,8 +129,399 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
         impl ReadWriteContext for context::ProcContext {}
 
+        impl From<core::num::ParseIntError> for kontor::built_in::error::Error {
+            fn from(err: core::num::ParseIntError) -> Self {
+                kontor::built_in::error::Error::Message(format!("Parse integer error: {:?}", err))
+            }
+        }
+
+        impl From<core::num::TryFromIntError> for kontor::built_in::error::Error {
+            fn from(err: core::num::TryFromIntError) -> Self {
+                kontor::built_in::error::Error::Message(format!("Try from integer error: {:?}", err))
+            }
+        }
+
+        impl From<core::str::Utf8Error> for kontor::built_in::error::Error {
+            fn from(err: core::str::Utf8Error) -> Self {
+                kontor::built_in::error::Error::Message(format!("UTF-8 parse error: {:?}", err))
+            }
+        }
+
+        impl From<core::char::ParseCharError> for kontor::built_in::error::Error {
+            fn from(err: core::char::ParseCharError) -> Self {
+                kontor::built_in::error::Error::Message(format!("Parse char error: {:?}", err))
+            }
+        }
+
+        impl kontor::built_in::error::Error {
+            pub fn new(message: impl Into<String>) -> Self {
+                kontor::built_in::error::Error::Message(message.into())
+            }
+        }
+
         struct #name;
+
+        export!(#name);
     };
 
     boilerplate.into()
+}
+
+#[proc_macro_derive(Store)]
+pub fn derive_store(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+
+    if !generics.params.is_empty() {
+        return Error::new(
+            generics.span(),
+            "Store derive does not support generic parameters (lifetimes or types)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let body = match &input.data {
+        Data::Struct(data_struct) => store::generate_struct_body(data_struct, name),
+        Data::Enum(data_enum) => store::generate_enum_body(data_enum, name),
+        Data::Union(_) => Err(Error::new(
+            name.span(),
+            "Store derive is not supported for unions",
+        )),
+    };
+
+    let body = match body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let expanded = quote! {
+        impl #impl_generics stdlib::Store for #name #ty_generics #where_clause {
+            fn __set(ctx: &impl stdlib::WriteContext, base_path: stdlib::DotPathBuf, value: #name #ty_generics) {
+                #body
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(Wrapper)]
+pub fn derive_wrapper(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+
+    let body = match &input.data {
+        Data::Struct(data_struct) => wrapper::generate_struct_wrapper(data_struct, name),
+        Data::Enum(data_enum) => wrapper::generate_enum_wrapper(data_enum, name),
+        Data::Union(_) => Err(Error::new(
+            name.span(),
+            "Wrapper derive is not supported for unions",
+        )),
+    };
+
+    let body = match body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let (_impl_generics, _ty_generics, _where_clause) = generics.split_for_impl();
+    quote! {
+        #body
+    }
+    .into()
+}
+
+#[proc_macro_derive(Storage)]
+pub fn derive_storage(input: TokenStream) -> TokenStream {
+    let mut tokens = derive_store(input.clone());
+    tokens.extend(derive_wrapper(input));
+    tokens
+}
+
+#[proc_macro_derive(Root)]
+pub fn derive_root(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+
+    let body = match &input.data {
+        Data::Struct(data_struct) => root::generate_root_struct(data_struct, name),
+        _ => Err(Error::new(
+            name.span(),
+            "Root derive only supports structs with named fields",
+        )),
+    };
+
+    let body = match body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let (_impl_generics, _ty_generics, _where_clause) = generics.split_for_impl();
+    quote! {
+        #body
+    }
+    .into()
+}
+
+#[proc_macro_derive(StorageRoot)]
+pub fn derive_storage_root(input: TokenStream) -> TokenStream {
+    let mut tokens = derive_store(input.clone());
+    tokens.extend(derive_wrapper(input.clone()));
+    tokens.extend(derive_root(input));
+    tokens
+}
+
+#[proc_macro_derive(Wavey)]
+pub fn derive_wavey(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let wave_type_body = match &input.data {
+        Data::Struct(data) => wavey::generate_struct_wave_type(data),
+        Data::Enum(data) => wavey::generate_enum_wave_type(data),
+        _ => Err(Error::new(
+            name.span(),
+            "Wavey derive is only supported for structs and enums",
+        )),
+    };
+
+    let wave_type_body = match wave_type_body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let from_self_body = match &input.data {
+        Data::Struct(data) => wavey::generate_struct_to_value(data, name),
+        Data::Enum(data) => wavey::generate_enum_to_value(data, name),
+        _ => Err(Error::new(
+            name.span(),
+            "Wavey derive is only supported for structs and enums",
+        )),
+    };
+
+    let from_self_body = match from_self_body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let from_value_body = match &input.data {
+        Data::Struct(data) => wavey::generate_struct_from_value(data, name),
+        Data::Enum(data) => wavey::generate_enum_from_value(data, name),
+        _ => Err(Error::new(
+            name.span(),
+            "Wavey derive is only supported for structs and enums",
+        )),
+    };
+
+    let from_value_body = match from_value_body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    quote! {
+        impl #impl_generics #name #ty_generics #where_clause {
+            pub fn wave_type() -> wasm_wave::value::Type {
+                #wave_type_body
+            }
+        }
+
+        impl #impl_generics From<#name #ty_generics> for wasm_wave::value::Value #where_clause {
+            fn from(value_: #name #ty_generics) -> Self {
+                #from_self_body
+            }
+        }
+
+        impl #impl_generics From<wasm_wave::value::Value> for #name #ty_generics #where_clause {
+            fn from(value_: wasm_wave::value::Value) -> Self {
+                #from_value_body
+            }
+        }
+    }
+    .into()
+}
+
+#[derive(FromMeta)]
+struct ImportConfig {
+    name: String,
+    height: i64,
+    tx_index: i64,
+    path: String,
+    world: Option<String>,
+}
+
+#[proc_macro]
+pub fn import(input: TokenStream) -> TokenStream {
+    let attr_args = NestedMeta::parse_meta_list(input.clone().into()).unwrap();
+    let config = ImportConfig::from_list(&attr_args).unwrap();
+
+    let name = config.name;
+    let module_name = Ident::from_string(name.to_string().as_str()).unwrap();
+    let height = config.height;
+    let tx_index = config.tx_index;
+    let path = config.path;
+    let world_name = config.world.unwrap_or("contract".to_string());
+
+    assert!(fs::metadata(&path).is_ok());
+    let mut resolve = Resolve::new();
+    resolve.push_dir(&path).unwrap();
+
+    let (_world_id, world) = resolve
+        .worlds
+        .iter()
+        .find(|(_, w)| w.name == world_name)
+        .unwrap();
+
+    let exports = world
+        .exports
+        .iter()
+        .filter_map(|e| match e {
+            (WorldKey::Name(name), WorldItem::Function(f))
+                if !["init"].contains(&name.as_str()) =>
+            {
+                Some(f)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut type_streams = Vec::new();
+    for (_id, def) in resolve.types.iter().filter(|(_, def)| {
+        if let Some(name) = def.name.as_deref() {
+            ![
+                "contract-address",
+                "view-context",
+                "fall-context",
+                "proc-context",
+                "signer",
+                "error",
+            ]
+            .contains(&name)
+        } else {
+            false
+        }
+    }) {
+        let name = def.name.as_deref().expect("Filtered types have names");
+        let stream = match &def.kind {
+            TypeDefKind::Record(record) => import::print_typedef_record(&resolve, name, record),
+            TypeDefKind::Enum(enum_) => import::print_typedef_enum(name, enum_),
+            TypeDefKind::Variant(variant) => import::print_typedef_variant(&resolve, name, variant),
+            _ => panic!("Unsupported type definition kind: {:?}", def.kind),
+        }
+        .expect("Failed to generate type");
+        type_streams.push(stream);
+    }
+
+    let mut func_streams = Vec::new();
+    for export in exports {
+        func_streams.push(
+            import::generate_functions(&resolve, export, height, tx_index)
+                .expect("Function didn't generate"),
+        )
+    }
+
+    quote! {
+        mod #module_name {
+            use wasm_wave::wasm::WasmValue as _;
+            use stdlib::Wavey;
+
+            use super::context;
+            use super::foreign;
+            use super::error::Error;
+
+            const CONTRACT_NAME: &str = #name;
+
+            impl foreign::ContractAddress {
+                pub fn wave_type() -> wasm_wave::value::Type {
+                    wasm_wave::value::Type::record([
+                        ("name", wasm_wave::value::Type::STRING),
+                        ("height", wasm_wave::value::Type::S64),
+                        ("tx_index", wasm_wave::value::Type::S64),
+                    ])
+                    .unwrap()
+                }
+            }
+
+            impl From<foreign::ContractAddress> for wasm_wave::value::Value {
+                fn from(value_: foreign::ContractAddress) -> Self {
+                    wasm_wave::value::Value::make_record(
+                        &foreign::ContractAddress::wave_type(),
+                        [
+                            ("name", wasm_wave::value::Value::from(value_.name)),
+                            ("height", wasm_wave::value::Value::from(value_.height)),
+                            ("tx_index", wasm_wave::value::Value::from(value_.tx_index)),
+                        ],
+                    )
+                    .unwrap()
+                }
+            }
+
+            impl From<wasm_wave::value::Value> for foreign::ContractAddress {
+                fn from(value_: wasm_wave::value::Value) -> Self {
+                    let mut name = None;
+                    let mut height = None;
+                    let mut tx_index = None;
+
+                    for (key_, val_) in  value_.unwrap_record() {
+                        match key_.as_ref() {
+                            "name" => name = Some(val_.unwrap_string().into_owned()),
+                            "height" => height = Some(val_.unwrap_s64()),
+                            "tx_index" => tx_index = Some(val_.unwrap_s64()),
+                            key_ => panic!("Unknown field: {}", key_),
+                        }
+                    }
+
+                    Self {
+                        name: name.expect("Missing 'name' field"),
+                        height: height.expect("Missing 'height' field"),
+                        tx_index: tx_index.expect("Missing 'tx_index' field"),
+                    }
+                }
+            }
+
+            impl Error {
+                pub fn wave_type() -> wasm_wave::value::Type {
+                    wasm_wave::value::Type::variant([
+                            ("message", Some(wasm_wave::value::Type::STRING)),
+                        ])
+                        .unwrap()
+                }
+            }
+            impl From<Error> for wasm_wave::value::Value {
+                fn from(value_: Error) -> Self {
+                    (match value_ {
+                        Error::Message(operand) => {
+                            wasm_wave::value::Value::make_variant(
+                                &Error::wave_type(),
+                                "message",
+                                Some(wasm_wave::value::Value::from(operand)),
+                            )
+                        }
+                    })
+                        .unwrap()
+                }
+            }
+            impl From<wasm_wave::value::Value> for Error {
+                fn from(value_: wasm_wave::value::Value) -> Self {
+                    let (key_, val_) = value_.unwrap_variant();
+                    match key_ {
+                        key_ if key_.eq("message") => {
+                            Error::Message(val_.unwrap().unwrap_string().into_owned())
+                        }
+                        key_ => panic!("Unknown tag {}", key_),
+                    }
+                }
+            }
+
+             #(#type_streams)*
+             #(#func_streams)*
+        }
+    }
+    .into()
 }

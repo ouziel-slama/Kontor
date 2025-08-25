@@ -1,0 +1,33 @@
+use syn::PathArguments;
+
+pub fn is_option_type(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        type_path
+            .path
+            .segments
+            .last()
+            .map(|segment| {
+                segment.ident == "Option"
+                    && matches!(segment.arguments, PathArguments::AngleBracketed(_))
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+pub fn is_result_type(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        type_path
+            .path
+            .segments
+            .last()
+            .map(|segment| {
+                segment.ident == "Result"
+                    && matches!(segment.arguments, syn::PathArguments::AngleBracketed(_))
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}

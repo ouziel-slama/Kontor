@@ -6,8 +6,10 @@ use reqwest::{Client as HttpClient, ClientBuilder, header::HeaderMap};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::bitcoin_client::types::{CreateWalletResult, TestMempoolAcceptResult};
-use crate::config::Config;
+use crate::bitcoin_client::types::{
+    CreateWalletResult, GetMempoolInfoResult, GetNetworkInfoResult, TestMempoolAcceptResult,
+};
+use crate::config::{Config, TestConfig};
 
 use super::types::{RawTransactionInput, SignRawTransactionResult, UnspentOutput};
 use super::{
@@ -22,6 +24,36 @@ pub struct Client {
 }
 
 const JSONRPC: &str = "2.0";
+
+pub trait BitcoinRpcConfig {
+    fn bitcoin_rpc_url(&self) -> &str;
+    fn bitcoin_rpc_user(&self) -> &str;
+    fn bitcoin_rpc_password(&self) -> &str;
+}
+
+impl BitcoinRpcConfig for Config {
+    fn bitcoin_rpc_url(&self) -> &str {
+        &self.bitcoin_rpc_url
+    }
+    fn bitcoin_rpc_user(&self) -> &str {
+        &self.bitcoin_rpc_user
+    }
+    fn bitcoin_rpc_password(&self) -> &str {
+        &self.bitcoin_rpc_password
+    }
+}
+
+impl BitcoinRpcConfig for TestConfig {
+    fn bitcoin_rpc_url(&self) -> &str {
+        &self.bitcoin_rpc_url
+    }
+    fn bitcoin_rpc_user(&self) -> &str {
+        &self.bitcoin_rpc_user
+    }
+    fn bitcoin_rpc_password(&self) -> &str {
+        &self.bitcoin_rpc_password
+    }
+}
 
 impl Client {
     pub fn new(url: String, user: String, password: String) -> Result<Self, Error> {
@@ -39,11 +71,11 @@ impl Client {
         Ok(Client { client, url })
     }
 
-    pub fn new_from_config(config: &Config) -> Result<Self, Error> {
+    pub fn new_from_config<C: BitcoinRpcConfig>(config: &C) -> Result<Self, Error> {
         Client::new(
-            config.bitcoin_rpc_url.to_owned(),
-            config.bitcoin_rpc_user.to_owned(),
-            config.bitcoin_rpc_password.to_owned(),
+            config.bitcoin_rpc_url().to_owned(),
+            config.bitcoin_rpc_user().to_owned(),
+            config.bitcoin_rpc_password().to_owned(),
         )
     }
 
@@ -139,6 +171,14 @@ impl Client {
 
     pub async fn get_raw_mempool(&self) -> Result<Vec<Txid>, Error> {
         self.call("getrawmempool", vec![]).await
+    }
+
+    pub async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
+        self.call("getmempoolinfo", vec![]).await
+    }
+
+    pub async fn get_network_info(&self) -> Result<GetNetworkInfoResult, Error> {
+        self.call("getnetworkinfo", vec![]).await
     }
 
     pub async fn get_raw_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
