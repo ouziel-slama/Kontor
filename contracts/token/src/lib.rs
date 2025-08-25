@@ -14,7 +14,10 @@ impl Token {}
 impl Guest for Token {
     fn init(ctx: &ProcContext) {
         // TODO nicer empty map initialization
-        TokenStorage { ledger: Map::new(&[]) }.init(ctx);
+        TokenStorage {
+            ledger: Map::new(&[]),
+        }
+        .init(ctx);
     }
 
     fn mint(ctx: &ProcContext, n: u64) {
