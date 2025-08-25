@@ -318,6 +318,12 @@ impl Runtime {
     }
 }
 
+impl built_in::error::Host for Runtime {
+    async fn meta_force_generate_error(&mut self, _e: built_in::error::Error) -> Result<()> {
+        unimplemented!()
+    }
+}
+
 impl built_in::crypto::Host for Runtime {
     async fn hash(&mut self, input: String) -> Result<(String, Vec<u8>)> {
         let mut hasher = Sha256::new();

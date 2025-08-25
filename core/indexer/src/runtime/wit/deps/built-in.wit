@@ -56,8 +56,17 @@ interface crypto {
     generate-id: func() -> string;
 }
 
+interface error {
+    variant error {
+        message(string),
+    }
+
+    meta-force-generate-error: func(e: error);
+}
+
 world built-in {
     import context;
     import foreign;
     import crypto;
+    import error;
 }

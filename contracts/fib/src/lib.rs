@@ -54,4 +54,9 @@ impl Guest for Fib {
     fn fib(ctx: &ProcContext, n: u64) -> u64 {
         Self::raw_fib(ctx, n)
     }
+
+    fn fib_of_sub(ctx: &ProcContext, x: String, y: String) -> Result<u64, Error> {
+        let n = arith::checked_sub(&ctx.view_context(), x, y)?;
+        Ok(Fib::fib(ctx, n))
+    }
 }
