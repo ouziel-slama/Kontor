@@ -14,3 +14,4 @@ pub mod runtime;
 pub mod stopper;
 pub mod test_utils;
 pub mod witness_data;
+pub mod multi_psbt_test_utils;
