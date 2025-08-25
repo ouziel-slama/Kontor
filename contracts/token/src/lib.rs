@@ -4,18 +4,13 @@ macros::contract!(name = "token");
 
 #[derive(Clone, Store, Wrapper, Root)]
 struct TokenStorage {
-    // TODO would prefer a larger type than u64, but wit lacks support
-    //      would be very nice to not need a complex type for balances
     pub ledger: Map<String, u64>,
 }
 
-impl Token {}
-
 impl Guest for Token {
     fn init(ctx: &ProcContext) {
-        // TODO nicer empty map initialization
         TokenStorage {
-            ledger: Map::new(&[]),
+            ledger: Map::default(),
         }
         .init(ctx);
     }
@@ -28,7 +23,7 @@ impl Guest for Token {
         ledger.set(ctx, to, balance + n);
     }
 
-    fn transfer(ctx: &ProcContext, to: String, n: u64) {
+    fn transfer(ctx: &ProcContext, to: String, n: u64) -> Result<(), Error> {
         let from = ctx.signer().to_string();
         let ledger = storage(ctx).ledger();
 
@@ -36,12 +31,12 @@ impl Guest for Token {
         let to_balance = ledger.get(ctx, to.clone()).unwrap_or_default();
 
         if from_balance < n {
-            // TODO implement panic or find a different way to revert
-            panic!("insufficient funds");
+            return Err(Error::Message("insufficient funds".to_string()));
         }
 
         ledger.set(ctx, from, from_balance - n);
         ledger.set(ctx, to, to_balance + n);
+        Ok(())
     }
 
     fn balance(ctx: &ViewContext, acc: String) -> Option<u64> {

@@ -239,11 +239,11 @@ impl Runtime {
     ) -> Result<Option<String>> {
         let table = self.table.lock().await;
         let _self = table.get(&resource)?;
-        let bs = self.storage.get(_self.get_contract_id(), &path).await?;
-        match bs {
-            Some(bs) => deserialize_cbor(&bs),
-            None => Ok(None),
-        }
+        self.storage
+            .get(_self.get_contract_id(), &path)
+            .await?
+            .map(|bs| deserialize_cbor(&bs))
+            .transpose()
     }
 
     async fn _get_u64<T: HasContractId>(
@@ -253,11 +253,11 @@ impl Runtime {
     ) -> Result<Option<u64>> {
         let table = self.table.lock().await;
         let _self = table.get(&resource)?;
-        let bs = self.storage.get(_self.get_contract_id(), &path).await?;
-        match bs {
-            Some(bs) => deserialize_cbor(&bs),
-            None => Ok(None),
-        }
+        self.storage
+            .get(_self.get_contract_id(), &path)
+            .await?
+            .map(|bs| deserialize_cbor(&bs))
+            .transpose()
     }
 
     async fn _get_s64<T: HasContractId>(
@@ -267,11 +267,11 @@ impl Runtime {
     ) -> Result<Option<i64>> {
         let table = self.table.lock().await;
         let _self = table.get(&resource)?;
-        let bs = self.storage.get(_self.get_contract_id(), &path).await?;
-        match bs {
-            Some(bs) => deserialize_cbor(&bs),
-            None => Ok(None),
-        }
+        self.storage
+            .get(_self.get_contract_id(), &path)
+            .await?
+            .map(|bs| deserialize_cbor(&bs))
+            .transpose()
     }
 
     async fn _is_void<T: HasContractId>(

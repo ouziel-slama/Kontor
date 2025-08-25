@@ -50,13 +50,13 @@ async fn test_token_contract() -> Result<()> {
     let result = runtime.execute(Some(minter), &contract, &expr).await?;
     assert_eq!(result, "some(1000)");
 
-    // attempt transfer from non-existent account
-    // TODO provide nice error message; currently it blows up with cryptic wasm trace
-    //    let expr = format!( "transfer({}, {})",
-    //        to_wave(&Value::from(minter))?,
-    //        to_wave(&Value::from(123))?
-    //    );
-    //    let _ = runtime.execute(Some(holder), &contract, &expr).await?;
+    let expr = format!(
+        "transfer({}, {})",
+        to_wave(&Value::from(minter))?,
+        to_wave(&Value::from(123))?
+    );
+    let result = runtime.execute(Some(holder), &contract, &expr).await?;
+    assert_eq!(result, r#"err(message("insufficient funds"))"#);
 
     let expr = format!(
         "transfer({}, {})",
@@ -64,7 +64,7 @@ async fn test_token_contract() -> Result<()> {
         to_wave(&Value::from(40))?
     );
     let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "()");
+    assert_eq!(result, "ok");
 
     let expr = format!(
         "transfer({}, {})",
@@ -72,7 +72,7 @@ async fn test_token_contract() -> Result<()> {
         to_wave(&Value::from(2))?
     );
     let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "()");
+    assert_eq!(result, "ok");
 
     let expr = format!("balance({})", to_wave(&Value::from(holder))?);
     let result = runtime.execute(Some(minter), &contract, &expr).await?;
