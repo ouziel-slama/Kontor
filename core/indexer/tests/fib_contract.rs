@@ -25,6 +25,14 @@ import!(
     test = true,
 );
 
+import!(
+    name = "proxy",
+    height = 0,
+    tx_index = 0,
+    path = "../contracts/proxy/wit",
+    test = true,
+);
+
 #[tokio::test]
 async fn test_fib_contract() -> Result<()> {
     let (_, writer, _test_db_dir) = new_test_db(&Config::try_parse_from([""])?).await?;
@@ -72,18 +80,26 @@ async fn test_fib_contract() -> Result<()> {
         .await?;
     assert_eq!(result, "21");
 
-    let result = runtime
-        .execute(None, &proxy_contract_address, "get-contract-address()")
-        .await?;
-    assert_eq!(result, "{name: \"fib\", height: 0, tx-index: 0}");
+    let result = proxy::get_contract_address(&runtime).await;
+    assert_eq!(
+        result,
+        ContractAddress {
+            name: "fib".to_string(),
+            height: 0,
+            tx_index: 0
+        }
+    );
 
-    runtime
-        .execute(
-            Some(signer),
-            &proxy_contract_address,
-            "set-contract-address({name: \"arith\", height: 0, tx-index: 0})",
-        )
-        .await?;
+    proxy::set_contract_address(
+        &runtime,
+        signer,
+        ContractAddress {
+            name: "arith".to_string(),
+            height: 0,
+            tx_index: 0,
+        },
+    )
+    .await;
 
     let last_op_str = "some(sum({y: 8}))";
     let result = runtime

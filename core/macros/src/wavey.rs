@@ -1,4 +1,5 @@
 use crate::transformers;
+use heck::ToKebabCase;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DataEnum, DataStruct, Error, Fields, Ident, Result, spanned::Spanned};
@@ -10,7 +11,7 @@ pub fn generate_struct_wave_type(data: &DataStruct) -> Result<TokenStream> {
                 .named
                 .iter()
                 .map(|field| {
-                    let field_name_str = field.ident.as_ref().unwrap().to_string();
+                    let field_name_str = field.ident.as_ref().unwrap().to_string().to_kebab_case();
                     let field_ty = &field.ty;
                     let wave_ty = transformers::syn_type_to_wave_type(field_ty)?;
                     Ok(quote! { (#field_name_str, #wave_ty) })
@@ -57,7 +58,7 @@ pub fn generate_struct_to_value(data: &DataStruct, name: &Ident) -> Result<Token
         Fields::Named(fields) => {
             let field_assigns = fields.named.iter().map(|field| {
                 let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
+                let field_name_str = field_name.to_string().to_kebab_case();
                 quote! { (#field_name_str, wasm_wave::value::Value::from(value_.#field_name)) }
             });
             Ok(quote! {
@@ -104,7 +105,7 @@ pub fn generate_struct_from_value(data: &DataStruct, name: &Ident) -> Result<Tok
             });
             let match_arms = fields.named.iter().map(|field| {
                 let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
+                let field_name_str = field_name.to_string().to_kebab_case();
                 let unwrap_expr = transformers::syn_type_to_unwrap_expr(&field.ty)
                     .unwrap_or_else(|_| panic!("Could not unwrap expr for type: {:?}", &field.ty));
                 quote! { #field_name_str => #field_name = Some(val_.#unwrap_expr), }
