@@ -63,5 +63,8 @@ pub fn default_val_for_type(ty: &Type) -> Val {
         Type::Borrow(_) => {
             panic!("Cannot create a default Borrow value without a resource context")
         }
+        _ => {
+            panic!("Unknnown type encountered")
+        }
     }
 }

@@ -11,7 +11,7 @@ impl Guest for Proxy {
     fn fallback(ctx: &FallContext, expr: String) -> String {
         let _ctx = &ctx.view_context();
         let contract_address = storage(_ctx).contract_address(_ctx).load(_ctx);
-        foreign::call(&contract_address, ctx.signer().as_ref(), &expr)
+        foreign::call(ctx.signer().as_ref(), &contract_address, &expr)
     }
 
     fn init(ctx: &ProcContext) {

@@ -11,6 +11,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+stdlib = { path = "../stdlib" }
 anyhow = { workspace = true }
 backon = { version = "1.4", features = ["tokio-sleep"] }
 base64 = "0.22"
@@ -52,6 +53,7 @@ urlencoding = "2.1"
 proptest = "1.6"
 lru = "0.15"
 wasmtime = { workspace = true }
+wasm-wave = { workspace = true }
 wit-component = { workspace = true }
 rand = "0.9.1"
 brotli = "8"

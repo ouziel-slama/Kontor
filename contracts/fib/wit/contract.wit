@@ -5,8 +5,6 @@ world contract {
     use kontor:built-in/context.{fall-context, view-context, proc-context, signer};
     use kontor:built-in/error.{error};
 
-    export fallback: func(ctx: borrow<fall-context>, expr: string) -> string;
-
     export init: func(ctx: borrow<proc-context>);
 
     export fib: func(ctx: borrow<proc-context>, n: u64) -> u64;
