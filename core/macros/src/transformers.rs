@@ -20,15 +20,25 @@ pub fn wit_type_to_unwrap_expr(resolve: &Resolve, ty: &WitType) -> anyhow::Resul
                 }
                 TypeDefKind::Result(result) => {
                     let ok_unwrap = match result.ok {
-                        Some(ok_ty) => wit_type_to_unwrap_expr(resolve, &ok_ty)?,
-                        None => quote! { into() },
+                        Some(ok_ty) => {
+                            let unwrap_expr = wit_type_to_unwrap_expr(resolve, &ok_ty)?;
+                            quote! {
+                                |v| v.unwrap().into_owned().#unwrap_expr
+                            }
+                        }
+                        None => quote! { |_| () },
                     };
                     let err_unwrap = match result.err {
-                        Some(err_ty) => wit_type_to_unwrap_expr(resolve, &err_ty)?,
-                        None => quote! { into() },
+                        Some(err_ty) => {
+                            let unwrap_expr = wit_type_to_unwrap_expr(resolve, &err_ty)?;
+                            quote! {
+                                |e| e.unwrap().into_owned().#unwrap_expr
+                            }
+                        }
+                        None => quote! { |_| () },
                     };
                     Ok(quote! {
-                        unwrap_result().map(|v| v.unwrap().into_owned().#ok_unwrap).map_err(|e| e.unwrap().into_owned().#err_unwrap)
+                        unwrap_result().map(#ok_unwrap).map_err(#err_unwrap)
                     })
                 }
                 TypeDefKind::Record(_) | TypeDefKind::Enum(_) | TypeDefKind::Variant(_) => {
@@ -41,26 +51,31 @@ pub fn wit_type_to_unwrap_expr(resolve: &Resolve, ty: &WitType) -> anyhow::Resul
     }
 }
 
-pub fn wit_type_to_rust_type(resolve: &Resolve, ty: &WitType) -> anyhow::Result<TokenStream> {
-    match ty {
-        WitType::U64 => Ok(quote! { u64 }),
-        WitType::S64 => Ok(quote! { i64 }),
-        WitType::String => Ok(quote! { String }),
-        WitType::Id(id) => {
+pub fn wit_type_to_rust_type(
+    resolve: &Resolve,
+    ty: &WitType,
+    use_str: bool,
+) -> anyhow::Result<TokenStream> {
+    match (ty, use_str) {
+        (WitType::U64, _) => Ok(quote! { u64 }),
+        (WitType::S64, _) => Ok(quote! { i64 }),
+        (WitType::String, false) => Ok(quote! { String }),
+        (WitType::String, true) => Ok(quote! { &str }),
+        (WitType::Id(id), _) => {
             let ty_def = &resolve.types[*id];
             match &ty_def.kind {
-                TypeDefKind::Type(inner) => Ok(wit_type_to_rust_type(resolve, inner)?),
+                TypeDefKind::Type(inner) => Ok(wit_type_to_rust_type(resolve, inner, use_str)?),
                 TypeDefKind::Option(inner) => {
-                    let inner_ty = wit_type_to_rust_type(resolve, inner)?;
+                    let inner_ty = wit_type_to_rust_type(resolve, inner, use_str)?;
                     Ok(quote! { Option<#inner_ty> })
                 }
                 TypeDefKind::Result(result) => {
                     let ok_ty = match result.ok {
-                        Some(ty) => wit_type_to_rust_type(resolve, &ty)?,
+                        Some(ty) => wit_type_to_rust_type(resolve, &ty, use_str)?,
                         None => quote! { () },
                     };
                     let err_ty = match result.err {
-                        Some(ty) => wit_type_to_rust_type(resolve, &ty)?,
+                        Some(ty) => wit_type_to_rust_type(resolve, &ty, use_str)?,
                         None => quote! { () },
                     };
                     Ok(quote! { Result<#ok_ty, #err_ty> })
@@ -95,14 +110,14 @@ pub fn wit_type_to_wave_type(resolve: &Resolve, ty: &WitType) -> anyhow::Result<
     match ty {
         WitType::U64 => Ok(quote! { wasm_wave::value::Type::U64 }),
         WitType::S64 => Ok(quote! { wasm_wave::value::Type::S64 }),
-        WitType::String => Ok(quote! { wasm_wave::value::Type::String }),
+        WitType::String => Ok(quote! { wasm_wave::value::Type::STRING }),
         WitType::Id(id) => {
             let ty_def = &resolve.types[*id];
             match &ty_def.kind {
                 TypeDefKind::Type(inner) => Ok(wit_type_to_wave_type(resolve, inner)?),
                 TypeDefKind::Option(inner) => {
-                    let inner_ty = wit_type_to_rust_type(resolve, inner)?;
-                    Ok(quote! { wasm_wave::value::Type::option(<#inner_ty>::wave_type()) })
+                    let inner_ty = wit_type_to_wave_type(resolve, inner)?;
+                    Ok(quote! { wasm_wave::value::Type::option(#inner_ty) })
                 }
                 TypeDefKind::Result(result) => {
                     let ok_ty = match result.ok {

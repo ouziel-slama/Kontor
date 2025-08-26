@@ -8,9 +8,10 @@ uninlined_format_args = "allow"
 
 [workspace.dependencies]
 # IMPORTANT
-wasmtime = { version = "35.0.0", features = ["wave"] }
-wit-component = "0.236"
-wit-parser = "0.236"
+wasmtime = { version = "36.0.2", features = ["wave"] }
+wit-component = "0.238"
+wit-parser = "0.238"
+wasm-wave = "0.238"
 
 anyhow = "1"
 axum = { version = "0.8", features = ["http2", "ws"] }

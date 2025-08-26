@@ -3,10 +3,18 @@ use clap::Parser;
 use indexer::{
     config::Config,
     database::{queries::insert_block, types::BlockRow},
-    runtime::{ComponentCache, ContractAddress, Runtime, Storage, load_native_contracts},
+    runtime::{ComponentCache, ContractAddress, Error, Runtime, Storage, load_native_contracts},
     test_utils::{new_mock_block_hash, new_test_db},
 };
-use wasmtime::component::wasm_wave::{to_string as to_wave, value::Value};
+use stdlib::import;
+
+import!(
+    name = "token",
+    height = 0,
+    tx_index = 0,
+    path = "../contracts/token/wit",
+    test = true,
+);
 
 #[tokio::test]
 async fn test_token_contract() -> Result<()> {
@@ -32,59 +40,29 @@ async fn test_token_contract() -> Result<()> {
     let runtime = Runtime::new(storage.clone(), component_cache).await?;
     load_native_contracts(&runtime).await?;
 
-    let contract = ContractAddress {
-        name: "token".to_string(),
-        height: 0,
-        tx_index: 0,
-    };
+    token::mint(&runtime, minter, 900).await;
+    token::mint(&runtime, minter, 100).await;
 
-    let expr = format!("mint({})", to_wave(&Value::from(900))?);
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "()");
+    let result = token::balance(&runtime, minter).await;
+    assert_eq!(result, Some(1000));
 
-    let expr = format!("mint({})", to_wave(&Value::from(100))?);
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "()");
-
-    let expr = format!("balance({})", to_wave(&Value::from(minter))?);
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "some(1000)");
-
-    let expr = format!(
-        "transfer({}, {})",
-        to_wave(&Value::from(minter))?,
-        to_wave(&Value::from(123))?
+    let result = token::transfer(&runtime, holder, minter, 123).await;
+    assert_eq!(
+        result,
+        Err(Error::Message("insufficient funds".to_string()))
     );
-    let result = runtime.execute(Some(holder), &contract, &expr).await?;
-    assert_eq!(result, r#"err(message("insufficient funds"))"#);
 
-    let expr = format!(
-        "transfer({}, {})",
-        to_wave(&Value::from(holder))?,
-        to_wave(&Value::from(40))?
-    );
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "ok");
+    token::transfer(&runtime, minter, holder, 40).await?;
+    token::transfer(&runtime, minter, holder, 2).await?;
 
-    let expr = format!(
-        "transfer({}, {})",
-        to_wave(&Value::from(holder))?,
-        to_wave(&Value::from(2))?
-    );
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "ok");
+    let result = token::balance(&runtime, holder).await;
+    assert_eq!(result, Some(42));
 
-    let expr = format!("balance({})", to_wave(&Value::from(holder))?);
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "some(42)");
+    let result = token::balance(&runtime, minter).await;
+    assert_eq!(result, Some(958));
 
-    let expr = format!("balance({})", to_wave(&Value::from(minter))?);
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "some(958)");
-
-    let expr = format!("balance({})", to_wave(&Value::from("foo"))?);
-    let result = runtime.execute(Some(minter), &contract, &expr).await?;
-    assert_eq!(result, "none");
+    let result = token::balance(&runtime, "foo").await;
+    assert_eq!(result, None);
 
     Ok(())
 }

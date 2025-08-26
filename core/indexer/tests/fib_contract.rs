@@ -2,16 +2,28 @@ use anyhow::Result;
 use clap::Parser;
 use indexer::{
     config::Config,
-    database::{
-        queries::{get_contract_id_from_address, insert_block},
-        types::BlockRow,
-    },
-    runtime::{
-        ComponentCache, ContractAddress, Runtime, Storage, deserialize_cbor, load_native_contracts,
-    },
+    database::{queries::insert_block, types::BlockRow},
+    runtime::{ComponentCache, ContractAddress, Error, Runtime, Storage, load_native_contracts},
     test_utils::{new_mock_block_hash, new_test_db},
 };
+use stdlib::import;
 use wasmtime::component::wasm_wave::{to_string as to_wave, value::Value};
+
+import!(
+    name = "arith",
+    height = 0,
+    tx_index = 0,
+    path = "../contracts/arith/wit",
+    test = true,
+);
+
+import!(
+    name = "fib",
+    height = 0,
+    tx_index = 0,
+    path = "../contracts/fib/wit",
+    test = true,
+);
 
 #[tokio::test]
 async fn test_fib_contract() -> Result<()> {
@@ -33,53 +45,20 @@ async fn test_fib_contract() -> Result<()> {
         .conn(writer.connection())
         .build();
     let signer = "test_signer";
-    let arith_contract_address = ContractAddress {
-        name: "arith".to_string(),
-        height: 0,
-        tx_index: 0,
-    };
     let component_cache = ComponentCache::new();
     let runtime = Runtime::new(storage.clone(), component_cache).await?;
     load_native_contracts(&runtime).await?;
 
-    let result = runtime
-        .execute(None, &arith_contract_address, "last-op()")
-        .await?;
-    assert_eq!(result, "some(id)");
+    let result = arith::last_op(&runtime).await;
+    assert_eq!(result, Some(arith::Op::Id));
 
-    let fib_contract_address = ContractAddress {
-        name: "fib".to_string(),
-        height: 0,
-        tx_index: 0,
-    };
-    let contract_id = get_contract_id_from_address(&conn, &fib_contract_address)
-        .await?
-        .unwrap();
-    assert_eq!(
-        deserialize_cbor::<u64>(&storage.get(contract_id, "cache.0.value").await?.unwrap())?,
-        0
-    );
     let n = 8;
-    let expr = format!("fib({})", to_wave(&Value::from(n))?);
-    let result = runtime
-        .execute(Some(signer), &fib_contract_address, &expr)
-        .await?;
-    assert_eq!(result, "21");
-    assert_eq!(
-        deserialize_cbor::<u64>(&storage.get(contract_id, "cache.8.value").await?.unwrap())?,
-        21
-    );
+    let result = fib::fib(&runtime, signer, n).await;
+    assert_eq!(result, 21);
 
-    let last_op = "some(sum({y: 8}))";
-    let result = runtime
-        .execute(None, &arith_contract_address, "last-op()")
-        .await?;
+    let last_op = Some(arith::Op::Sum(arith::Operand { y: 8 }));
+    let result = arith::last_op(&runtime).await;
     assert_eq!(result, last_op);
-
-    let result = runtime
-        .execute(Some(signer), &fib_contract_address, "not-found()")
-        .await?;
-    assert_eq!(result, r#"Some("test_signer"):not-found()"#);
 
     let proxy_contract_address = ContractAddress {
         name: "proxy".to_string(),
@@ -87,6 +66,7 @@ async fn test_fib_contract() -> Result<()> {
         tx_index: 0,
     };
 
+    let expr = format!("fib({})", to_wave(&Value::from(n))?);
     let result = runtime
         .execute(Some(signer), &proxy_contract_address, &expr)
         .await?;
@@ -105,56 +85,29 @@ async fn test_fib_contract() -> Result<()> {
         )
         .await?;
 
+    let last_op_str = "some(sum({y: 8}))";
     let result = runtime
         .execute(None, &proxy_contract_address, "last-op()")
         .await?;
-    assert_eq!(result, last_op);
+    assert_eq!(result, last_op_str);
 
     // result
     let x = "5";
     let y = "3";
-    let expr = format!(
-        "checked-sub({}, {})",
-        to_wave(&Value::from(x))?,
-        to_wave(&Value::from(y))?
-    );
-    let result = runtime
-        .execute(None, &arith_contract_address, &expr)
-        .await?;
-    assert_eq!(result, "ok(2)");
+    let result = arith::checked_sub(&runtime, x, y).await;
+    assert_eq!(result, Ok(2));
 
-    let expr = format!(
-        "checked-sub({}, {})",
-        to_wave(&Value::from(y))?,
-        to_wave(&Value::from(x))?
-    );
-    let result = runtime
-        .execute(None, &arith_contract_address, &expr)
-        .await?;
-    assert_eq!(result, r#"err(message("less than 0"))"#);
+    let result = arith::checked_sub(&runtime, y, x).await;
+    assert_eq!(result, Err(Error::Message("less than 0".to_string())));
 
     // result through import
     let x = "18";
     let y = "10";
-    let expr = format!(
-        "fib-of-sub({}, {})",
-        to_wave(&Value::from(x))?,
-        to_wave(&Value::from(y))?
-    );
-    let result = runtime
-        .execute(Some(signer), &fib_contract_address, &expr)
-        .await?;
-    assert_eq!(result, "ok(21)");
+    let result = fib::fib_of_sub(&runtime, signer, x, y).await;
+    assert_eq!(result, Ok(21));
 
-    let expr = format!(
-        "fib-of-sub({}, {})",
-        to_wave(&Value::from(y))?,
-        to_wave(&Value::from(x))?,
-    );
-    let result = runtime
-        .execute(Some(signer), &fib_contract_address, &expr)
-        .await?;
-    assert_eq!(result, r#"err(message("less than 0"))"#);
+    let result = fib::fib_of_sub(&runtime, signer, y, x).await;
+    assert_eq!(result, Err(Error::Message("less than 0".to_string())));
 
     Ok(())
 }

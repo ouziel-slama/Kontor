@@ -355,6 +355,7 @@ struct ImportConfig {
     tx_index: i64,
     path: String,
     world: Option<String>,
+    test: Option<bool>,
 }
 
 #[proc_macro]
@@ -368,6 +369,7 @@ pub fn import(input: TokenStream) -> TokenStream {
     let tx_index = config.tx_index;
     let path = config.path;
     let world_name = config.world.unwrap_or("contract".to_string());
+    let test = config.test.unwrap_or(false);
 
     assert!(fs::metadata(&path).is_ok());
     let mut resolve = Resolve::new();
@@ -422,23 +424,31 @@ pub fn import(input: TokenStream) -> TokenStream {
     let mut func_streams = Vec::new();
     for export in exports {
         func_streams.push(
-            import::generate_functions(&resolve, export, height, tx_index)
+            import::generate_functions(&resolve, test, export, height, tx_index)
                 .expect("Function didn't generate"),
         )
     }
 
-    quote! {
-        mod #module_name {
-            use wasm_wave::wasm::WasmValue as _;
-            use stdlib::Wavey;
-
+    let supers = if test {
+        quote! {
+            use crate::ContractAddress;
+            use crate::Error;
+            use crate::Runtime;
+        }
+    } else {
+        quote! {
             use super::context;
             use super::foreign;
+            use super::foreign::ContractAddress;
             use super::error::Error;
+        }
+    };
 
-            const CONTRACT_NAME: &str = #name;
-
-            impl foreign::ContractAddress {
+    let impls = if test {
+        quote! {}
+    } else {
+        quote! {
+            impl ContractAddress {
                 pub fn wave_type() -> wasm_wave::value::Type {
                     wasm_wave::value::Type::record([
                         ("name", wasm_wave::value::Type::STRING),
@@ -449,10 +459,10 @@ pub fn import(input: TokenStream) -> TokenStream {
                 }
             }
 
-            impl From<foreign::ContractAddress> for wasm_wave::value::Value {
-                fn from(value_: foreign::ContractAddress) -> Self {
+            impl From<ContractAddress> for wasm_wave::value::Value {
+                fn from(value_: ContractAddress) -> Self {
                     wasm_wave::value::Value::make_record(
-                        &foreign::ContractAddress::wave_type(),
+                        &ContractAddress::wave_type(),
                         [
                             ("name", wasm_wave::value::Value::from(value_.name)),
                             ("height", wasm_wave::value::Value::from(value_.height)),
@@ -463,7 +473,7 @@ pub fn import(input: TokenStream) -> TokenStream {
                 }
             }
 
-            impl From<wasm_wave::value::Value> for foreign::ContractAddress {
+            impl From<wasm_wave::value::Value> for ContractAddress {
                 fn from(value_: wasm_wave::value::Value) -> Self {
                     let mut name = None;
                     let mut height = None;
@@ -519,6 +529,19 @@ pub fn import(input: TokenStream) -> TokenStream {
                     }
                 }
             }
+        }
+    };
+
+    quote! {
+        mod #module_name {
+            use wasm_wave::wasm::WasmValue as _;
+            use stdlib::Wavey;
+
+            #supers
+
+            const CONTRACT_NAME: &str = #name;
+
+            #impls
 
              #(#type_streams)*
              #(#func_streams)*

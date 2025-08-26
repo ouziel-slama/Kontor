@@ -10,6 +10,7 @@ use libsql::Connection;
 pub use native_contracts::load_native_contracts;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::{error::Error as StdError, fmt};
 pub use storage::Storage;
 use tokio::sync::Mutex;
 pub use types::default_val_for_type;
@@ -22,9 +23,11 @@ use std::{
 
 use wit::kontor::*;
 
+pub use wit::kontor::built_in::error::Error;
 pub use wit::kontor::built_in::foreign::ContractAddress;
 
 use anyhow::{Result, anyhow};
+use wasm_wave::{self, wasm::WasmValue as _};
 use wasmtime::{
     Engine, Store,
     component::{
@@ -40,6 +43,99 @@ use crate::runtime::{
     counter::Counter,
     wit::{FallContext, HasContractId, ProcContext, Signer, ViewContext},
 };
+
+impl Error {
+    pub fn wave_type() -> wasm_wave::value::Type {
+        wasm_wave::value::Type::variant([("message", Some(wasm_wave::value::Type::STRING))])
+            .unwrap()
+    }
+}
+
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        None
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Message(msg) => write!(f, "Error: {}", msg),
+        }
+    }
+}
+
+impl From<Error> for wasm_wave::value::Value {
+    fn from(value_: Error) -> Self {
+        (match value_ {
+            Error::Message(operand) => wasm_wave::value::Value::make_variant(
+                &Error::wave_type(),
+                "message",
+                Some(wasm_wave::value::Value::from(operand)),
+            ),
+        })
+        .unwrap()
+    }
+}
+impl From<wasm_wave::value::Value> for Error {
+    fn from(value_: wasm_wave::value::Value) -> Self {
+        let (key_, val_) = value_.unwrap_variant();
+        match key_ {
+            key_ if key_.eq("message") => {
+                Error::Message(val_.unwrap().unwrap_string().into_owned())
+            }
+            key_ => panic!("Unknown tag {}", key_),
+        }
+    }
+}
+
+impl ContractAddress {
+    pub fn wave_type() -> wasm_wave::value::Type {
+        wasm_wave::value::Type::record([
+            ("name", wasm_wave::value::Type::STRING),
+            ("height", wasm_wave::value::Type::S64),
+            ("tx_index", wasm_wave::value::Type::S64),
+        ])
+        .unwrap()
+    }
+}
+
+impl From<ContractAddress> for wasm_wave::value::Value {
+    fn from(value_: ContractAddress) -> Self {
+        wasm_wave::value::Value::make_record(
+            &ContractAddress::wave_type(),
+            [
+                ("name", wasm_wave::value::Value::from(value_.name)),
+                ("height", wasm_wave::value::Value::from(value_.height)),
+                ("tx_index", wasm_wave::value::Value::from(value_.tx_index)),
+            ],
+        )
+        .unwrap()
+    }
+}
+
+impl From<wasm_wave::value::Value> for ContractAddress {
+    fn from(value_: wasm_wave::value::Value) -> Self {
+        let mut name = None;
+        let mut height = None;
+        let mut tx_index = None;
+
+        for (key_, val_) in value_.unwrap_record() {
+            match key_.as_ref() {
+                "name" => name = Some(val_.unwrap_string().into_owned()),
+                "height" => height = Some(val_.unwrap_s64()),
+                "tx_index" => tx_index = Some(val_.unwrap_s64()),
+                key_ => panic!("Unknown field: {}", key_),
+            }
+        }
+
+        Self {
+            name: name.expect("Missing 'name' field"),
+            height: height.expect("Missing 'height' field"),
+            tx_index: tx_index.expect("Missing 'tx_index' field"),
+        }
+    }
+}
 
 pub fn serialize_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut buffer = Vec::new();
@@ -354,8 +450,8 @@ impl built_in::crypto::Host for Runtime {
 impl built_in::foreign::Host for Runtime {
     async fn call(
         &mut self,
-        contract_address: ContractAddress,
         signer: Option<Resource<Signer>>,
+        contract_address: ContractAddress,
         expr: String,
     ) -> Result<String> {
         let signer = if let Some(resource) = signer {

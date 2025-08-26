@@ -11,6 +11,8 @@ wasmtime::component::bindgen!({
         "kontor:built-in/context/proc-context": ProcContext,
         "kontor:built-in/context/fall-context": FallContext,
     },
-    async: true,
-    trappable_imports: true,
+    additional_derives: [PartialEq, Eq],
+    imports: {
+        default: async | trappable,
+    }
 });

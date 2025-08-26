@@ -40,10 +40,6 @@ impl Fib {
 }
 
 impl Guest for Fib {
-    fn fallback(ctx: &FallContext, expr: String) -> String {
-        format!("{:?}:{}", ctx.signer().map(|s| s.to_string()), expr)
-    }
-
     fn init(ctx: &ProcContext) {
         FibStorage {
             cache: Map::new(&[(0, FibValue { value: 0 })]),
@@ -56,7 +52,7 @@ impl Guest for Fib {
     }
 
     fn fib_of_sub(ctx: &ProcContext, x: String, y: String) -> Result<u64, Error> {
-        let n = arith::checked_sub(&ctx.view_context(), x, y)?;
+        let n = arith::checked_sub(&ctx.view_context(), &x, &y)?;
         Ok(Fib::fib(ctx, n))
     }
 }
