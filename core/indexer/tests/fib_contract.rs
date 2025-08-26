@@ -7,7 +7,6 @@ use indexer::{
     test_utils::{new_mock_block_hash, new_test_db},
 };
 use stdlib::import;
-use wasmtime::component::wasm_wave::{to_string as to_wave, value::Value};
 
 import!(
     name = "arith",
@@ -22,6 +21,32 @@ import!(
     height = 0,
     tx_index = 0,
     path = "../contracts/fib/wit",
+    test = true,
+);
+
+import!(
+    name = "proxy",
+    height = 0,
+    tx_index = 0,
+    path = "../contracts/proxy/wit",
+    test = true,
+);
+
+import!(
+    name = "proxy",
+    height = 0,
+    tx_index = 0,
+    mod_name = "fib_proxied",
+    path = "../contracts/fib/wit",
+    test = true,
+);
+
+import!(
+    name = "proxy",
+    height = 0,
+    tx_index = 0,
+    mod_name = "arith_proxied",
+    path = "../contracts/arith/wit",
     test = true,
 );
 
@@ -60,36 +85,35 @@ async fn test_fib_contract() -> Result<()> {
     let result = arith::last_op(&runtime).await;
     assert_eq!(result, last_op);
 
-    let proxy_contract_address = ContractAddress {
-        name: "proxy".to_string(),
-        height: 0,
-        tx_index: 0,
-    };
+    let result = fib_proxied::fib(&runtime, signer, n).await;
+    assert_eq!(result, 21);
 
-    let expr = format!("fib({})", to_wave(&Value::from(n))?);
-    let result = runtime
-        .execute(Some(signer), &proxy_contract_address, &expr)
-        .await?;
-    assert_eq!(result, "21");
+    let result = proxy::get_contract_address(&runtime).await;
+    assert_eq!(
+        result,
+        ContractAddress {
+            name: "fib".to_string(),
+            height: 0,
+            tx_index: 0
+        }
+    );
 
-    let result = runtime
-        .execute(None, &proxy_contract_address, "get-contract-address()")
-        .await?;
-    assert_eq!(result, "{name: \"fib\", height: 0, tx-index: 0}");
+    proxy::set_contract_address(
+        &runtime,
+        signer,
+        ContractAddress {
+            name: "arith".to_string(),
+            height: 0,
+            tx_index: 0,
+        },
+    )
+    .await;
 
-    runtime
-        .execute(
-            Some(signer),
-            &proxy_contract_address,
-            "set-contract-address({name: \"arith\", height: 0, tx-index: 0})",
-        )
-        .await?;
-
-    let last_op_str = "some(sum({y: 8}))";
-    let result = runtime
-        .execute(None, &proxy_contract_address, "last-op()")
-        .await?;
-    assert_eq!(result, last_op_str);
+    let result = arith_proxied::last_op(&runtime).await;
+    assert_eq!(
+        result,
+        Some(arith_proxied::Op::Sum(arith_proxied::Operand { y: 8 }))
+    );
 
     // result
     let x = "5";
