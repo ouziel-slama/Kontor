@@ -13,9 +13,16 @@ use tracing::info;
 
 use std::str::FromStr;
 
-use crate::api::compose::build_tap_script_and_script_address;
 use crate::config::TestConfig;
 use crate::test_utils;
+use bitcoin::Network;
+use bitcoin::address::KnownHrp;
+use bitcoin::opcodes::{
+    OP_0, OP_FALSE,
+    all::{OP_CHECKSIG, OP_ENDIF, OP_IF},
+};
+use bitcoin::script::{Builder, PushBytesBuf};
+use bitcoin::taproot::{TaprootBuilder, TaprootSpendInfo};
 
 #[derive(Clone, Debug)]
 pub struct NodeInfo {
@@ -173,6 +180,49 @@ pub fn estimate_single_input_single_output_reveal_vbytes(
     );
     dummy_reveal.input[0].witness = w;
     tx_vbytes(&dummy_reveal)
+}
+
+/// Network-aware builder for tapscript and its P2TR address.
+pub fn build_tap_script_and_script_address_helper(
+    x_only_public_key: XOnlyPublicKey,
+    data: Vec<u8>,
+    network: Network,
+) -> Result<(bitcoin::script::ScriptBuf, TaprootSpendInfo, Address)> {
+    let secp = Secp256k1::new();
+
+    // tapscript: <xonly_pubkey> OP_CHECKSIG OP_FALSE OP_IF "kon" OP_0 <data_chunks...> OP_ENDIF
+    let mut builder = Builder::new()
+        .push_slice(x_only_public_key.serialize())
+        .push_opcode(OP_CHECKSIG)
+        .push_opcode(OP_FALSE)
+        .push_opcode(OP_IF)
+        .push_slice(b"kon")
+        .push_opcode(OP_0);
+
+    const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
+    if data.is_empty() {
+        return Err(anyhow::anyhow!("script data cannot be empty"));
+    }
+    for chunk in data.chunks(MAX_SCRIPT_ELEMENT_SIZE) {
+        builder = builder.push_slice(PushBytesBuf::try_from(chunk.to_vec())?);
+    }
+    let tap_script = builder.push_opcode(OP_ENDIF).into_script();
+
+    let taproot_spend_info = TaprootBuilder::new()
+        .add_leaf(0, tap_script.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to add leaf: {}", e))?
+        .finalize(&secp, x_only_public_key)
+        .map_err(|e| anyhow::anyhow!("Failed to finalize Taproot tree: {:?}", e))?;
+
+    let output_key = taproot_spend_info.output_key();
+    // Map networks to correct HRP strings for address presentation
+    let hrp = match network {
+        Network::Bitcoin => KnownHrp::Mainnet,
+        Network::Regtest => KnownHrp::Regtest,
+        _ => KnownHrp::Testnets,
+    };
+    let script_spendable_address = Address::p2tr_tweaked(output_key, hrp);
+    Ok((tap_script, taproot_spend_info, script_spendable_address))
 }
 
 #[derive(Clone, Debug)]
@@ -387,8 +437,11 @@ pub fn add_single_node_input_and_output_to_psbt(
     commit_psbt.inputs[node_input_index].tap_internal_key = Some(node_info.internal_key);
 
     // Append script output for node at the end
-    let (tap_script, tap_info, script_addr) =
-        build_tap_script_and_script_address(node_info.internal_key, b"node-data".to_vec())?;
+    let (tap_script, tap_info, script_addr) = build_tap_script_and_script_address_helper(
+        node_info.internal_key,
+        b"node-data".to_vec(),
+        Network::Testnet4,
+    )?;
 
     // Estimate reveal fee the node will need to pay later (1-in script + 1-out to self)
     let reveal_vb = estimate_single_input_single_output_reveal_vbytes(
@@ -489,7 +542,11 @@ pub fn add_portal_input_and_output_to_psbt(
 
     // Portal tapscript output to reveal its x-only pubkey
     let (portal_tap_script, portal_tap_info, portal_script_addr) =
-        build_tap_script_and_script_address(portal_info.internal_key, b"portal-data".to_vec())?;
+        build_tap_script_and_script_address_helper(
+            portal_info.internal_key,
+            b"portal-data".to_vec(),
+            Network::Testnet4,
+        )?;
     let portal_reveal_vb = estimate_single_input_single_output_reveal_vbytes(
         &portal_tap_script,
         &portal_tap_info,
@@ -633,8 +690,11 @@ pub fn node_sign_commit_and_reveal(
         commit_psbt_local.inputs[input_index].final_script_witness = Some(commit_witness);
 
         // Reveal: sign only this node's reveal input and log sizes/fees
-        let (tap_script, tap_info, _addr) =
-            build_tap_script_and_script_address(node_info.internal_key, b"node-data".to_vec())?;
+        let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
+            node_info.internal_key,
+            b"node-data".to_vec(),
+            Network::Testnet4,
+        )?;
         let prevouts_reveal: Vec<TxOut> = reveal_psbt_local
             .inputs
             .iter()
@@ -735,8 +795,11 @@ pub fn portal_signs_commit_and_reveal(
     );
 
     // Portal signs reveal input
-    let (tap_script, tap_info, _addr) =
-        build_tap_script_and_script_address(portal_info.internal_key, b"portal-data".to_vec())?;
+    let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
+        portal_info.internal_key,
+        b"portal-data".to_vec(),
+        Network::Testnet4,
+    )?;
     let prevouts: Vec<TxOut> = reveal_psbt
         .inputs
         .iter()

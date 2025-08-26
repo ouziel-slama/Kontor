@@ -12,8 +12,8 @@ use bitcoin::{TapSighashType, consensus::encode::serialize as serialize_tx};
 use bitcoin::{Txid, Witness};
 use clap::Parser;
 use futures_util::future::join_all;
-use indexer::api::compose::build_tap_script_and_script_address;
 use indexer::config::TestConfig;
+use indexer::multi_psbt_test_utils::build_tap_script_and_script_address_helper;
 use indexer::{bitcoin_client::Client, logging, test_utils};
 use std::str::FromStr;
 use tracing::info;
@@ -253,8 +253,11 @@ async fn test_portal_coordinated_commit_reveal_flow() -> Result<()> {
         commit_psbt.inputs[node_input_index].tap_internal_key = Some(s.internal_key);
 
         // Append script output for node at the end
-        let (tap_script, tap_info, script_addr) =
-            build_tap_script_and_script_address(s.internal_key, b"node-data".to_vec())?;
+        let (tap_script, tap_info, script_addr) = build_tap_script_and_script_address_helper(
+            s.internal_key,
+            b"node-data".to_vec(),
+            Network::Testnet4,
+        )?;
 
         // Estimate reveal fee the node will need to pay later (1-in script + 1-out to self)
         let reveal_vb = estimate_single_input_single_output_reveal_vbytes(
@@ -348,7 +351,11 @@ async fn test_portal_coordinated_commit_reveal_flow() -> Result<()> {
 
     // Portal tapscript output to reveal its x-only pubkey
     let (portal_tap_script, portal_tap_info, portal_script_addr) =
-        build_tap_script_and_script_address(portal_info.internal_key, b"portal-data".to_vec())?;
+        build_tap_script_and_script_address_helper(
+            portal_info.internal_key,
+            b"portal-data".to_vec(),
+            Network::Testnet4,
+        )?;
     let portal_reveal_vb = estimate_single_input_single_output_reveal_vbytes(
         &portal_tap_script,
         &portal_tap_info,
@@ -496,8 +503,11 @@ async fn test_portal_coordinated_commit_reveal_flow() -> Result<()> {
             commit_psbt_local.inputs[input_index].final_script_witness = Some(commit_witness);
 
             // Reveal: sign only this node's reveal input and log sizes/fees
-            let (tap_script, tap_info, _addr) =
-                build_tap_script_and_script_address(s.internal_key, b"node-data".to_vec())?;
+            let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
+                s.internal_key,
+                b"node-data".to_vec(),
+                Network::Testnet4,
+            )?;
             let prevouts_reveal: Vec<TxOut> = reveal_psbt_local
                 .inputs
                 .iter()
@@ -578,8 +588,11 @@ async fn test_portal_coordinated_commit_reveal_flow() -> Result<()> {
 
     // Portal signs reveal input
     {
-        let (tap_script, tap_info, _addr) =
-            build_tap_script_and_script_address(portal_info.internal_key, b"portal-data".to_vec())?;
+        let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
+            portal_info.internal_key,
+            b"portal-data".to_vec(),
+            Network::Testnet4,
+        )?;
         let prevouts: Vec<TxOut> = reveal_psbt
             .inputs
             .iter()
