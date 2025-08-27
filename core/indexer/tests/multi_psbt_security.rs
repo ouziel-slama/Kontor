@@ -13,6 +13,25 @@ use indexer::multi_psbt_test_utils::{
     get_node_addresses, mock_fetch_utxos_for_addresses, tx_vbytes,
 };
 
+// SECURITY TEST SUITE
+//
+// This file contains a comprehensive set of unit tests that validate the critical
+// security invariants of the multi-party commit/reveal flow. Each test documents
+// a specific invariant, the threat/abuse it prevents, and the exact assertions we
+// use to enforce it. Together, these tests ensure:
+//
+// - Correct PSBT hygiene (no pre-finalized inputs before the appropriate signer acts)
+// - Strong ownership and prevout integrity (scripts and amounts match the node’s UTXO)
+// - Deterministic input/output mappings for both commit and reveal
+// - Adequate funding of script outputs (dust + estimated reveal fee)
+// - Fee fairness across participants (base share + witness delta)
+// - Robustness to reordering/pinning (SIGHASH_DEFAULT and RBF sequences)
+// - Correct Taproot/Tapscript structure and network presentation (HRP)
+// - Presence of the tap_internal_key and expected witness stack shapes
+//
+// If you change the builder/signature code, update these tests in lock-step to
+// preserve the intended security envelope.
+
 fn find_single_output_index(outputs: &[TxOut], script: &bitcoin::script::ScriptBuf) -> usize {
     let matches: Vec<usize> = outputs
         .iter()
@@ -35,6 +54,14 @@ fn find_single_output_index(outputs: &[TxOut], script: &bitcoin::script::ScriptB
     matches[0]
 }
 
+// Invariant: Commit PSBT structure is safe for nodes to sign.
+// - No other inputs finalized (PSBT hygiene)
+// - The spending prevout belongs to the node and matches the observed chain view
+// - Node’s script output exists and funds dust + estimated reveal fee
+// - At most one change output to the node, and if present it is > dust
+// - Node’s fee contribution is fair (base share + witness delta)
+// Threats mitigated: pre-binding/pinning, fee siphoning, script redirection, underfunded reveal,
+// and unfair fee allocation.
 #[test]
 fn test_commit_psbt_security_invariants() -> Result<()> {
     // Setup (deterministic environment)
@@ -241,6 +268,11 @@ fn test_commit_psbt_security_invariants() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Reveal PSBT maintains correct mappings and hygiene.
+// - Each reveal input must spend the node’s commit script output
+// - Each reveal output must pay the node’s address with exact dust
+// - No other reveal inputs are pre-finalized before a node signs
+// Threats mitigated: script/output remapping, value redirection, and pre-binding.
 #[test]
 fn test_reveal_psbt_security_invariants() -> Result<()> {
     // Setup (deterministic environment)
@@ -375,6 +407,9 @@ fn test_reveal_psbt_security_invariants() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Inputs are RBF-enabled for both commit and reveal.
+// Rationale: RBF sequences make transactions opt-in replaceable, aiding fee bumping and reducing
+// pinning risk in adversarial mempools. All inputs must use Sequence::ENABLE_RBF_NO_LOCKTIME.
 #[test]
 fn test_inputs_sequences_are_rbf() -> Result<()> {
     // Setup
@@ -464,6 +499,9 @@ fn test_inputs_sequences_are_rbf() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Commit outputs are strictly whitelisted to known destinations
+// (node script, node change, portal script, portal change). This prevents the
+// portal or any participant from inserting a siphon output.
 #[test]
 fn test_commit_outputs_whitelist_including_portal() -> Result<()> {
     // Setup
@@ -532,6 +570,9 @@ fn test_commit_outputs_whitelist_including_portal() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Signatures use Taproot SIGHASH_DEFAULT (ALL) without additional flags,
+// which commits to inputs/outputs ordering, counts, amounts, and scripts.
+// This prevents post-sign tampering like reordering or value redirection.
 #[test]
 fn test_sighash_default_encoding_for_signatures() -> Result<()> {
     // Setup and build commit/reveal PSBTs
@@ -605,7 +646,7 @@ fn test_sighash_default_encoding_for_signatures() -> Result<()> {
     let input_index = node_input_indices[node_index];
     let keypair = secrets[node_index].keypair;
 
-    // Commit signature
+    // Commit signature must be 64B (or 65B with 0x00 flag for default)
     let mut commit_tx_local = commit_psbt.unsigned_tx.clone();
     indexer::test_utils::sign_key_spend(
         &secp,
@@ -632,7 +673,7 @@ fn test_sighash_default_encoding_for_signatures() -> Result<()> {
         );
     }
 
-    // Reveal signature
+    // Reveal signature must likewise reflect default sighash encoding
     let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
         signups[node_index].internal_key,
         b"node-data".to_vec(),
@@ -674,6 +715,9 @@ fn test_sighash_default_encoding_for_signatures() -> Result<()> {
     Ok(())
 }
 
+// Invariant: The human-readable prefix of a tapscript address matches the configured network.
+// Rationale: While HRP does not affect spending, mismatches are a common source of UX/ops errors
+// (e.g., displaying mainnet addresses on testnet), so we guard against it explicitly.
 #[test]
 fn test_script_address_hrp_matches_network() -> Result<()> {
     // Ensure the script address HRP matches the configured network (prevents UI/ops confusion)
@@ -696,6 +740,8 @@ fn test_script_address_hrp_matches_network() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Reveal has exactly N+1 outputs (N nodes + 1 portal), all paying to whitelisted
+// destinations (node addresses or portal address). This prevents surplus/rogue outputs.
 #[test]
 fn test_reveal_outputs_whitelist_and_counts() -> Result<()> {
     // Build commit and reveal as usual
@@ -782,6 +828,8 @@ fn test_reveal_outputs_whitelist_and_counts() -> Result<()> {
     Ok(())
 }
 
+// Invariant: The portal’s reveal fee contribution is fair relative to the base non-witness
+// share and its witness delta. This prevents the portal from underpaying in reveal.
 #[test]
 fn test_portal_reveal_fairness_base_plus_witness() -> Result<()> {
     // Build commit and reveal
@@ -919,6 +967,8 @@ fn test_portal_reveal_fairness_base_plus_witness() -> Result<()> {
     Ok(())
 }
 
+// Invariant: PSBT is clean for signing (no premature finalization) and contains witness_utxo for
+// every input (Taproot signature digest commits to amounts via witness_utxo).
 #[test]
 fn test_psbt_hygiene_and_witness_utxo_presence() -> Result<()> {
     // Build commit and reveal
@@ -1014,6 +1064,8 @@ fn test_psbt_hygiene_and_witness_utxo_presence() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Tapscript prefix structure is deterministic and matches expected format.
+// For each node and the portal, ensure tapscript begins with pubkey push then OP_CHECKSIG.
 #[test]
 fn test_tapscript_prefix_structure_pubkey_then_op_checksig() -> Result<()> {
     // For each node and the portal, ensure tapscript begins with pubkey push then OP_CHECKSIG.
@@ -1073,6 +1125,9 @@ fn test_tapscript_prefix_structure_pubkey_then_op_checksig() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Async node signing and merging preserves witness stack shapes and hygiene.
+// Rationale: This ensures that when nodes sign, they produce the expected witness stack
+// (1 for key-spend, 3 for script-spend) and that the final PSBT is clean.
 #[tokio::test]
 async fn test_async_node_sign_and_merge_flows() -> Result<()> {
     // End-to-end async signing by nodes and merge back into the portal PSBTs
@@ -1213,6 +1268,10 @@ async fn test_async_node_sign_and_merge_flows() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Tapscript builder rejects empty data.
+// Rationale: Empty data can be a vector of bytes, which is a valid script.
+// This test ensures that the builder explicitly rejects empty data to prevent
+// unintended behavior or security vulnerabilities.
 #[test]
 fn test_tapscript_builder_rejects_empty_data() -> Result<()> {
     let mut test_cfg = TestConfig::try_parse()?;
@@ -1231,6 +1290,9 @@ fn test_tapscript_builder_rejects_empty_data() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Script address HRP is consistent across networks.
+// Rationale: While HRP does not affect spending, it's crucial for user/operator clarity.
+// This test ensures that the HRP for a given network is consistent and correct.
 #[test]
 fn test_script_address_hrp_across_networks() -> Result<()> {
     let mut test_cfg = TestConfig::try_parse()?;
@@ -1279,6 +1341,9 @@ fn test_script_address_hrp_across_networks() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Script output funding is accurate.
+// Rationale: Each script output must fund exactly (or at least) dust + reveal fee estimate.
+// This test ensures that the value of each script output is sufficient for its purpose.
 #[test]
 fn test_script_output_funds_dust_plus_reveal_fee_estimate() -> Result<()> {
     // Each script output should fund exactly (or at least) dust + reveal fee estimate
@@ -1388,6 +1453,9 @@ fn test_script_output_funds_dust_plus_reveal_fee_estimate() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Pre-sign estimated commit fee is covered by participant contributions.
+// Rationale: This ensures that the total fee paid (sum of prevout values - sum of script/change values)
+// is at least the sum of the base share and witness delta for each input, plus a small slack.
 #[test]
 fn test_pre_sign_estimated_commit_fee_is_covered() -> Result<()> {
     // Participant contributions sum to commit fee paid (pre-sign accounting consistency)
@@ -1510,6 +1578,10 @@ fn test_pre_sign_estimated_commit_fee_is_covered() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Overall payment covers required fees after signing.
+// Rationale: This ensures that the sum of the fees paid by nodes and the portal
+// (commit_paid + reveal_paid) is at least the sum of the required fees (commit_req + reveal_req)
+// plus a small slack to account for rounding/modeling differences.
 #[tokio::test]
 async fn test_commit_shortfall_is_offset_by_reveal_surplus_after_signing() -> Result<()> {
     // After signing, total (commit_paid + reveal_paid) should cover (commit_req + reveal_req)
@@ -1680,6 +1752,9 @@ async fn test_commit_shortfall_is_offset_by_reveal_surplus_after_signing() -> Re
     Ok(())
 }
 
+// Invariant: Tap_internal_key is set correctly on commit and reveal inputs.
+// Rationale: This ensures that the Taproot signature digest can be verified
+// against the correct internal key, preventing signature forgery.
 #[tokio::test]
 async fn test_tap_internal_key_set_on_commit_and_reveal_inputs() -> Result<()> {
     let mut test_cfg = TestConfig::try_parse()?;
@@ -1804,6 +1879,10 @@ async fn test_tap_internal_key_set_on_commit_and_reveal_inputs() -> Result<()> {
     Ok(())
 }
 
+// Invariant: Witness stack shapes are correct after signing.
+// Rationale: This ensures that the witness stack for each input is as expected:
+// - Commit key-spend: 1 element (Taproot signature)
+// - Reveal script-spend: 3 elements (Taproot signature, Taproot key, OP_CHECKSIG)
 #[tokio::test]
 async fn test_witness_stack_shapes_commit_and_reveal() -> Result<()> {
     let mut test_cfg = TestConfig::try_parse()?;
