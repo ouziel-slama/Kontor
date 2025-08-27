@@ -6,8 +6,8 @@ use bitcoin::{Network, OutPoint, Psbt, Transaction, TxOut, absolute::LockTime};
 use clap::Parser;
 use indexer::config::TestConfig;
 use indexer::multi_psbt_test_utils::{
-    add_node_input_and_output_to_reveal_psbt, add_portal_input_and_output_to_psbt,
-    add_portal_input_and_output_to_reveal_psbt, add_single_node_input_and_output_to_psbt,
+    add_node_input_and_output_to_reveal_psbt, add_portal_input_and_output_to_commit_psbt,
+    add_portal_input_and_output_to_reveal_psbt, add_single_node_input_and_output_to_commit_psbt,
     get_node_addresses, merge_node_signatures, mock_fetch_utxos_for_addresses,
     node_sign_commit_and_reveal, portal_signs_commit_and_reveal, verify_x_only_pubkeys,
 };
@@ -70,7 +70,7 @@ async fn test_portal_coordinated_commit_reveal_flow() -> Result<()> {
 
     for (index, node_info) in signups.iter().enumerate() {
         let (node_reveal_fee, node_input_index, node_script_vout) =
-            add_single_node_input_and_output_to_psbt(
+            add_single_node_input_and_output_to_commit_psbt(
                 &mut commit_psbt,
                 &node_utxos,
                 index,
@@ -84,7 +84,7 @@ async fn test_portal_coordinated_commit_reveal_flow() -> Result<()> {
     }
 
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,

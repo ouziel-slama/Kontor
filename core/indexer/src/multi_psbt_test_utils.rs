@@ -364,7 +364,7 @@ pub fn log_total_size_and_fee_breakdown(
     );
 }
 
-pub fn add_single_node_input_and_output_to_psbt(
+pub fn add_single_node_input_and_output_to_commit_psbt(
     commit_psbt: &mut Psbt,
     node_utxos: &[(OutPoint, TxOut)],
     idx: usize,
@@ -468,7 +468,7 @@ pub fn add_single_node_input_and_output_to_psbt(
     Ok((node_reveal_fee, node_input_index, node_script_vout))
 }
 
-pub fn add_portal_input_and_output_to_psbt(
+pub fn add_portal_input_and_output_to_commit_psbt(
     commit_psbt: &mut Psbt,
     min_sat_per_vb: u64,
     dust_limit_sat: u64,

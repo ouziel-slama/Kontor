@@ -7,8 +7,8 @@ use bitcoin::{Sequence, TapSighashType};
 use clap::Parser;
 use indexer::config::TestConfig;
 use indexer::multi_psbt_test_utils::{
-    add_node_input_and_output_to_reveal_psbt, add_portal_input_and_output_to_psbt,
-    add_portal_input_and_output_to_reveal_psbt, add_single_node_input_and_output_to_psbt,
+    add_node_input_and_output_to_reveal_psbt, add_portal_input_and_output_to_commit_psbt,
+    add_portal_input_and_output_to_reveal_psbt, add_single_node_input_and_output_to_commit_psbt,
     build_tap_script_and_script_address_helper, estimate_single_input_single_output_reveal_vbytes,
     get_node_addresses, mock_fetch_utxos_for_addresses, tx_vbytes,
 };
@@ -87,7 +87,7 @@ fn test_commit_psbt_security_invariants() -> Result<()> {
 
     for (idx, s) in signups.iter().enumerate() {
         let (_node_reveal_fee, input_index, script_vout) =
-            add_single_node_input_and_output_to_psbt(
+            add_single_node_input_and_output_to_commit_psbt(
                 &mut commit_psbt,
                 &node_utxos,
                 idx,
@@ -101,7 +101,7 @@ fn test_commit_psbt_security_invariants() -> Result<()> {
 
     // Add portal input/output
     let (_portal_info, _portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -298,7 +298,7 @@ fn test_reveal_psbt_security_invariants() -> Result<()> {
 
     for (idx, s) in signups.iter().enumerate() {
         let (_node_reveal_fee, input_index, script_vout) =
-            add_single_node_input_and_output_to_psbt(
+            add_single_node_input_and_output_to_commit_psbt(
                 &mut commit_psbt,
                 &node_utxos,
                 idx,
@@ -311,7 +311,7 @@ fn test_reveal_psbt_security_invariants() -> Result<()> {
     }
 
     let (portal_info, portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -432,7 +432,7 @@ fn test_inputs_sequences_are_rbf() -> Result<()> {
 
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_fee, _in_idx, script_vout) = add_single_node_input_and_output_to_psbt(
+        let (_fee, _in_idx, script_vout) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -443,7 +443,7 @@ fn test_inputs_sequences_are_rbf() -> Result<()> {
         node_script_vouts.push(script_vout);
     }
     let (portal_info, portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -522,7 +522,7 @@ fn test_commit_outputs_whitelist_including_portal() -> Result<()> {
     })?;
 
     for (idx, s) in signups.iter().enumerate() {
-        let _ = add_single_node_input_and_output_to_psbt(
+        let _ = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -532,7 +532,7 @@ fn test_commit_outputs_whitelist_including_portal() -> Result<()> {
         )?;
     }
     let (portal_info, _portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -595,7 +595,7 @@ fn test_sighash_default_encoding_for_signatures() -> Result<()> {
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
         let (_node_reveal_fee, input_index, script_vout) =
-            add_single_node_input_and_output_to_psbt(
+            add_single_node_input_and_output_to_commit_psbt(
                 &mut commit_psbt,
                 &node_utxos,
                 idx,
@@ -607,7 +607,7 @@ fn test_sighash_default_encoding_for_signatures() -> Result<()> {
         node_script_vouts.push(script_vout);
     }
     let (_portal_info, _portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -761,7 +761,7 @@ fn test_reveal_outputs_whitelist_and_counts() -> Result<()> {
     })?;
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_, _, sv) = add_single_node_input_and_output_to_psbt(
+        let (_, _, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -772,7 +772,7 @@ fn test_reveal_outputs_whitelist_and_counts() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -849,7 +849,7 @@ fn test_portal_reveal_fairness_base_plus_witness() -> Result<()> {
     })?;
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_, _, sv) = add_single_node_input_and_output_to_psbt(
+        let (_, _, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -860,7 +860,7 @@ fn test_portal_reveal_fairness_base_plus_witness() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -988,7 +988,7 @@ fn test_psbt_hygiene_and_witness_utxo_presence() -> Result<()> {
     })?;
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_, _, sv) = add_single_node_input_and_output_to_psbt(
+        let (_, _, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -999,7 +999,7 @@ fn test_psbt_hygiene_and_witness_utxo_presence() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -1150,7 +1150,7 @@ async fn test_async_node_sign_and_merge_flows() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_fee, input_index, script_vout) = add_single_node_input_and_output_to_psbt(
+        let (_fee, input_index, script_vout) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -1162,7 +1162,7 @@ async fn test_async_node_sign_and_merge_flows() -> Result<()> {
         node_script_vouts.push(script_vout);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -1365,19 +1365,20 @@ fn test_script_output_funds_dust_plus_reveal_fee_estimate() -> Result<()> {
 
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_node_reveal_fee, _in_idx, script_vout) = add_single_node_input_and_output_to_psbt(
-            &mut commit_psbt,
-            &node_utxos,
-            idx,
-            min_sat_per_vb,
-            s,
-            dust_limit_sat,
-        )?;
+        let (_node_reveal_fee, _in_idx, script_vout) =
+            add_single_node_input_and_output_to_commit_psbt(
+                &mut commit_psbt,
+                &node_utxos,
+                idx,
+                min_sat_per_vb,
+                s,
+                dust_limit_sat,
+            )?;
         node_script_vouts.push(script_vout);
     }
 
     let (portal_info, _portal_change_value, _portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -1478,20 +1479,21 @@ fn test_pre_sign_estimated_commit_fee_is_covered() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_node_reveal_fee, in_idx, script_vout) = add_single_node_input_and_output_to_psbt(
-            &mut commit_psbt,
-            &node_utxos,
-            idx,
-            min_sat_per_vb,
-            s,
-            dust_limit_sat,
-        )?;
+        let (_node_reveal_fee, in_idx, script_vout) =
+            add_single_node_input_and_output_to_commit_psbt(
+                &mut commit_psbt,
+                &node_utxos,
+                idx,
+                min_sat_per_vb,
+                s,
+                dust_limit_sat,
+            )?;
         node_input_indices.push(in_idx);
         node_script_vouts.push(script_vout);
     }
 
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -1603,7 +1605,7 @@ async fn test_commit_shortfall_is_offset_by_reveal_surplus_after_signing() -> Re
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -1615,7 +1617,7 @@ async fn test_commit_shortfall_is_offset_by_reveal_surplus_after_signing() -> Re
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -1776,7 +1778,7 @@ async fn test_tap_internal_key_set_on_commit_and_reveal_inputs() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_fee, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_fee, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -1794,7 +1796,7 @@ async fn test_tap_internal_key_set_on_commit_and_reveal_inputs() -> Result<()> {
         );
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -1903,7 +1905,7 @@ async fn test_witness_stack_shapes_commit_and_reveal() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_fee, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_fee, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -1915,7 +1917,7 @@ async fn test_witness_stack_shapes_commit_and_reveal() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,

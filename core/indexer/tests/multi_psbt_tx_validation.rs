@@ -6,8 +6,8 @@ use bitcoin::{Network, Psbt, Transaction, TxOut, absolute::LockTime};
 use clap::Parser;
 use indexer::config::TestConfig;
 use indexer::multi_psbt_test_utils::{
-    add_node_input_and_output_to_reveal_psbt, add_portal_input_and_output_to_psbt,
-    add_portal_input_and_output_to_reveal_psbt, add_single_node_input_and_output_to_psbt,
+    add_node_input_and_output_to_reveal_psbt, add_portal_input_and_output_to_commit_psbt,
+    add_portal_input_and_output_to_reveal_psbt, add_single_node_input_and_output_to_commit_psbt,
     build_tap_script_and_script_address_helper, get_node_addresses, merge_node_signatures,
     mock_fetch_utxos_for_addresses, node_sign_commit_and_reveal, portal_signs_commit_and_reveal,
 };
@@ -49,7 +49,7 @@ async fn test_pre_sign_node_refuses_on_underfunded_script_output() -> Result<()>
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -61,7 +61,7 @@ async fn test_pre_sign_node_refuses_on_underfunded_script_output() -> Result<()>
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -183,7 +183,7 @@ async fn test_pre_sign_node_refuses_on_reveal_output_remap() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -195,7 +195,7 @@ async fn test_pre_sign_node_refuses_on_reveal_output_remap() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -319,7 +319,7 @@ async fn test_reordering_commit_inputs_rejected() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -331,7 +331,7 @@ async fn test_reordering_commit_inputs_rejected() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -469,7 +469,7 @@ async fn test_reordering_commit_outputs_rejected() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -481,7 +481,7 @@ async fn test_reordering_commit_outputs_rejected() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -599,7 +599,7 @@ async fn test_portal_cannot_steal_change_rejected() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -611,7 +611,7 @@ async fn test_portal_cannot_steal_change_rejected() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -789,7 +789,7 @@ async fn test_node_cannot_steal_in_reveal_rejected() -> Result<()> {
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -801,7 +801,7 @@ async fn test_node_cannot_steal_in_reveal_rejected() -> Result<()> {
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
@@ -918,7 +918,7 @@ async fn test_portal_reorders_commit_inputs_before_sign_rejected() -> Result<()>
     let mut node_input_indices: Vec<usize> = Vec::with_capacity(signups.len());
     let mut node_script_vouts: Vec<usize> = Vec::with_capacity(signups.len());
     for (idx, s) in signups.iter().enumerate() {
-        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_psbt(
+        let (_rf, in_idx, sv) = add_single_node_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             &node_utxos,
             idx,
@@ -930,7 +930,7 @@ async fn test_portal_reorders_commit_inputs_before_sign_rejected() -> Result<()>
         node_script_vouts.push(sv);
     }
     let (portal_info, portal_change_value, portal_input_index) =
-        add_portal_input_and_output_to_psbt(
+        add_portal_input_and_output_to_commit_psbt(
             &mut commit_psbt,
             min_sat_per_vb,
             dust_limit_sat,
