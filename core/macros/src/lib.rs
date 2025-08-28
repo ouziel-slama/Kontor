@@ -39,6 +39,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
             path: #path,
             generate_all,
             additional_derives: [stdlib::Storage],
+            export_macro_name: "__export__",
         });
 
         use kontor::built_in::*;
@@ -169,7 +170,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
         struct #name;
 
-        export!(#name);
+        __export__!(#name);
     };
 
     boilerplate.into()
