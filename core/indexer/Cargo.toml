@@ -47,7 +47,7 @@ futures-util = "0.3"
 hex = "0.4"
 bip39 = "2.1"
 ciborium = "0.2"
-bon = "3.6"
+bon = { workspace = true }
 axum-test = "17.3"
 urlencoding = "2.1"
 proptest = "1.6"
