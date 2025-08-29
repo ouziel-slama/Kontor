@@ -8,7 +8,7 @@ import!(
     test = true,
 );
 
-#[testlib::test]
+#[tokio::test]
 async fn test_token_contract() -> Result<()> {
     let runtime = Runtime::new(RuntimeConfig::default()).await?;
 

@@ -3,7 +3,7 @@ extern crate proc_macro;
 use std::fs;
 
 use darling::{FromMeta, ast::NestedMeta};
-use heck::ToPascalCase;
+use heck::{ToPascalCase, ToSnakeCase};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Ident, parse_macro_input, spanned::Spanned};
@@ -376,7 +376,8 @@ pub fn import(input: TokenStream) -> TokenStream {
     let config = ImportConfig::from_list(&attr_args).unwrap();
 
     let name = config.name;
-    let module_name = Ident::from_string(&config.mod_name.unwrap_or(name.clone())).unwrap();
+    let module_name =
+        Ident::from_string(&config.mod_name.unwrap_or(name.clone().to_snake_case())).unwrap();
     let height = config.height;
     let tx_index = config.tx_index;
     let path = config.path;
@@ -443,9 +444,9 @@ pub fn import(input: TokenStream) -> TokenStream {
 
     let supers = if test {
         quote! {
-            use crate::ContractAddress;
-            use crate::Error;
-            use crate::Runtime;
+            use super::ContractAddress;
+            use super::Error;
+            use super::Runtime;
         }
     } else {
         quote! {

@@ -6,7 +6,7 @@ mod types;
 pub mod wit;
 
 pub use component_cache::ComponentCache;
-pub use contracts::load_native_contracts;
+pub use contracts::{load_contracts, load_native_contracts};
 use libsql::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

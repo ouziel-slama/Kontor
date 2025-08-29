@@ -1,13 +1,15 @@
+use bon::Builder;
 pub use indexer::runtime::wit::kontor::built_in::{error::Error, foreign::ContractAddress};
 use indexer::{
     config::Config,
     database::{queries::insert_block, types::BlockRow},
-    runtime::{ComponentCache, Runtime as IndexerRuntime, Storage, load_native_contracts},
+    runtime::{
+        ComponentCache, Runtime as IndexerRuntime, Storage, load_contracts, load_native_contracts,
+    },
     test_utils::{new_mock_block_hash, new_test_db},
 };
 use libsql::Connection;
 pub use stdlib::import;
-pub use tokio::test;
 
 pub use anyhow::Result;
 
@@ -17,12 +19,13 @@ pub struct CallContext {
     tx_id: i64,
 }
 
-#[derive(Default)]
-pub struct RuntimeConfig {
+#[derive(Default, Builder)]
+pub struct RuntimeConfig<'a> {
     call_context: Option<CallContext>,
+    contracts: Option<&'a [(&'a str, &'a [u8])]>,
 }
 
-impl RuntimeConfig {
+impl RuntimeConfig<'_> {
     pub fn get_call_context(&self) -> CallContext {
         self.call_context.clone().unwrap_or(CallContext {
             height: 1,
@@ -52,7 +55,7 @@ impl Runtime {
             .build())
     }
 
-    pub async fn new(config: RuntimeConfig) -> Result<Self> {
+    pub async fn new(config: RuntimeConfig<'_>) -> Result<Self> {
         let na = "n/a".to_string();
         let (_, writer, _test_db_dir) = new_test_db(&Config {
             bitcoin_rpc_url: na.clone(),
@@ -68,7 +71,11 @@ impl Runtime {
         let storage = Runtime::make_storage(config.get_call_context(), conn).await?;
         let component_cache: ComponentCache = ComponentCache::new();
         let runtime = IndexerRuntime::new(storage, component_cache).await?;
-        load_native_contracts(&runtime).await?;
+        if let Some(contracts) = config.contracts {
+            load_contracts(&runtime, contracts).await?;
+        } else {
+            load_native_contracts(&runtime).await?;
+        }
         Ok(Self { runtime })
     }
 
