@@ -27,7 +27,7 @@ use std::{
 use crate::bitcoin_client::Client;
 
 // Hardening limits
-const MAX_PARTICIPANTS: usize = 10;
+const MAX_PARTICIPANTS: usize = 1000;
 const MAX_SCRIPT_BYTES: usize = 16 * 1024; // 16 KiB
 const MAX_OP_RETURN_BYTES: usize = 80; // Standard policy
 const MIN_ENVELOPE_SATS: u64 = 330; // P2TR dust floor

@@ -57,7 +57,7 @@ async fn test_taproot_transaction() -> Result<()> {
             funding_utxos: vec![(out_point, utxo_for_output.clone())],
         }])
         .script_data(b"Hello, world!".to_vec())
-        .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())
+        .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
         .chained_script_data(serialized_token_balance.clone())
         .build();
@@ -82,7 +82,7 @@ async fn test_taproot_transaction() -> Result<()> {
     let chained_reveal_tx = compose_reveal(
         RevealInputs::builder()
             .commit_txid(reveal_tx.compute_txid())
-            .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())
+            .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
             .participants(vec![RevealParticipantInputs {
                 address: seller_address.clone(),
                 x_only_public_key: internal_key,
@@ -163,7 +163,6 @@ async fn test_taproot_transaction() -> Result<()> {
         3,
         "Expected exactly three transaction results"
     );
-    println!("RESULT {:#?}", result);
     assert!(result[0].allowed, "Commit transaction was rejected");
     assert!(result[1].allowed, "Reveal transaction was rejected");
     assert!(result[2].allowed, "Chained reveal transaction was rejected");
