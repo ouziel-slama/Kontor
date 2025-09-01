@@ -11,4 +11,4 @@ stdlib = { path = "../stdlib" }
 indexer = { path = "../indexer" }
 anyhow = { workspace = true }
 libsql = { workspace = true }
-tokio = { workspace = true }
+bon = { workspace = true }
