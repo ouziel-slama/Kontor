@@ -202,16 +202,6 @@ pub struct ParticipantScripts {
 }
 
 #[derive(Debug, Serialize, Deserialize, Builder)]
-pub struct ComposeAddressOutputs {
-    pub per_participant_tap: Vec<TapScriptPair>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Builder)]
-pub struct ComposeAddressChainedOutputs {
-    pub per_participant_chained_tap: Vec<TapScriptPair>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Builder)]
 pub struct ComposeOutputs {
     pub commit_transaction: Transaction,
     pub commit_transaction_hex: String,
@@ -382,20 +372,20 @@ pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
         .reveal_transaction(reveal_outputs.transaction.clone())
         .reveal_transaction_hex(reveal_outputs.transaction_hex)
         .reveal_psbt_hex(reveal_outputs.psbt_hex)
-        .per_participant({
-            let mut v = Vec::with_capacity(commit_outputs.per_participant_tap.len());
-            for (idx, commit_pair) in commit_outputs.per_participant_tap.into_iter().enumerate() {
-                let chained = reveal_outputs.per_participant_chained_tap.get(idx).cloned();
-                v.push(ParticipantScripts {
+        .per_participant(
+            commit_outputs
+                .per_participant_tap
+                .into_iter()
+                .enumerate()
+                .map(|(idx, commit_pair)| ParticipantScripts {
                     index: idx as u32,
                     address: addresses_clone[idx].address.to_string(),
                     x_only_public_key: addresses_clone[idx].x_only_public_key.to_string(),
                     commit: commit_pair,
-                    chained,
-                });
-            }
-            v
-        })
+                    chained: reveal_outputs.per_participant_chained_tap.get(idx).cloned(),
+                })
+                .collect(),
+        )
         .build();
 
     Ok(compose_outputs)
@@ -697,15 +687,14 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         }
         let (ref tap_script, ref control_block) = commit_scripts[i];
         if let Some(v) = calculate_change_single(
+            owner_outputs,
             (
                 reveal_transaction.input[i].clone(),
                 p.commit_prevout.clone(),
             ),
-            owner_outputs,
-            params.fee_rate,
-            false,
             tap_script,
             control_block,
+            params.fee_rate,
         ) {
             if params.chained_script_data.is_some() {
                 if v > params.envelope {
@@ -786,12 +775,11 @@ pub fn build_tap_script_and_script_address(
 }
 
 fn calculate_change_single(
-    input_tuple: (TxIn, TxOut),
     mut outputs: Vec<TxOut>,
-    fee_rate: FeeRate,
-    change_output: bool,
+    input_tuple: (TxIn, TxOut),
     tap_script: &ScriptBuf,
     control_block: &ScriptBuf,
+    fee_rate: FeeRate,
 ) -> Option<u64> {
     let (mut txin, txout) = input_tuple;
     let mut witness = Witness::new();
@@ -804,12 +792,11 @@ fn calculate_change_single(
 
     let mut dummy_tx = build_dummy_tx(vec![txin], std::mem::take(&mut outputs));
 
-    if change_output {
-        dummy_tx.output.push(TxOut {
-            value: Amount::from_sat(0),
-            script_pubkey: ScriptBuf::from_bytes(vec![0; 34]),
-        });
-    }
+    // push dummy change to the tx
+    dummy_tx.output.push(TxOut {
+        value: Amount::from_sat(0),
+        script_pubkey: ScriptBuf::from_bytes(vec![0; 34]),
+    });
 
     let output_sum: u64 = dummy_tx.output.iter().map(|o| o.value.to_sat()).sum();
     let vsize = dummy_tx.vsize() as u64;
