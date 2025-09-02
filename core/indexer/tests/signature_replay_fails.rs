@@ -73,12 +73,7 @@ async fn test_signature_replay_failse() -> Result<()> {
     let compose_outputs = compose(compose_params)?;
 
     let mut commit_tx = compose_outputs.commit_transaction;
-    let tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
     let mut reveal_tx = compose_outputs.reveal_transaction;
 
     // 1. SIGN THE ORIGINAL COMMIT
@@ -247,15 +242,10 @@ async fn test_psbt_signature_replay_fails() -> Result<()> {
     let compose_outputs = compose(compose_params)?;
     let mut attach_commit_tx = compose_outputs.commit_transaction;
     let mut attach_reveal_tx = compose_outputs.reveal_transaction;
-    let attach_tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
-    let detach_tap_script = compose_outputs
-        .address_chained_tap_script
-        .get(&seller_address.to_string())
+    let attach_tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
+    let detach_tap_script = compose_outputs.per_participant[0]
+        .chained
+        .as_ref()
         .unwrap()
         .tap_script
         .clone();

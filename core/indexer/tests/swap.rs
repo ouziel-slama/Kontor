@@ -100,15 +100,10 @@ async fn test_psbt_inscription() -> Result<()> {
     let compose_outputs = compose(compose_params)?;
     let mut attach_commit_tx = compose_outputs.commit_transaction;
     let mut attach_reveal_tx = compose_outputs.reveal_transaction;
-    let attach_tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
-    let detach_tap_script = compose_outputs
-        .address_chained_tap_script
-        .get(&seller_address.to_string())
+    let attach_tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
+    let detach_tap_script = compose_outputs.per_participant[0]
+        .chained
+        .as_ref()
         .unwrap()
         .tap_script
         .clone();

@@ -18,10 +18,7 @@ use bon::Builder;
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as};
-use std::{
-    collections::{BTreeMap, HashSet},
-    str::FromStr,
-};
+use std::{collections::HashSet, str::FromStr};
 
 use crate::bitcoin_client::Client;
 
@@ -194,15 +191,23 @@ pub struct TapScriptPair {
     pub script_data_chunk: Vec<u8>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ParticipantScripts {
+    pub index: u32,
+    pub address: String,
+    pub x_only_public_key: String,
+    pub commit: TapScriptPair,
+    pub chained: Option<TapScriptPair>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Builder)]
 pub struct ComposeAddressOutputs {
-    // { "<address>": { tap_script: ..., tap_leaf_script: ... }, ... }
-    pub address_tap_script: BTreeMap<String, TapScriptPair>,
+    pub per_participant_tap: Vec<TapScriptPair>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Builder)]
 pub struct ComposeAddressChainedOutputs {
-    pub address_chained_tap_script: BTreeMap<String, TapScriptPair>,
+    pub per_participant_chained_tap: Vec<TapScriptPair>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Builder)]
@@ -213,8 +218,7 @@ pub struct ComposeOutputs {
     pub reveal_transaction: Transaction,
     pub reveal_transaction_hex: String,
     pub reveal_psbt_hex: String,
-    pub address_tap_script: BTreeMap<String, TapScriptPair>,
-    pub address_chained_tap_script: BTreeMap<String, TapScriptPair>,
+    pub per_participant: Vec<ParticipantScripts>,
 }
 
 #[derive(Builder)]
@@ -241,7 +245,7 @@ pub struct CommitOutputs {
     pub commit_transaction: Transaction,
     pub commit_transaction_hex: String,
     pub commit_psbt_hex: String,
-    pub address_tap_script: BTreeMap<String, TapScriptPair>,
+    pub per_participant_tap: Vec<TapScriptPair>,
     pub reveal_inputs: RevealInputs,
 }
 
@@ -350,10 +354,12 @@ pub struct RevealOutputs {
     pub psbt: Psbt,
     pub psbt_hex: String,
     // { "<address>": { tap_script, tap_leaf_script } }
-    pub address_chained_tap_script: BTreeMap<String, TapScriptPair>,
+    pub per_participant_chained_tap: Vec<TapScriptPair>,
 }
 
 pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
+    // Clone addresses for response mapping prior to move
+    let addresses_clone = params.addresses.clone();
     // Build the commit tx
     let commit_outputs = compose_commit(CommitInputs {
         addresses: params.addresses,
@@ -375,8 +381,20 @@ pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
         .reveal_transaction(reveal_outputs.transaction.clone())
         .reveal_transaction_hex(reveal_outputs.transaction_hex)
         .reveal_psbt_hex(reveal_outputs.psbt_hex)
-        .address_tap_script(commit_outputs.address_tap_script)
-        .address_chained_tap_script(reveal_outputs.address_chained_tap_script)
+        .per_participant({
+            let mut v = Vec::with_capacity(commit_outputs.per_participant_tap.len());
+            for (idx, commit_pair) in commit_outputs.per_participant_tap.into_iter().enumerate() {
+                let chained = reveal_outputs.per_participant_chained_tap.get(idx).cloned();
+                v.push(ParticipantScripts {
+                    index: idx as u32,
+                    address: addresses_clone[idx].address.to_string(),
+                    x_only_public_key: addresses_clone[idx].x_only_public_key.to_string(),
+                    commit: commit_pair,
+                    chained,
+                });
+            }
+            v
+        })
         .build();
 
     Ok(compose_outputs)
@@ -391,8 +409,6 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         output: vec![],
     })?;
 
-    let mut address_tap_script: BTreeMap<String, TapScriptPair> = BTreeMap::new();
-
     // Split script_data into N contiguous chunks
     let num_addrs = params.addresses.len();
     if num_addrs == 0 {
@@ -405,6 +421,8 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
     let base = data_len / num_addrs;
     let rem = data_len % num_addrs;
     let mut offset = 0;
+
+    let mut per_participant_tap: Vec<TapScriptPair> = Vec::with_capacity(num_addrs);
 
     for (i, addr) in params.addresses.iter().enumerate() {
         // Determine chunk slice
@@ -517,14 +535,11 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
                     .serialize(),
             ),
         };
-        address_tap_script.insert(
-            addr.address.to_string(),
-            TapScriptPair {
-                tap_script: tap_script.clone(),
-                tap_leaf_script: tap_leaf,
-                script_data_chunk: chunk,
-            },
-        );
+        per_participant_tap.push(TapScriptPair {
+            tap_script: tap_script.clone(),
+            tap_leaf_script: tap_leaf,
+            script_data_chunk: chunk,
+        });
     }
 
     let commit_transaction = commit_psbt.unsigned_tx.clone();
@@ -534,11 +549,8 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
     // Build reveal inputs here for convenience
     let commit_txid = commit_transaction.compute_txid();
     let mut participants: Vec<RevealParticipantInputs> = Vec::with_capacity(params.addresses.len());
-    for a in params.addresses.iter() {
-        let key = a.address.to_string();
-        let pair = address_tap_script
-            .get(&key)
-            .ok_or_else(|| anyhow!("missing TapScriptPair for {}", key))?;
+    for (idx, a) in params.addresses.iter().enumerate() {
+        let pair = &per_participant_tap[idx];
         let (_tap, _info, script_addr) = build_tap_script_and_script_address(
             a.x_only_public_key,
             pair.script_data_chunk.clone(),
@@ -548,7 +560,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
             .output
             .iter()
             .position(|o| o.script_pubkey == spk)
-            .ok_or_else(|| anyhow!("failed to locate commit vout for {}", key))?
+            .ok_or_else(|| anyhow!("failed to locate commit vout for {}", a.address))?
             as u32;
         let commit_outpoint = OutPoint {
             txid: commit_txid,
@@ -574,7 +586,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         .commit_transaction(commit_transaction)
         .commit_transaction_hex(commit_transaction_hex)
         .commit_psbt_hex(commit_psbt_hex)
-        .address_tap_script(address_tap_script)
+        .per_participant_tap(per_participant_tap)
         .reveal_inputs(reveal_inputs)
         .build())
 }
@@ -631,7 +643,8 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
     }
 
     // If chained_script_data is present, split it evenly across participants and add per-owner chained outputs
-    let mut address_chained_tap_script: BTreeMap<String, TapScriptPair> = BTreeMap::new();
+    let mut per_participant_chained_tap: Vec<TapScriptPair> =
+        Vec::with_capacity(params.participants.len());
     if let Some(chained) = params.chained_script_data.clone() {
         let n = params.participants.len();
         if n == 0 {
@@ -667,14 +680,11 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                         .serialize(),
                 ),
             };
-            address_chained_tap_script.insert(
-                p.address.to_string(),
-                TapScriptPair {
-                    tap_script: ch_tap,
-                    tap_leaf_script: tap_leaf,
-                    script_data_chunk: chunk,
-                },
-            );
+            per_participant_chained_tap.push(TapScriptPair {
+                tap_script: ch_tap,
+                tap_leaf_script: tap_leaf,
+                script_data_chunk: chunk,
+            });
         }
     }
 
@@ -759,7 +769,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         .transaction_hex(reveal_transaction_hex)
         .psbt(psbt)
         .psbt_hex(psbt_hex)
-        .address_chained_tap_script(address_chained_tap_script)
+        .per_participant_chained_tap(per_participant_chained_tap)
         .build();
 
     Ok(reveal_outputs)

@@ -106,12 +106,7 @@ async fn test_compose() -> Result<()> {
 
     let mut commit_transaction = compose_outputs.commit_transaction;
 
-    let tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
 
     let mut derived_token_data = Vec::new();
     ciborium::into_writer(&token_data, &mut derived_token_data).unwrap();
@@ -249,12 +244,7 @@ async fn test_compose_all_fields() -> Result<()> {
 
     let mut commit_transaction = compose_outputs.commit_transaction;
 
-    let tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
 
     let mut derived_token_data = Vec::new();
     ciborium::into_writer(&token_data, &mut derived_token_data).unwrap();
@@ -295,9 +285,9 @@ async fn test_compose_all_fields() -> Result<()> {
 
     let mut reveal_transaction = compose_outputs.reveal_transaction;
 
-    let chained_tap_script = compose_outputs
-        .address_chained_tap_script
-        .get(&seller_address.to_string())
+    let chained_tap_script = compose_outputs.per_participant[0]
+        .chained
+        .as_ref()
         .unwrap()
         .tap_script
         .clone();

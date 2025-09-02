@@ -66,12 +66,7 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
 
     let mut attach_tx = compose_outputs.commit_transaction;
     let mut spend_tx = compose_outputs.reveal_transaction;
-    let tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
 
     // Sign the attach transaction
     test_utils::sign_key_spend(

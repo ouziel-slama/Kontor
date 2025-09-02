@@ -65,18 +65,9 @@ async fn test_taproot_transaction() -> Result<()> {
     let compose_outputs = compose(compose_params)?;
 
     let mut commit_tx = compose_outputs.commit_transaction;
-    let tap_script = compose_outputs
-        .address_tap_script
-        .get(&seller_address.to_string())
-        .unwrap()
-        .tap_script
-        .clone();
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
     let mut reveal_tx = compose_outputs.reveal_transaction;
-    let chained_pair = compose_outputs
-        .address_chained_tap_script
-        .get(&seller_address.to_string())
-        .cloned()
-        .unwrap();
+    let chained_pair = compose_outputs.per_participant[0].chained.clone().unwrap();
     let chained_tap_script = chained_pair.tap_script.clone();
 
     let chained_reveal_tx = compose_reveal(
