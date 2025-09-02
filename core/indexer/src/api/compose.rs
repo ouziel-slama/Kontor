@@ -418,7 +418,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
     if params.script_data.is_empty() {
         return Err(anyhow!("script data cannot be empty"));
     }
-    let mut chunks = split_even_chunks(&params.script_data, num_addrs);
+    let chunks = split_even_chunks(&params.script_data, num_addrs);
 
     let mut per_participant_tap: Vec<TapScriptPair> = Vec::with_capacity(num_addrs);
 
