@@ -16,6 +16,7 @@ use bitcoin::{
 use bon::Builder;
 
 use bitcoin::Txid;
+use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as};
 use std::{collections::HashSet, str::FromStr};
@@ -417,18 +418,12 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
     if params.script_data.is_empty() {
         return Err(anyhow!("script data cannot be empty"));
     }
-    let data_len = params.script_data.len();
-    let base = data_len / num_addrs;
-    let rem = data_len % num_addrs;
-    let mut offset = 0;
+    let mut chunks = split_even_chunks(&params.script_data, num_addrs);
 
     let mut per_participant_tap: Vec<TapScriptPair> = Vec::with_capacity(num_addrs);
 
     for (i, addr) in params.addresses.iter().enumerate() {
-        // Determine chunk slice
-        let take = base + if i < rem { 1 } else { 0 };
-        let chunk = params.script_data[offset..offset + take].to_vec();
-        offset += take;
+        let chunk = chunks[i].clone();
 
         // Build tapscript for this address
         let (tap_script, tap_info, script_spendable_address) =
@@ -458,7 +453,6 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
             let commit_delta_fee = estimate_commit_delta_fee(
                 &commit_psbt.unsigned_tx,
                 selected.len(),
-                |_, w: &mut Witness| w.push(vec![0u8; 65]),
                 script_spendable_address.script_pubkey().len(),
                 addr.address.script_pubkey().len(),
                 params.fee_rate,
@@ -592,8 +586,6 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
 }
 
 pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
-    const SCHNORR_SIGNATURE_SIZE: usize = 65;
-
     // Build a reveal tx that spends each participant's commit output
     let mut reveal_transaction = Transaction {
         version: Version(2),
@@ -647,20 +639,9 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         Vec::with_capacity(params.participants.len());
     if let Some(chained) = params.chained_script_data.clone() {
         let n = params.participants.len();
-        if n == 0 {
-            return Err(anyhow!("participants cannot be empty"));
-        }
-        if params.envelope < MIN_ENVELOPE_SATS {
-            return Err(anyhow!("envelope below dust"));
-        }
-        let total = chained.len();
-        let base = total / n;
-        let rem = total % n;
-        let mut off = 0usize;
+        let chunks = split_even_chunks(&chained, n);
         for (i, p) in params.participants.iter().enumerate() {
-            let take = base + if i < rem { 1 } else { 0 };
-            let chunk = chained[off..off + take].to_vec();
-            off += take;
+            let chunk = chunks[i].clone();
 
             let (ch_tap, ch_info, ch_addr) =
                 build_tap_script_and_script_address(p.x_only_public_key, chunk.clone())?;
@@ -704,22 +685,8 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         );
     }
 
-    // Fee sizing using calculate_change with exact witness shapes per input
-    let f_for_index = |idx: usize| {
-        let (ref tap_script, ref control_block) = commit_scripts[idx];
-        move |_: usize, witness: &mut Witness| {
-            witness.push(vec![0; SCHNORR_SIGNATURE_SIZE]);
-            witness.push(tap_script.clone());
-            witness.push(control_block.clone());
-        }
-    };
-
-    // For each owner, compute standalone change using single-input sizing
+    // For each owner, compute standalone change using single-input sizing with fixed witness shape
     for (i, p) in params.participants.iter().enumerate() {
-        let single_input = vec![(
-            reveal_transaction.input[i].clone(),
-            p.commit_prevout.clone(),
-        )];
         let mut owner_outputs: Vec<TxOut> = Vec::new();
         if params.chained_script_data.is_some() {
             // One P2TR chained output at envelope
@@ -728,12 +695,17 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                 script_pubkey: ScriptBuf::from_bytes(vec![0; 34]),
             });
         }
-        if let Some(v) = calculate_change(
-            f_for_index(i),
-            single_input,
+        let (ref tap_script, ref control_block) = commit_scripts[i];
+        if let Some(v) = calculate_change_single(
+            (
+                reveal_transaction.input[i].clone(),
+                p.commit_prevout.clone(),
+            ),
             owner_outputs,
             params.fee_rate,
             false,
+            tap_script,
+            control_block,
         ) {
             if params.chained_script_data.is_some() {
                 if v > params.envelope {
@@ -813,33 +785,24 @@ pub fn build_tap_script_and_script_address(
     Ok((tap_script, taproot_spend_info, script_spendable_address))
 }
 
-fn calculate_change<F>(
-    f: F,
-    input_tuples: Vec<(TxIn, TxOut)>,
-    outputs: Vec<TxOut>,
+fn calculate_change_single(
+    input_tuple: (TxIn, TxOut),
+    mut outputs: Vec<TxOut>,
     fee_rate: FeeRate,
     change_output: bool,
-) -> Option<u64>
-where
-    F: Fn(usize, &mut Witness),
-{
-    let mut input_sum = 0;
-    let mut inputs = Vec::new();
-    input_tuples
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, (mut txin, txout))| {
-            f(i, &mut txin.witness);
-            inputs.push(txin);
-            input_sum += txout.value.to_sat();
-        });
+    tap_script: &ScriptBuf,
+    control_block: &ScriptBuf,
+) -> Option<u64> {
+    let (mut txin, txout) = input_tuple;
+    let mut witness = Witness::new();
+    witness.push(vec![0; SCHNORR_SIGNATURE_SIZE]);
+    witness.push(tap_script.clone());
+    witness.push(control_block.clone());
+    txin.witness = witness;
 
-    let mut dummy_tx = Transaction {
-        version: Version(2),
-        lock_time: LockTime::ZERO,
-        input: inputs,
-        output: outputs,
-    };
+    let input_sum = txout.value.to_sat();
+
+    let mut dummy_tx = build_dummy_tx(vec![txin], std::mem::take(&mut outputs));
 
     if change_output {
         dummy_tx.output.push(TxOut {
@@ -847,8 +810,8 @@ where
             script_pubkey: ScriptBuf::from_bytes(vec![0; 34]),
         });
     }
-    let output_sum: u64 = dummy_tx.output.iter().map(|o| o.value.to_sat()).sum();
 
+    let output_sum: u64 = dummy_tx.output.iter().map(|o| o.value.to_sat()).sum();
     let vsize = dummy_tx.vsize() as u64;
     let fee = fee_rate
         .fee_vb(vsize)
@@ -878,24 +841,13 @@ fn estimate_reveal_fee_for_address(
     envelope: u64,
     fee_rate: FeeRate,
 ) -> u64 {
-    let mut dummy = Transaction {
-        version: Version(2),
-        lock_time: LockTime::ZERO,
-        input: vec![TxIn {
-            previous_output: OutPoint {
-                txid: Txid::from_str(
-                    "0000000000000000000000000000000000000000000000000000000000000000",
-                )
-                .unwrap(),
-                vout: 0,
-            },
-            ..Default::default()
-        }],
-        output: vec![TxOut {
+    let mut dummy = build_dummy_tx(
+        vec![dummy_txin()],
+        vec![TxOut {
             value: Amount::from_sat(envelope),
             script_pubkey: ScriptBuf::from_bytes(vec![0u8; recipient_spk_len]),
         }],
-    };
+    );
     let mut w = Witness::new();
     w.push(vec![0u8; 65]);
     w.push(tap_script.clone());
@@ -910,35 +862,23 @@ fn estimate_reveal_fee_for_address(
     fee_rate.fee_vb(vb).expect("fee calc").to_sat()
 }
 
-fn estimate_commit_delta_fee<F>(
+fn estimate_commit_delta_fee(
     base_tx: &Transaction,
     new_inputs_count: usize,
-    f: F,
     script_spk_len: usize,
     change_spk_len: usize,
     fee_rate: FeeRate,
-) -> u64
-where
-    F: Fn(usize, &mut Witness),
-{
+) -> u64 {
     let before_vb = tx_vbytes_est(base_tx);
     let mut temp = base_tx.clone();
-    for i in 0..new_inputs_count {
-        temp.input.push(TxIn {
-            previous_output: OutPoint {
-                txid: Txid::from_str(
-                    "0000000000000000000000000000000000000000000000000000000000000000",
-                )
-                .unwrap(),
-                vout: 0,
-            },
-            ..Default::default()
-        });
+    (0..new_inputs_count).for_each(|_| {
+        temp.input.push(dummy_txin());
         let idx = temp.input.len() - 1;
         let mut w = Witness::new();
-        f(i, &mut w);
+        // Model key-path spend for commit inputs: single Schnorr signature
+        w.push(vec![0u8; SCHNORR_SIGNATURE_SIZE]);
         temp.input[idx].witness = w;
-    }
+    });
     temp.output.push(TxOut {
         value: Amount::from_sat(0),
         script_pubkey: ScriptBuf::from_bytes(vec![0u8; script_spk_len]),
@@ -950,6 +890,43 @@ where
     let after_vb = tx_vbytes_est(&temp);
     let delta_vb = after_vb.saturating_sub(before_vb);
     fee_rate.fee_vb(delta_vb).expect("fee calc").to_sat()
+}
+
+fn build_dummy_tx(inputs: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
+    Transaction {
+        version: Version(2),
+        lock_time: LockTime::ZERO,
+        input: inputs,
+        output: outputs,
+    }
+}
+
+fn dummy_txin() -> TxIn {
+    TxIn {
+        previous_output: OutPoint {
+            txid: Txid::from_str(
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            )
+            .unwrap(),
+            vout: 0,
+        },
+        ..Default::default()
+    }
+}
+
+fn split_even_chunks(data: &[u8], parts: usize) -> Vec<Vec<u8>> {
+    assert!(parts > 0, "parts must be > 0");
+    let total = data.len();
+    let base = total / parts;
+    let rem = total % parts;
+    let mut chunks = Vec::with_capacity(parts);
+    let mut off = 0usize;
+    for i in 0..parts {
+        let take = base + if i < rem { 1 } else { 0 };
+        chunks.push(data[off..off + take].to_vec());
+        off += take;
+    }
+    chunks
 }
 
 async fn get_utxos(bitcoin_client: &Client, utxo_ids: String) -> Result<Vec<(OutPoint, TxOut)>> {
