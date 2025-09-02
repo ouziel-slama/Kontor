@@ -11,8 +11,7 @@ use bitcoin::{
 };
 use clap::Parser;
 use indexer::api::compose::compose;
-
-use indexer::api::compose::ComposeInputs;
+use indexer::api::compose::{ComposeAddressInputs, ComposeInputs};
 use indexer::config::TestConfig;
 use indexer::test_utils;
 use indexer::witness_data::TokenBalance;
@@ -58,9 +57,11 @@ async fn test_taproot_transaction_testnet() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     let compose_params = ComposeInputs::builder()
-        .address(seller_address.clone())
-        .x_only_public_key(internal_key)
-        .funding_utxos(vec![(out_point, utxo_for_output.clone())])
+        .addresses(vec![ComposeAddressInputs {
+            address: seller_address.clone(),
+            x_only_public_key: internal_key,
+            funding_utxos: vec![(out_point, utxo_for_output.clone())],
+        }])
         .script_data(serialized_token_balance)
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
@@ -70,7 +71,7 @@ async fn test_taproot_transaction_testnet() -> Result<()> {
 
     let mut attach_tx = compose_outputs.commit_transaction;
     let mut spend_tx = compose_outputs.reveal_transaction;
-    let tap_script = compose_outputs.tap_script;
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
 
     // Sign the attach transaction
     test_utils::sign_key_spend(
@@ -195,9 +196,11 @@ async fn test_compose_progressive_size_limit_testnet() -> Result<()> {
 
         // Compose transaction
         let compose_params = ComposeInputs::builder()
-            .address(seller_address.clone())
-            .x_only_public_key(internal_key)
-            .funding_utxos(available_utxos.clone())
+            .addresses(vec![ComposeAddressInputs {
+                address: seller_address.clone(),
+                x_only_public_key: internal_key,
+                funding_utxos: available_utxos.clone(),
+            }])
             .script_data(data)
             .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
             .envelope(546)
@@ -206,14 +209,22 @@ async fn test_compose_progressive_size_limit_testnet() -> Result<()> {
 
         let mut attach_tx = compose_outputs.commit_transaction;
         let mut spend_tx = compose_outputs.reveal_transaction;
-        let tap_script = compose_outputs.tap_script;
+        let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
 
-        // Sign multiple inputs of the commit transaction
-        let all_utxos: Vec<TxOut> = available_utxos
+        // Sign commit inputs with correctly ordered prevouts matching the selected inputs
+        let commit_prevouts: Vec<TxOut> = attach_tx
+            .input
             .iter()
-            .map(|(_, utxo)| utxo.clone())
+            .map(|txin| {
+                let op = txin.previous_output;
+                available_utxos
+                    .iter()
+                    .find(|(outpoint, _)| outpoint.txid == op.txid && outpoint.vout == op.vout)
+                    .map(|(_, utxo)| utxo.clone())
+                    .expect("matching prevout for commit input")
+            })
             .collect();
-        test_utils::sign_multiple_key_spend(&secp, &mut attach_tx, &all_utxos, &keypair)?;
+        test_utils::sign_multiple_key_spend(&secp, &mut attach_tx, &commit_prevouts, &keypair)?;
 
         // Sign the script_spend input for the reveal transaction
         let spend_tx_prevouts = vec![attach_tx.output[0].clone()];

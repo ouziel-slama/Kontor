@@ -10,8 +10,7 @@ use bitcoin::{
 };
 use clap::Parser;
 use indexer::api::compose::compose;
-
-use indexer::api::compose::ComposeInputs;
+use indexer::api::compose::{ComposeAddressInputs, ComposeInputs};
 use indexer::config::TestConfig;
 use indexer::test_utils;
 use indexer::witness_data::TokenBalance;
@@ -53,9 +52,11 @@ async fn test_taproot_transaction() -> Result<()> {
     ciborium::into_writer(&token_balance, &mut serialized_token_balance).unwrap();
 
     let compose_params = ComposeInputs::builder()
-        .address(seller_address.clone())
-        .x_only_public_key(internal_key)
-        .funding_utxos(vec![(out_point, utxo_for_output.clone())])
+        .addresses(vec![ComposeAddressInputs {
+            address: seller_address.clone(),
+            x_only_public_key: internal_key,
+            funding_utxos: vec![(out_point, utxo_for_output.clone())],
+        }])
         .script_data(serialized_token_balance)
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
@@ -65,7 +66,7 @@ async fn test_taproot_transaction() -> Result<()> {
 
     let mut attach_tx = compose_outputs.commit_transaction;
     let mut spend_tx = compose_outputs.reveal_transaction;
-    let tap_script = compose_outputs.tap_script;
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
 
     // Sign the attach transaction
     test_utils::sign_key_spend(
