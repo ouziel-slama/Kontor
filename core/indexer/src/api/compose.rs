@@ -310,7 +310,11 @@ impl RevealInputs {
                 .get_raw_transaction(&commit_outpoint.txid)
                 .await
                 .map_err(|e| anyhow!("Failed to fetch transaction: {}", e))?;
-            let commit_prevout = tx.output[commit_outpoint.vout as usize].clone();
+            let commit_prevout = tx
+                .output
+                .get(commit_outpoint.vout as usize)
+                .cloned()
+                .ok_or_else(|| anyhow!("commit vout {} out of bounds", commit_outpoint.vout))?;
             let commit_script_data = p.commit_script_data.clone();
 
             participants_inputs.push(RevealParticipantInputs {
@@ -408,7 +412,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
     if params.script_data.is_empty() {
         return Err(anyhow!("script data cannot be empty"));
     }
-    let chunks = split_even_chunks(&params.script_data, num_addrs);
+    let chunks = split_even_chunks(&params.script_data, num_addrs)?;
 
     let mut per_participant_tap: Vec<TapScriptPair> = Vec::with_capacity(num_addrs);
 
@@ -426,7 +430,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
             addr.address.script_pubkey().len(),
             params.envelope,
             params.fee_rate,
-        );
+        )?;
 
         // Script output must cover envelope + reveal fee
         let script_value = params.envelope.saturating_add(reveal_fee);
@@ -494,7 +498,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         let with_change_fee = params
             .fee_rate
             .fee_vb(with_change_vb)
-            .expect("fee calc")
+            .ok_or(anyhow!("fee calculation overflow"))?
             .to_sat();
 
         // If we do NOT add change, miner fee will be: selected_sum - script_value - base_fee.
@@ -629,7 +633,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         Vec::with_capacity(params.participants.len());
     if let Some(chained) = params.chained_script_data.clone() {
         let n = params.participants.len();
-        let chunks = split_even_chunks(&chained, n);
+        let chunks = split_even_chunks(&chained, n)?;
         for (i, p) in params.participants.iter().enumerate() {
             let chunk = chunks[i].clone();
 
@@ -668,11 +672,11 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         let (tap_script, tap_info, _) =
             build_tap_script_and_script_address(p.x_only_public_key, p.commit_script_data.clone())?;
         let _ = tap_script; // not needed further here
-        psbt.inputs[idx].tap_merkle_root = Some(
-            tap_info
-                .merkle_root()
-                .expect("merkle root present for provided script"),
-        );
+        if let Some(root) = tap_info.merkle_root() {
+            psbt.inputs[idx].tap_merkle_root = Some(root);
+        } else {
+            return Err(anyhow!("missing tap merkle root for provided script"));
+        }
     }
 
     // For each owner, compute standalone change using single-input sizing with fixed witness shape
@@ -774,7 +778,7 @@ pub fn build_tap_script_and_script_address(
     Ok((tap_script, taproot_spend_info, script_spendable_address))
 }
 
-fn calculate_change_single(
+pub fn calculate_change_single(
     mut outputs: Vec<TxOut>,
     input_tuple: (TxIn, TxOut),
     tap_script: &ScriptBuf,
@@ -800,16 +804,16 @@ fn calculate_change_single(
 
     let output_sum: u64 = dummy_tx.output.iter().map(|o| o.value.to_sat()).sum();
     let vsize = dummy_tx.vsize() as u64;
-    let fee = fee_rate
-        .fee_vb(vsize)
-        .expect("Fee calculation should not overflow")
-        .to_sat();
+    let fee = match fee_rate.fee_vb(vsize) {
+        Some(a) => a.to_sat(),
+        None => return None,
+    };
 
     input_sum.checked_sub(output_sum + fee)
 }
 
 // Fee estimation helpers for commit/reveal
-fn tx_vbytes_est(tx: &Transaction) -> u64 {
+pub fn tx_vbytes_est(tx: &Transaction) -> u64 {
     let mut no_wit = tx.clone();
     for inp in &mut no_wit.input {
         inp.witness = Witness::new();
@@ -821,13 +825,13 @@ fn tx_vbytes_est(tx: &Transaction) -> u64 {
     weight.div_ceil(4)
 }
 
-fn estimate_reveal_fee_for_address(
+pub fn estimate_reveal_fee_for_address(
     tap_script: &ScriptBuf,
     tap_info: &TaprootSpendInfo,
     recipient_spk_len: usize,
     envelope: u64,
     fee_rate: FeeRate,
-) -> u64 {
+) -> Result<u64> {
     let mut dummy = build_dummy_tx(
         vec![dummy_txin()],
         vec![TxOut {
@@ -838,18 +842,20 @@ fn estimate_reveal_fee_for_address(
     let mut w = Witness::new();
     w.push(vec![0u8; 65]);
     w.push(tap_script.clone());
-    w.push(
-        tap_info
-            .control_block(&(tap_script.clone(), LeafVersion::TapScript))
-            .expect("cb")
-            .serialize(),
-    );
+    if let Some(cb) = tap_info.control_block(&(tap_script.clone(), LeafVersion::TapScript)) {
+        w.push(cb.serialize());
+    } else {
+        // If control block cannot be created, fall back to zero fee estimate
+        return Err(anyhow!("failed to create control block"));
+    }
     dummy.input[0].witness = w;
     let vb = tx_vbytes_est(&dummy);
-    fee_rate.fee_vb(vb).expect("fee calc").to_sat()
+    fee_rate
+        .fee_vb(vb)
+        .map_or(Err(anyhow!("fee calculation overflow")), |a| Ok(a.to_sat()))
 }
 
-fn estimate_commit_delta_fee(
+pub fn estimate_commit_delta_fee(
     base_tx: &Transaction,
     new_inputs_count: usize,
     script_spk_len: usize,
@@ -876,10 +882,10 @@ fn estimate_commit_delta_fee(
     });
     let after_vb = tx_vbytes_est(&temp);
     let delta_vb = after_vb.saturating_sub(before_vb);
-    fee_rate.fee_vb(delta_vb).expect("fee calc").to_sat()
+    fee_rate.fee_vb(delta_vb).map_or(0, |a| a.to_sat())
 }
 
-fn build_dummy_tx(inputs: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
+pub fn build_dummy_tx(inputs: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
     Transaction {
         version: Version(2),
         lock_time: LockTime::ZERO,
@@ -890,19 +896,14 @@ fn build_dummy_tx(inputs: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
 
 fn dummy_txin() -> TxIn {
     TxIn {
-        previous_output: OutPoint {
-            txid: Txid::from_str(
-                "0000000000000000000000000000000000000000000000000000000000000000",
-            )
-            .unwrap(),
-            vout: 0,
-        },
         ..Default::default()
     }
 }
 
-fn split_even_chunks(data: &[u8], parts: usize) -> Vec<Vec<u8>> {
-    assert!(parts > 0, "parts must be > 0");
+pub fn split_even_chunks(data: &[u8], parts: usize) -> Result<Vec<Vec<u8>>> {
+    if parts == 0 {
+        return Err(anyhow!("parts must be > 0"));
+    }
     let total = data.len();
     let base = total / parts;
     let rem = total % parts;
@@ -913,7 +914,7 @@ fn split_even_chunks(data: &[u8], parts: usize) -> Vec<Vec<u8>> {
         chunks.push(data[off..off + take].to_vec());
         off += take;
     }
-    chunks
+    Ok(chunks)
 }
 
 async fn get_utxos(bitcoin_client: &Client, utxo_ids: String) -> Result<Vec<(OutPoint, TxOut)>> {
@@ -948,11 +949,20 @@ async fn get_utxos(bitcoin_client: &Client, utxo_ids: String) -> Result<Vec<(Out
         return Err(anyhow!("No funding transactions found"));
     }
 
-    let funding_utxos: Vec<(OutPoint, TxOut)> = outpoints
-        .into_iter()
-        .zip(funding_txs.into_iter())
-        .map(|(outpoint, tx)| (outpoint, tx.output[outpoint.vout as usize].clone()))
-        .collect();
+    let mut funding_utxos: Vec<(OutPoint, TxOut)> = Vec::with_capacity(outpoints.len());
+    for (outpoint, tx) in outpoints.into_iter().zip(funding_txs.into_iter()) {
+        let maybe_prevout = tx.output.get(outpoint.vout as usize).cloned();
+        match maybe_prevout {
+            Some(prevout) => funding_utxos.push((outpoint, prevout)),
+            None => {
+                return Err(anyhow!(
+                    "vout {} out of bounds for tx {}",
+                    outpoint.vout,
+                    outpoint.txid
+                ));
+            }
+        }
+    }
 
     Ok(funding_utxos)
 }
