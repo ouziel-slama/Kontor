@@ -2,6 +2,7 @@ mod dot_path_buf;
 mod storage_interface;
 
 pub use dot_path_buf::*;
+pub use indexer::runtime::wit::kontor::built_in::numbers::Integer;
 pub use macros::{Root, Storage, StorageRoot, Store, Wavey, Wrapper, contract, import};
 pub use storage_interface::*;
 pub use wasm_wave;
@@ -65,6 +66,12 @@ impl Store for () {
     }
 }
 
+impl Store for Integer {
+    fn __set(ctx: &impl WriteContext, path: DotPathBuf, int: Integer) {
+        ctx.__set_str(&path, &int.value);
+    }
+}
+
 impl Retrieve for u64 {
     fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
         ctx.__get_u64(&path)
@@ -80,5 +87,11 @@ impl Retrieve for i64 {
 impl Retrieve for String {
     fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
         ctx.__get_str(&path)
+    }
+}
+
+impl Retrieve for Integer {
+    fn __get(ctx: &impl ReadContext, path: DotPathBuf) -> Option<Self> {
+        ctx.__get_str(&path).map(|v| Integer { value: v })
     }
 }

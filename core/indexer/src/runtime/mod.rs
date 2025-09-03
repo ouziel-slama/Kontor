@@ -25,6 +25,7 @@ use std::{
 use wit::kontor::*;
 
 pub use wit::kontor::built_in::error::Error;
+pub use wit::kontor::built_in::numbers::Integer;
 pub use wit::kontor::built_in::foreign::ContractAddress;
 
 use anyhow::{Result, anyhow};
@@ -88,6 +89,13 @@ impl From<wasm_wave::value::Value> for Error {
             }
             key_ => panic!("Unknown tag {}", key_),
         }
+    }
+}
+
+impl Integer {
+    pub fn wave_type() -> wasm_wave::value::Type {
+        wasm_wave::value::Type::variant([("message", Some(wasm_wave::value::Type::STRING))])
+            .unwrap()
     }
 }
 
@@ -454,6 +462,24 @@ impl built_in::crypto::Host for Runtime {
         );
         self.id_generation_counter.increment().await;
         self.hash(s).await.map(|(s, _)| s)
+    }
+}
+
+impl built_in::numbers::Host for Runtime {
+}
+
+impl built_in::numbers::HostInteger for Runtime {
+    async fn drop(&mut self, resource: Resource<Integer>) -> Result<()> {
+        let _res = self.table.lock().await.delete(resource)?;
+        Ok(())
+    }
+
+    async fn add(
+        &mut self,
+        a: Resource<Integer>,
+        _b: Resource<Integer>,
+    ) -> Result<Resource<Integer>, anyhow::Error> {
+        Ok(a)
     }
 }
 

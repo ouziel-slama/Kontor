@@ -64,9 +64,16 @@ interface error {
     meta-force-generate-error: func(e: error);
 }
 
+interface numbers {
+    resource integer {
+        add: static func(a: integer, b: integer) -> integer;
+    }
+}
+
 world built-in {
     import context;
     import foreign;
     import crypto;
     import error;
+	import numbers;
 }

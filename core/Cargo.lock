@@ -2152,7 +2152,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sha2",
- "stdlib",
  "tempfile",
  "testlib",
  "thiserror 2.0.14",
@@ -3873,6 +3872,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "stdlib"
 version = "0.1.0"
 dependencies = [
+ "indexer",
  "macros",
  "macrotest",
  "trybuild",

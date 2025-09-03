@@ -37,3 +37,8 @@ impl HasContractId for FallContext {
         self.contract_id
     }
 }
+
+#[derive(Clone)]
+pub struct Integer {
+    pub value: String,
+}
