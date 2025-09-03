@@ -1,3 +1,7 @@
+use std::fmt;
+
+use crate::runtime::ContractAddress;
+
 pub trait HasContractId: 'static {
     fn get_contract_id(&self) -> i64;
 }
@@ -12,13 +16,24 @@ impl HasContractId for ViewContext {
     }
 }
 
-pub struct Signer {
-    pub signer: String,
+#[derive(Clone)]
+pub enum Signer {
+    XOnlyPubKey(String),
+    ContractAddress(ContractAddress),
+}
+
+impl fmt::Display for Signer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::XOnlyPubKey(s) => write!(f, "{}", s),
+            Self::ContractAddress(contract_address) => write!(f, "{}", contract_address),
+        }
+    }
 }
 
 pub struct ProcContext {
     pub contract_id: i64,
-    pub signer: String,
+    pub signer: Signer,
 }
 
 impl HasContractId for ProcContext {
@@ -29,7 +44,7 @@ impl HasContractId for ProcContext {
 
 pub struct FallContext {
     pub contract_id: i64,
-    pub signer: Option<String>,
+    pub signer: Option<Signer>,
 }
 
 impl HasContractId for FallContext {

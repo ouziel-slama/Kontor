@@ -102,6 +102,12 @@ impl ContractAddress {
     }
 }
 
+impl fmt::Display for ContractAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}_{}_{}", self.name, self.height, self.tx_index)
+    }
+}
+
 impl From<ContractAddress> for wasm_wave::value::Value {
     fn from(value_: ContractAddress) -> Self {
         wasm_wave::value::Value::make_record(
@@ -225,7 +231,7 @@ impl Runtime {
 
     pub async fn execute(
         &self,
-        signer: Option<&str>,
+        signer: Option<Signer>,
         contract_address: &ContractAddress,
         expr: &str,
     ) -> Result<String> {
@@ -276,7 +282,7 @@ impl Runtime {
                         wasmtime::component::Val::Resource(
                             table
                                 .push(ProcContext {
-                                    signer: signer.to_string(),
+                                    signer,
                                     contract_id,
                                 })?
                                 .try_into_resource_any(&mut store)?,
@@ -298,7 +304,7 @@ impl Runtime {
                         wasmtime::component::Val::Resource(
                             table
                                 .push(FallContext {
-                                    signer: signer.map(|s| s.to_string()),
+                                    signer,
                                     contract_id,
                                 })?
                                 .try_into_resource_any(&mut store)?,
@@ -467,12 +473,11 @@ impl built_in::foreign::Host for Runtime {
         let signer = if let Some(resource) = signer {
             let table = self.table.lock().await;
             let _self = table.get(&resource)?;
-            Some(_self.signer.clone())
+            Some(_self.clone())
         } else {
             None
         };
-        self.execute(signer.as_deref(), &contract_address, &expr)
-            .await
+        self.execute(signer, &contract_address, &expr).await
     }
 }
 
@@ -527,7 +532,7 @@ impl built_in::context::HostViewContext for Runtime {
 
 impl built_in::context::HostSigner for Runtime {
     async fn to_string(&mut self, resource: Resource<Signer>) -> Result<String> {
-        Ok(self.table.lock().await.get(&resource)?.signer.clone())
+        Ok(self.table.lock().await.get(&resource)?.to_string())
     }
 
     async fn drop(&mut self, resource: Resource<Signer>) -> Result<()> {
@@ -622,7 +627,7 @@ impl built_in::context::HostProcContext for Runtime {
         let mut table = self.table.lock().await;
         let _self = table.get(&resource)?;
         let signer = _self.signer.clone();
-        Ok(table.push(Signer { signer })?)
+        Ok(table.push(signer)?)
     }
 
     async fn view_context(
@@ -647,7 +652,7 @@ impl built_in::context::HostFallContext for Runtime {
     ) -> Result<Option<Resource<Signer>>> {
         let mut table = self.table.lock().await;
         if let Some(signer) = table.get(&resource)?.signer.clone() {
-            Ok(Some(table.push(Signer { signer })?))
+            Ok(Some(table.push(signer)?))
         } else {
             Ok(None)
         }
