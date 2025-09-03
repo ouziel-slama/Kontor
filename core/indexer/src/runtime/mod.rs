@@ -344,11 +344,11 @@ impl Runtime {
         ))
     }
 
-    async fn _get_str<T: HasContractId>(
+    async fn _get_primitive<T: HasContractId, R: for<'de> Deserialize<'de>>(
         &mut self,
         resource: Resource<T>,
         path: String,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<R>> {
         let table = self.table.lock().await;
         let _self = table.get(&resource)?;
         self.storage
@@ -356,6 +356,14 @@ impl Runtime {
             .await?
             .map(|bs| deserialize_cbor(&bs))
             .transpose()
+    }
+
+    async fn _get_str<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        path: String,
+    ) -> Result<Option<String>> {
+        self._get_primitive(resource, path).await
     }
 
     async fn _get_u64<T: HasContractId>(
@@ -363,13 +371,7 @@ impl Runtime {
         resource: Resource<T>,
         path: String,
     ) -> Result<Option<u64>> {
-        let table = self.table.lock().await;
-        let _self = table.get(&resource)?;
-        self.storage
-            .get(_self.get_contract_id(), &path)
-            .await?
-            .map(|bs| deserialize_cbor(&bs))
-            .transpose()
+        self._get_primitive(resource, path).await
     }
 
     async fn _get_s64<T: HasContractId>(
@@ -377,13 +379,15 @@ impl Runtime {
         resource: Resource<T>,
         path: String,
     ) -> Result<Option<i64>> {
-        let table = self.table.lock().await;
-        let _self = table.get(&resource)?;
-        self.storage
-            .get(_self.get_contract_id(), &path)
-            .await?
-            .map(|bs| deserialize_cbor(&bs))
-            .transpose()
+        self._get_primitive(resource, path).await
+    }
+
+    async fn _get_bool<T: HasContractId>(
+        &mut self,
+        resource: Resource<T>,
+        path: String,
+    ) -> Result<Option<bool>> {
+        self._get_primitive(resource, path).await
     }
 
     async fn _is_void<T: HasContractId>(
@@ -423,6 +427,18 @@ impl Runtime {
         let _self = table.get(&resource)?;
         self.storage
             .matching_path(_self.get_contract_id(), &regexp)
+            .await
+    }
+
+    async fn _set_primitive<T: Serialize>(
+        &mut self,
+        resource: Resource<ProcContext>,
+        path: String,
+        value: T,
+    ) -> Result<()> {
+        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
+        self.storage
+            .set(contract_id, &path, &serialize_cbor(&value)?)
             .await
     }
 }
@@ -508,6 +524,14 @@ impl built_in::context::HostViewContext for Runtime {
         self._get_s64(resource, path).await
     }
 
+    async fn get_bool(
+        &mut self,
+        resource: Resource<ViewContext>,
+        path: String,
+    ) -> Result<Option<bool>> {
+        self._get_bool(resource, path).await
+    }
+
     async fn is_void(&mut self, resource: Resource<ViewContext>, path: String) -> Result<bool> {
         self._is_void(resource, path).await
     }
@@ -556,10 +580,7 @@ impl built_in::context::HostProcContext for Runtime {
         path: String,
         value: String,
     ) -> Result<()> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage
-            .set(contract_id, &path, &serialize_cbor(&value)?)
-            .await
+        self._set_primitive(resource, path, value).await
     }
 
     async fn get_u64(
@@ -576,10 +597,7 @@ impl built_in::context::HostProcContext for Runtime {
         path: String,
         value: u64,
     ) -> Result<()> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage
-            .set(contract_id, &path, &serialize_cbor(&value)?)
-            .await
+        self._set_primitive(resource, path, value).await
     }
 
     async fn get_s64(
@@ -596,10 +614,24 @@ impl built_in::context::HostProcContext for Runtime {
         path: String,
         value: i64,
     ) -> Result<()> {
-        let contract_id = self.table.lock().await.get(&resource)?.contract_id;
-        self.storage
-            .set(contract_id, &path, &serialize_cbor(&value)?)
-            .await
+        self._set_primitive(resource, path, value).await
+    }
+
+    async fn get_bool(
+        &mut self,
+        resource: Resource<ProcContext>,
+        path: String,
+    ) -> Result<Option<bool>> {
+        self._get_bool(resource, path).await
+    }
+
+    async fn set_bool(
+        &mut self,
+        resource: Resource<ProcContext>,
+        path: String,
+        value: bool,
+    ) -> Result<()> {
+        self._set_primitive(resource, path, value).await
     }
 
     async fn set_void(&mut self, resource: Resource<ProcContext>, path: String) -> Result<()> {
@@ -627,6 +659,16 @@ impl built_in::context::HostProcContext for Runtime {
         let mut table = self.table.lock().await;
         let _self = table.get(&resource)?;
         let signer = _self.signer.clone();
+        Ok(table.push(signer)?)
+    }
+
+    async fn contract_signer(
+        &mut self,
+        resource: Resource<ProcContext>,
+    ) -> Result<Resource<Signer>> {
+        let mut table = self.table.lock().await;
+        let _self = table.get(&resource)?;
+        let signer = Signer::ContractId(_self.contract_id);
         Ok(table.push(signer)?)
     }
 

@@ -1,7 +1,5 @@
 use std::fmt;
 
-use crate::runtime::ContractAddress;
-
 pub trait HasContractId: 'static {
     fn get_contract_id(&self) -> i64;
 }
@@ -19,14 +17,14 @@ impl HasContractId for ViewContext {
 #[derive(Clone)]
 pub enum Signer {
     XOnlyPubKey(String),
-    ContractAddress(ContractAddress),
+    ContractId(i64),
 }
 
 impl fmt::Display for Signer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::XOnlyPubKey(s) => write!(f, "{}", s),
-            Self::ContractAddress(contract_address) => write!(f, "{}", contract_address),
+            Self::ContractId(id) => write!(f, "__cid__{}", id),
         }
     }
 }
