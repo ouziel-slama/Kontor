@@ -1,4 +1,5 @@
 use bitcoin::BlockHash;
+use futures_util::{Stream, stream};
 use libsql::{Connection, de::from_row, named_params, params};
 use thiserror::Error as ThisError;
 
@@ -216,6 +217,33 @@ pub async fn exists_contract_state(
         )
         .await?;
     Ok(rows.next().await?.is_some())
+}
+
+const PATH_PREFIX_FILTER_QUERY: &str = include_str!("sql/path_prefix_filter_query.sql");
+
+pub async fn path_prefix_filter_contract_state(
+    conn: &Connection,
+    contract_id: i64,
+    path: &str,
+) -> Result<impl Stream<Item = Result<String, libsql::Error>>, Error> {
+    let rows = conn
+        .query(
+            PATH_PREFIX_FILTER_QUERY,
+            ((":contract_id", contract_id), (":path", path)),
+        )
+        .await?;
+    let stream = stream::unfold(rows, |mut rows| async move {
+        match rows.next().await {
+            Ok(Some(row)) => match row.get::<String>(0) {
+                Ok(path) => Some((Ok(path), rows)),
+                Err(e) => Some((Err(e), rows)),
+            },
+            Ok(None) => None,
+            Err(e) => Some((Err(e), rows)),
+        }
+    });
+
+    Ok(stream)
 }
 
 fn base_matching_path_contract_state_query() -> String {
