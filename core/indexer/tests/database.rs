@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use futures_util::TryStreamExt;
 use indexer::{
     bitcoin_client::Client,
     config::Config,
@@ -9,7 +10,8 @@ use indexer::{
             get_contract_bytes_by_address, get_contract_bytes_by_id, get_contract_id_from_address,
             get_latest_contract_state, get_latest_contract_state_value, get_transaction_by_id,
             get_transaction_by_txid, get_transactions_at_height, insert_block, insert_contract,
-            insert_contract_state, insert_transaction, matching_path, select_block_at_height,
+            insert_contract_state, insert_transaction, matching_path,
+            path_prefix_filter_contract_state, select_block_at_height,
             select_block_by_height_or_hash, select_block_latest,
         },
         types::{BlockRow, ContractRow, ContractStateRow, TransactionRow},
@@ -449,5 +451,73 @@ async fn test_contracts() -> Result<()> {
         .unwrap();
     let bytes = get_contract_bytes_by_id(&conn, id).await?.unwrap();
     assert_eq!(bytes, row.bytes);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_map_keys() -> Result<()> {
+    let config = Config::try_parse()?;
+    let (_reader, writer, _temp_dir) = new_test_db(&config).await?;
+    let conn = writer.connection();
+
+    let height = 800000;
+    let block1 = BlockRow {
+        height,
+        hash: "000000000000000000015d76e1b13f62d0edc4593ed326528c37b5af3c3fba04".parse()?,
+    };
+
+    insert_block(&conn, block1.clone()).await?;
+
+    let contract_id = 123;
+    let path = "test.path";
+    let value = vec![1, 2, 3, 4];
+    let tx_id = 1;
+
+    let contract_state = ContractStateRow::builder()
+        .contract_id(contract_id)
+        .tx_id(tx_id)
+        .height(height)
+        .path(format!("{}.key0.foo", path))
+        .value(value.clone())
+        .build();
+
+    insert_contract_state(&conn, contract_state).await?;
+
+    let contract_state = ContractStateRow::builder()
+        .contract_id(contract_id)
+        .tx_id(tx_id)
+        .height(height)
+        .path(format!("{}.key0.bar", path))
+        .value(value.clone())
+        .build();
+
+    insert_contract_state(&conn, contract_state).await?;
+
+    let contract_state = ContractStateRow::builder()
+        .contract_id(contract_id)
+        .tx_id(tx_id + 1)
+        .height(height)
+        .path(format!("{}.key2", path))
+        .value(value.clone())
+        .build();
+    insert_contract_state(&conn, contract_state).await?;
+
+    let contract_state = ContractStateRow::builder()
+        .contract_id(contract_id)
+        .tx_id(tx_id + 2)
+        .height(height)
+        .path(format!("{}.key1", path))
+        .value(value.clone())
+        .build();
+    insert_contract_state(&conn, contract_state).await?;
+
+    let stream =
+        path_prefix_filter_contract_state(&conn, contract_id, "test.path".to_string()).await?;
+    let paths = stream.try_collect::<Vec<String>>().await?;
+    assert_eq!(paths.len(), 3);
+    assert_eq!(paths[0], "key0");
+    assert_eq!(paths[1], "key1");
+    assert_eq!(paths[2], "key2");
+
     Ok(())
 }
