@@ -437,7 +437,8 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
 
         // Select only necessary UTXOs for this address to cover script_value + commit delta fee
         let mut utxos = addr.funding_utxos.clone();
-        utxos.sort_by_key(|(_, txout)| std::cmp::Reverse(txout.value.to_sat()));
+        // Sort ascending, then pop() to take largest-first deterministically
+        utxos.sort_by_key(|(_, txout)| txout.value.to_sat());
 
         let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
         let mut selected_sum: u64 = 0;
@@ -615,6 +616,8 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         output: vec![],
     };
 
+    // Track whether we've already added an OP_RETURN; policy generally allows only one
+    let mut op_return_added = false;
     // Optional OP_RETURN first (keeps vsize expectations stable)
     if let Some(data) = params.op_return_data.clone() {
         if data.len() > MAX_OP_RETURN_BYTES {
@@ -633,6 +636,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                 s
             },
         });
+        op_return_added = true;
     }
 
     // Precompute commit tapscripts/control blocks per participant for sizing and PSBT
@@ -683,22 +687,6 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         }
     }
 
-    // Prepare PSBT and set per-input metadata
-    let mut psbt = Psbt::from_unsigned_tx(reveal_transaction.clone())?;
-    for (idx, p) in params.participants.iter().enumerate() {
-        psbt.inputs[idx].witness_utxo = Some(p.commit_prevout.clone());
-        psbt.inputs[idx].tap_internal_key = Some(p.x_only_public_key);
-        // Use commit script merkle root
-        let (tap_script, tap_info, _) =
-            build_tap_script_and_script_address(p.x_only_public_key, p.commit_script_data.clone())?;
-        let _ = tap_script; // not needed further here
-        if let Some(root) = tap_info.merkle_root() {
-            psbt.inputs[idx].tap_merkle_root = Some(root);
-        } else {
-            return Err(anyhow!("missing tap merkle root for provided script"));
-        }
-    }
-
     // For each owner, compute standalone change using single-input sizing with fixed witness shape
     for (i, p) in params.participants.iter().enumerate() {
         let mut owner_outputs: Vec<TxOut> = Vec::new();
@@ -732,8 +720,8 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                     value: Amount::from_sat(v),
                     script_pubkey: p.address.script_pubkey(),
                 });
-            } else {
-                // Fallback: add OP_RETURN to avoid empty/dust outputs when payout cannot meet dust
+            } else if !op_return_added {
+                // Fallback: add a single OP_RETURN (at most one per tx) to avoid dust outputs
                 reveal_transaction.output.push(TxOut {
                     value: Amount::from_sat(0),
                     script_pubkey: {
@@ -743,7 +731,24 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                         s
                     },
                 });
+                op_return_added = true;
             }
+        }
+    }
+
+    // Now that reveal_transaction is finalized, build PSBT and set metadata
+    let mut psbt = Psbt::from_unsigned_tx(reveal_transaction.clone())?;
+    for (idx, p) in params.participants.iter().enumerate() {
+        psbt.inputs[idx].witness_utxo = Some(p.commit_prevout.clone());
+        psbt.inputs[idx].tap_internal_key = Some(p.x_only_public_key);
+        // Use commit script merkle root
+        let (tap_script, tap_info, _) =
+            build_tap_script_and_script_address(p.x_only_public_key, p.commit_script_data.clone())?;
+        let _ = tap_script; // not needed further here
+        if let Some(root) = tap_info.merkle_root() {
+            psbt.inputs[idx].tap_merkle_root = Some(root);
+        } else {
+            return Err(anyhow!("missing tap merkle root for provided script"));
         }
     }
 
