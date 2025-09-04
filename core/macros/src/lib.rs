@@ -182,6 +182,15 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
+        impl Default for Integer {
+            fn default() -> Self {
+                Self {
+                    value: "0".to_string(),
+                }
+            }
+        }
+
+        #[automatically_derived]
         impl Add for Integer {
             type Output = Self;
 

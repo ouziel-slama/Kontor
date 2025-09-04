@@ -8,15 +8,6 @@ struct TokenStorage {
     pub ledger: Map<String, Integer>,
 }
 
-// TODO move into macro?
-impl Default for Integer {
-    fn default() -> Self {
-        Self {
-            value: "0".to_string(),
-        }
-    }
-}
-
 impl Guest for Token {
     fn init(ctx: &ProcContext) {
         TokenStorage::default().init(ctx);

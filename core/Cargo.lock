@@ -2153,6 +2153,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sha2",
+ "stdlib",
  "tempfile",
  "testlib",
  "thiserror 2.0.14",
