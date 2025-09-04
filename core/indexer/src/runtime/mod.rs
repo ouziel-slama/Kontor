@@ -9,6 +9,7 @@ pub mod wit;
 pub use component_cache::ComponentCache;
 pub use contracts::{load_contracts, load_native_contracts};
 use libsql::Connection;
+use num::bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{error::Error as StdError, fmt};
@@ -20,13 +21,14 @@ pub use wit::Contract;
 use std::{
     io::{Cursor, Read},
     sync::Arc,
+    cmp::Ordering,
 };
 
 use wit::kontor::*;
 
 pub use wit::kontor::built_in::error::Error;
 pub use wit::kontor::built_in::foreign::ContractAddress;
-pub use wit::kontor::built_in::numbers::Integer;
+pub use wit::kontor::built_in::numbers::{self, Integer};
 
 use anyhow::{Result, anyhow};
 use wasm_wave::{self, wasm::WasmValue as _};
@@ -487,12 +489,6 @@ impl built_in::crypto::Host for Runtime {
     }
 }
 
-impl built_in::numbers::Host for Runtime {
-    async fn add(&mut self, a: Integer, _b: Integer) -> Result<Integer, anyhow::Error> {
-        Ok(a)
-    }
-}
-
 impl built_in::foreign::Host for Runtime {
     async fn call(
         &mut self,
@@ -743,5 +739,35 @@ impl built_in::context::HostFallContext for Runtime {
     async fn drop(&mut self, rep: Resource<FallContext>) -> Result<()> {
         let _res = self.table.lock().await.delete(rep)?;
         Ok(())
+    }
+}
+
+impl built_in::numbers::Host for Runtime {
+    async fn eq(&mut self, a: Integer, b: Integer) -> Result<bool, anyhow::Error> {
+        let big_a = a.value.parse::<BigInt>()?;
+        let big_b = b.value.parse::<BigInt>()?;
+        Ok(big_a == big_b)
+    }
+
+    async fn cmp(&mut self, a: Integer, b: Integer) -> Result<numbers::Ordering, anyhow::Error> {
+        let big_a = a.value.parse::<BigInt>()?;
+        let big_b = b.value.parse::<BigInt>()?;
+        Ok(match big_a.cmp(&big_b) {
+            Ordering::Less => numbers::Ordering::Less,
+            Ordering::Equal => numbers::Ordering::Equal,
+            Ordering::Greater => numbers::Ordering::Greater,
+        })
+    }
+
+    async fn add(&mut self, a: Integer, b: Integer) -> Result<Integer, anyhow::Error> {
+        let big_a = a.value.parse::<BigInt>()?;
+        let big_b = b.value.parse::<BigInt>()?;
+        Ok(Integer{ value: (big_a + big_b).to_string() })
+    }
+
+    async fn sub(&mut self, a: Integer, b: Integer) -> Result<Integer, anyhow::Error> {
+        let big_a = a.value.parse::<BigInt>()?;
+        let big_b = b.value.parse::<BigInt>()?;
+        Ok(Integer{ value: (big_a - big_b).to_string() })
     }
 }

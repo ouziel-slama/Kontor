@@ -42,6 +42,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
             export_macro_name: "__export__",
         });
 
+        use std::{cmp::Ordering, ops::{Add, Sub}};
         use kontor::built_in::*;
         use kontor::built_in::foreign::ContractAddressWrapper;
 
@@ -179,6 +180,54 @@ pub fn contract(input: TokenStream) -> TokenStream {
                 kontor::built_in::error::Error::Message(message.into())
             }
         }
+
+        #[automatically_derived]
+        impl Add for Integer {
+            type Output = Self;
+
+            fn add(self, other: Self) -> Self::Output {
+                numbers::add(&self, &other)
+            }
+        }
+
+        #[automatically_derived]
+        impl Sub for Integer {
+            type Output = Self;
+
+            fn sub(self, other: Self) -> Self::Output {
+                numbers::sub(&self, &other)
+            }
+        }
+
+        // TODO can we get this derived?
+        #[automatically_derived]
+        impl PartialOrd for Integer {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        #[automatically_derived]
+        impl Ord for Integer {
+            fn cmp(&self, other: &Self) -> Ordering {
+                match numbers::cmp(&self, &other) {
+                    numbers::Ordering::Less => Ordering::Less,
+                    numbers::Ordering::Equal => Ordering::Equal,
+                    numbers::Ordering::Greater => Ordering::Greater,
+                }
+            }
+        }
+
+        #[automatically_derived]
+        impl PartialEq for Integer {
+            fn eq(&self, other: &Self) -> bool {
+                numbers::eq(&self, &other)
+            }
+        }
+
+        #[automatically_derived]
+        impl Eq for Integer {}
+
 
         struct #name;
 

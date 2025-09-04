@@ -73,7 +73,17 @@ interface numbers {
 		value: string,
     }
 
+    enum ordering {
+		less,
+		equal,
+		greater
+    }
+
+	eq: func(a: integer, b: integer) -> bool;
+	cmp: func(a: integer, b: integer) -> ordering;
+
 	add: func(a: integer, b: integer) -> integer;
+	sub: func(a: integer, b: integer) -> integer;
 }
 
 world built-in {

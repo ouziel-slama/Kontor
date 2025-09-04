@@ -58,6 +58,7 @@ wit-component = { workspace = true }
 rand = "0.9.1"
 brotli = "8"
 sha2 = "0.10"
+num = "0.4.3"
 
 [dev-dependencies]
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }

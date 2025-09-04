@@ -50,7 +50,7 @@ impl Guest for Token {
             return Err(Error::Message("insufficient funds".to_string()));
         }
 
-        ledger.set(ctx, from, from_balance - n);
+        ledger.set(ctx, from, from_balance - n.clone());
         ledger.set(ctx, to, to_balance + n);
         Ok(())
     }
