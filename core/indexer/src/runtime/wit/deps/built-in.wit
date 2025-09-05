@@ -96,6 +96,9 @@ interface numbers {
 	mul-decimal: func(a: decimal, b: decimal) -> decimal;
 
 	log10: func(a: decimal) -> decimal;
+
+    meta-force-generate-integer: func(i: integer);
+    meta-force-generate-decimal: func(d: decimal);
 }
 
 world built-in {
