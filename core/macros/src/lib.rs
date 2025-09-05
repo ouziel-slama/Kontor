@@ -269,7 +269,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
-                numbers::add(&self, &other)
+                numbers::add_integer(&self, &other)
             }
         }
 
@@ -278,7 +278,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
-                numbers::sub(&self, &other)
+                numbers::sub_integer(&self, &other)
             }
         }
 
@@ -292,7 +292,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         #[automatically_derived]
         impl Ord for Integer {
             fn cmp(&self, other: &Self) -> Ordering {
-                match numbers::cmp(&self, &other) {
+                match numbers::cmp_integer(&self, &other) {
                     numbers::Ordering::Less => Ordering::Less,
                     numbers::Ordering::Equal => Ordering::Equal,
                     numbers::Ordering::Greater => Ordering::Greater,
@@ -318,6 +318,13 @@ pub fn contract(input: TokenStream) -> TokenStream {
                             "message",
                             Some(stdlib::wasm_wave::value::Value::from(operand)),
                         )
+                    },
+                    kontor::built_in::error::Error::Overflow(operand) => {
+                        stdlib::wasm_wave::value::Value::make_variant(
+                            &kontor::built_in::error::Error::wave_type(),
+                            "message",
+                            Some(stdlib::wasm_wave::value::Value::from(operand)),
+                        )
                     }
                 })
                     .unwrap()
@@ -330,6 +337,9 @@ pub fn contract(input: TokenStream) -> TokenStream {
                 match key_ {
                     key_ if key_.eq("message") => {
                         kontor::built_in::error::Error::Message(val_.unwrap().unwrap_string().into_owned())
+                    }
+                    key_ if key_.eq("overflow") => {
+                        kontor::built_in::error::Error::Overflow(val_.unwrap().unwrap_string().into_owned())
                     }
                     key_ => panic!("Unknown tag {}", key_),
                 }
@@ -407,7 +417,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         #[automatically_derived]
         impl PartialEq for Integer {
             fn eq(&self, other: &Self) -> bool {
-                numbers::eq(&self, &other)
+                numbers::eq_integer(&self, &other)
             }
         }
 

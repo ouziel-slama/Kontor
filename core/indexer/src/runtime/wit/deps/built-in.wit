@@ -69,6 +69,7 @@ interface crypto {
 interface error {
     variant error {
         message(string),
+        overflow(string),
     }
 
     meta-force-generate-error: func(e: error);
@@ -89,10 +90,10 @@ interface numbers {
 		greater
     }
 
-	eq: func(a: integer, b: integer) -> bool;
-	cmp: func(a: integer, b: integer) -> ordering;
-	add: func(a: integer, b: integer) -> integer;
-	sub: func(a: integer, b: integer) -> integer;
+	eq-integer: func(a: integer, b: integer) -> bool;
+	cmp-integer: func(a: integer, b: integer) -> ordering;
+	add-integer: func(a: integer, b: integer) -> integer;
+	sub-integer: func(a: integer, b: integer) -> integer;
 
 	integer-to-decimal: func(i: integer) -> decimal;
 	eq-decimal: func(a: decimal, b: decimal) -> bool;

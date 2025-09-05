@@ -20,7 +20,7 @@ impl Guest for Token {
             .get(ctx, &to)
             .map(|v| v.load(ctx))
             .unwrap_or_default();
-        ledger.set(ctx, to, numbers::add(&balance, &n));
+        ledger.set(ctx, to, balance + n);
     }
 
     fn transfer(ctx: &ProcContext, to: String, n: Integer) -> Result<(), Error> {

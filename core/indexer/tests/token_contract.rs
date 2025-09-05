@@ -1,4 +1,3 @@
-use fastnum::dec256;
 use testlib::*;
 
 import!(
@@ -40,7 +39,7 @@ async fn test_token_contract() -> Result<()> {
     assert_eq!(result, None);
 
     let result = token::balance_log10(&runtime, minter).await?;
-    assert_eq!(result, Some(dec256!(2.981_365_509_078_544_415).into()));
+    assert_eq!(result, Some("2.981_365_509_078_544_415".into()));
 
     Ok(())
 }
