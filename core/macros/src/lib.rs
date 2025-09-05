@@ -1,14 +1,10 @@
 extern crate proc_macro;
 
-use std::fs;
-
 use darling::{FromMeta, ast::NestedMeta};
 use heck::{ToPascalCase, ToSnakeCase};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Ident, parse_macro_input, spanned::Spanned};
-
-use wit_parser::{Resolve, TypeDefKind, WorldItem, WorldKey};
 
 mod import;
 mod root;
@@ -43,10 +39,30 @@ pub fn contract(input: TokenStream) -> TokenStream {
         });
 
         use std::{cmp::Ordering, ops::{Add, Sub}};
+        use stdlib::wasm_wave::wasm::WasmValue as _;
         use kontor::built_in::*;
         use kontor::built_in::foreign::ContractAddressWrapper;
         use kontor::built_in::numbers::IntegerWrapper;
         use kontor::built_in::numbers::DecimalWrapper;
+
+        fn make_keys_iterator<T: FromString>(keys: context::Keys) -> impl Iterator<Item = T> {
+            struct KeysIterator<T: FromString> {
+                keys: context::Keys,
+                _phantom: std::marker::PhantomData<T>,
+            }
+
+            impl<T: FromString> Iterator for KeysIterator<T> {
+                type Item = T;
+                fn next(&mut self) -> Option<Self::Item> {
+                    self.keys.next().map(|s| T::from_string(s))
+                }
+            }
+
+            KeysIterator {
+                keys,
+                _phantom: std::marker::PhantomData,
+            }
+        }
 
         #[automatically_derived]
         impl ReadContext for context::ViewContext {
@@ -64,6 +80,10 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
             fn __get_bool(&self, path: &str) -> Option<bool> {
                 self.get_bool(path)
+            }
+
+            fn __get_keys<'a, T: ToString + FromString + Clone + 'a>(&self, path: &'a str) -> impl Iterator<Item = T> + 'a {
+                make_keys_iterator(self.get_keys(path))
             }
 
             fn __exists(&self, path: &str) -> bool {
@@ -99,6 +119,10 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
             fn __get_bool(&self, path: &str) -> Option<bool> {
                 self.get_bool(path)
+            }
+
+            fn __get_keys<'a, T: ToString + FromString + Clone + 'a>(&self, path: &'a str) -> impl Iterator<Item = T> + 'a{
+                make_keys_iterator(self.get_keys(path))
             }
 
             fn __exists(&self, path: &str) -> bool {
@@ -184,6 +208,55 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
+        impl foreign::ContractAddress {
+            pub fn wave_type() -> stdlib::wasm_wave::value::Type {
+                stdlib::wasm_wave::value::Type::record([
+                    ("name", stdlib::wasm_wave::value::Type::STRING),
+                    ("height", stdlib::wasm_wave::value::Type::S64),
+                    ("tx_index", stdlib::wasm_wave::value::Type::S64),
+                ])
+                .unwrap()
+            }
+        }
+        #[automatically_derived]
+        impl From<foreign::ContractAddress> for stdlib::wasm_wave::value::Value {
+            fn from(value_: foreign::ContractAddress) -> Self {
+                stdlib::wasm_wave::value::Value::make_record(
+                    &foreign::ContractAddress::wave_type(),
+                    [
+                        ("name", stdlib::wasm_wave::value::Value::from(value_.name)),
+                        ("height", stdlib::wasm_wave::value::Value::from(value_.height)),
+                        ("tx_index", stdlib::wasm_wave::value::Value::from(value_.tx_index)),
+                    ],
+                )
+                .unwrap()
+            }
+        }
+        #[automatically_derived]
+        impl From<stdlib::wasm_wave::value::Value> for foreign::ContractAddress {
+            fn from(value_: stdlib::wasm_wave::value::Value) -> Self {
+                let mut name = None;
+                let mut height = None;
+                let mut tx_index = None;
+
+                for (key_, val_) in  value_.unwrap_record() {
+                    match key_.as_ref() {
+                        "name" => name = Some(val_.unwrap_string().into_owned()),
+                        "height" => height = Some(val_.unwrap_s64()),
+                        "tx_index" => tx_index = Some(val_.unwrap_s64()),
+                        key_ => panic!("Unknown field: {}", key_),
+                    }
+                }
+
+                Self {
+                    name: name.expect("Missing 'name' field"),
+                    height: height.expect("Missing 'height' field"),
+                    tx_index: tx_index.expect("Missing 'tx_index' field"),
+                }
+            }
+        }
+
+        #[automatically_derived]
         impl Default for Integer {
             fn default() -> Self {
                 Self {
@@ -225,6 +298,39 @@ pub fn contract(input: TokenStream) -> TokenStream {
                     numbers::Ordering::Less => Ordering::Less,
                     numbers::Ordering::Equal => Ordering::Equal,
                     numbers::Ordering::Greater => Ordering::Greater,
+=======
+        impl kontor::built_in::error::Error {
+            pub fn wave_type() -> stdlib::wasm_wave::value::Type {
+                stdlib::wasm_wave::value::Type::variant([
+                        ("message", Some(stdlib::wasm_wave::value::Type::STRING)),
+                    ])
+                    .unwrap()
+            }
+        }
+        #[automatically_derived]
+        impl From<kontor::built_in::error::Error> for stdlib::wasm_wave::value::Value {
+            fn from(value_: kontor::built_in::error::Error) -> Self {
+                (match value_ {
+                    kontor::built_in::error::Error::Message(operand) => {
+                        stdlib::wasm_wave::value::Value::make_variant(
+                            &kontor::built_in::error::Error::wave_type(),
+                            "message",
+                            Some(stdlib::wasm_wave::value::Value::from(operand)),
+                        )
+                    }
+                })
+                    .unwrap()
+            }
+        }
+        #[automatically_derived]
+        impl From<stdlib::wasm_wave::value::Value> for kontor::built_in::error::Error {
+            fn from(value_: stdlib::wasm_wave::value::Value) -> Self {
+                let (key_, val_) = value_.unwrap_variant();
+                match key_ {
+                    key_ if key_.eq("message") => {
+                        kontor::built_in::error::Error::Message(val_.unwrap().unwrap_string().into_owned())
+                    }
+                    key_ => panic!("Unknown tag {}", key_),
                 }
             }
         }
@@ -302,6 +408,8 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
 
+=======
+>>>>>>> 34fd85e5e289bdf42dd0bf8c6d40683a99803ebd
         struct #name;
 
         __export__!(#name);
@@ -773,5 +881,36 @@ pub fn import(input: TokenStream) -> TokenStream {
              #(#func_streams)*
         }
     }
+
+    import::import(
+        path,
+        module_name,
+        world_name,
+        Some((&name, height, tx_index)),
+        test,
+    )
+
     .into()
+}
+
+#[derive(FromMeta)]
+struct InterfaceConfig {
+    name: String,
+    path: String,
+    world: Option<String>,
+    test: Option<bool>,
+}
+
+#[proc_macro]
+pub fn interface(input: TokenStream) -> TokenStream {
+    let attr_args = NestedMeta::parse_meta_list(input.clone().into()).unwrap();
+    let config = InterfaceConfig::from_list(&attr_args).unwrap();
+
+    let name = config.name;
+    let module_name = Ident::from_string(&name.clone().to_snake_case()).unwrap();
+    let path = config.path;
+    let world_name = config.world.unwrap_or("contract".to_string());
+    let test = config.test.unwrap_or(false);
+
+    import::import(path, module_name, world_name, None, test).into()
 }
