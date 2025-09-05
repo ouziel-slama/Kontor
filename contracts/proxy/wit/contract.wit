@@ -4,7 +4,6 @@ world contract {
     include kontor:built-in/built-in;
     use kontor:built-in/context.{fall-context, proc-context, view-context, signer};
     use kontor:built-in/foreign.{contract-address};
-    use kontor:built-in/numbers.{integer, decimal};
 
     export fallback: func(ctx: borrow<fall-context>, expr: string) -> string;
 

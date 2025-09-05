@@ -256,7 +256,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Default for Integer {
+        impl Default for numbers::Integer {
             fn default() -> Self {
                 Self {
                     value: "0".to_string(),
@@ -265,7 +265,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Add for Integer {
+        impl Add for numbers::Integer {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
@@ -274,7 +274,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Sub for Integer {
+        impl Sub for numbers::Integer {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
@@ -283,7 +283,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Mul for Integer {
+        impl Mul for numbers::Integer {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self {
@@ -292,7 +292,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Div for Integer {
+        impl Div for numbers::Integer {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self {
@@ -301,14 +301,14 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl PartialOrd for Integer {
+        impl PartialOrd for numbers::Integer {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 Some(self.cmp(other))
             }
         }
 
         #[automatically_derived]
-        impl Ord for Integer {
+        impl Ord for numbers::Integer {
             fn cmp(&self, other: &Self) -> Ordering {
                 match numbers::cmp_integer(&self, &other) {
                     numbers::Ordering::Less => Ordering::Less,
@@ -381,17 +381,17 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl From<Integer> for stdlib::wasm_wave::value::Value {
-            fn from(value_: Integer) -> Self {
+        impl From<numbers::Integer> for stdlib::wasm_wave::value::Value {
+            fn from(value_: numbers::Integer) -> Self {
                 stdlib::wasm_wave::value::Value::make_record(
-                    &Integer::wave_type(), [ ("value", stdlib::wasm_wave::value::Value::from(value_.value)) ],
+                    &numbers::Integer::wave_type(), [ ("value", stdlib::wasm_wave::value::Value::from(value_.value)) ],
                 )
                 .unwrap()
             }
         }
 
         #[automatically_derived]
-        impl From<stdlib::wasm_wave::value::Value> for Integer {
+        impl From<stdlib::wasm_wave::value::Value> for numbers::Integer {
             fn from(value_: stdlib::wasm_wave::value::Value) -> Self {
                 let mut value = None;
 
@@ -415,17 +415,17 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl From<Decimal> for stdlib::wasm_wave::value::Value {
-            fn from(value_: Decimal) -> Self {
+        impl From<numbers::Decimal> for stdlib::wasm_wave::value::Value {
+            fn from(value_: numbers::Decimal) -> Self {
                 stdlib::wasm_wave::value::Value::make_record(
-                    &Decimal::wave_type(), [ ("value", stdlib::wasm_wave::value::Value::from(value_.value)) ],
+                    &numbers::Decimal::wave_type(), [ ("value", stdlib::wasm_wave::value::Value::from(value_.value)) ],
                 )
                 .unwrap()
             }
         }
 
         #[automatically_derived]
-        impl From<stdlib::wasm_wave::value::Value> for Decimal {
+        impl From<stdlib::wasm_wave::value::Value> for numbers::Decimal {
             fn from(value_: stdlib::wasm_wave::value::Value) -> Self {
                 let mut value = None;
 
@@ -443,17 +443,17 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl PartialEq for Integer {
+        impl PartialEq for numbers::Integer {
             fn eq(&self, other: &Self) -> bool {
                 numbers::eq_integer(&self, &other)
             }
         }
 
         #[automatically_derived]
-        impl Eq for Integer {}
+        impl Eq for numbers::Integer {}
 
         #[automatically_derived]
-        impl Default for Decimal {
+        impl Default for numbers::Decimal {
             fn default() -> Self {
                 Self {
                     value: "0.0".to_string(),
@@ -462,7 +462,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Add for Decimal {
+        impl Add for numbers::Decimal {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
@@ -471,7 +471,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Sub for Decimal {
+        impl Sub for numbers::Decimal {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
@@ -480,7 +480,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Mul for Decimal {
+        impl Mul for numbers::Decimal {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self {
@@ -489,7 +489,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl Div for Decimal {
+        impl Div for numbers::Decimal {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self {
@@ -499,14 +499,14 @@ pub fn contract(input: TokenStream) -> TokenStream {
 
 
         #[automatically_derived]
-        impl PartialOrd for Decimal {
+        impl PartialOrd for numbers::Decimal {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 Some(self.cmp(other))
             }
         }
 
         #[automatically_derived]
-        impl Ord for Decimal {
+        impl Ord for numbers::Decimal {
             fn cmp(&self, other: &Self) -> Ordering {
                 match numbers::cmp_decimal(&self, &other) {
                     numbers::Ordering::Less => Ordering::Less,
@@ -517,18 +517,18 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl PartialEq for Decimal {
+        impl PartialEq for numbers::Decimal {
             fn eq(&self, other: &Self) -> bool {
                 numbers::eq_decimal(&self, &other)
             }
         }
 
         #[automatically_derived]
-        impl Eq for Decimal {}
+        impl Eq for numbers::Decimal {}
 
         #[automatically_derived]
-        impl From<Integer> for Decimal {
-            fn from(i: Integer) -> Decimal {
+        impl From<numbers::Integer> for numbers::Decimal {
+            fn from(i: numbers::Integer) -> numbers::Decimal {
                 numbers::integer_to_decimal(&i)
             }
         }
