@@ -38,7 +38,7 @@ pub fn contract(input: TokenStream) -> TokenStream {
             export_macro_name: "__export__",
         });
 
-        use std::{cmp::Ordering, ops::{Add, Sub}};
+        use std::{cmp::Ordering, ops::{Add, Sub, Mul, Div}};
         use stdlib::wasm_wave::wasm::WasmValue as _;
         use kontor::built_in::*;
         use kontor::built_in::foreign::ContractAddressWrapper;
@@ -283,6 +283,24 @@ pub fn contract(input: TokenStream) -> TokenStream {
         }
 
         #[automatically_derived]
+        impl Mul for Integer {
+            type Output = Self;
+
+            fn mul(self, rhs: Self) -> Self {
+                numbers::mul_integer(&self, &rhs)
+            }
+        }
+
+        #[automatically_derived]
+        impl Div for Integer {
+            type Output = Self;
+
+            fn div(self, rhs: Self) -> Self {
+                numbers::div_integer(&self, &rhs)
+            }
+        }
+
+        #[automatically_derived]
         impl PartialOrd for Integer {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 Some(self.cmp(other))
@@ -325,6 +343,13 @@ pub fn contract(input: TokenStream) -> TokenStream {
                             "message",
                             Some(stdlib::wasm_wave::value::Value::from(operand)),
                         )
+                    },
+                    kontor::built_in::error::Error::DivByZero(operand) => {
+                        stdlib::wasm_wave::value::Value::make_variant(
+                            &kontor::built_in::error::Error::wave_type(),
+                            "div-by-zero",
+                            Some(stdlib::wasm_wave::value::Value::from(operand)),
+                        )
                     }
                 })
                     .unwrap()
@@ -340,6 +365,9 @@ pub fn contract(input: TokenStream) -> TokenStream {
                     }
                     key_ if key_.eq("overflow") => {
                         kontor::built_in::error::Error::Overflow(val_.unwrap().unwrap_string().into_owned())
+                    }
+                    key_ if key_.eq("div-by-zero") => {
+                        kontor::built_in::error::Error::DivByZero(val_.unwrap().unwrap_string().into_owned())
                     }
                     key_ => panic!("Unknown tag {}", key_),
                 }
@@ -450,6 +478,25 @@ pub fn contract(input: TokenStream) -> TokenStream {
                 numbers::sub_decimal(&self, &other)
             }
         }
+
+        #[automatically_derived]
+        impl Mul for Decimal {
+            type Output = Self;
+
+            fn mul(self, rhs: Self) -> Self {
+                numbers::mul_decimal(&self, &rhs)
+            }
+        }
+
+        #[automatically_derived]
+        impl Div for Decimal {
+            type Output = Self;
+
+            fn div(self, rhs: Self) -> Self {
+                numbers::div_decimal(&self, &rhs)
+            }
+        }
+
 
         #[automatically_derived]
         impl PartialOrd for Decimal {

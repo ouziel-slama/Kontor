@@ -70,6 +70,7 @@ interface error {
     variant error {
         message(string),
         overflow(string),
+        div-by-zero(string),
     }
 
     meta-force-generate-error: func(e: error);
@@ -94,6 +95,8 @@ interface numbers {
 	cmp-integer: func(a: integer, b: integer) -> ordering;
 	add-integer: func(a: integer, b: integer) -> integer;
 	sub-integer: func(a: integer, b: integer) -> integer;
+	mul-integer: func(a: integer, b: integer) -> integer;
+	div-integer: func(a: integer, b: integer) -> integer;
 
 	integer-to-decimal: func(i: integer) -> decimal;
 	eq-decimal: func(a: decimal, b: decimal) -> bool;
@@ -101,6 +104,7 @@ interface numbers {
 	add-decimal: func(a: decimal, b: decimal) -> decimal;
 	sub-decimal: func(a: decimal, b: decimal) -> decimal;
 	mul-decimal: func(a: decimal, b: decimal) -> decimal;
+	div-decimal: func(a: decimal, b: decimal) -> decimal;
 
 	log10: func(a: decimal) -> decimal;
 

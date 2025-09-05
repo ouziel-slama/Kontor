@@ -26,6 +26,16 @@ async fn test_runtime_integer_operations() -> Result<()> {
         102.into()
     );
 
+    assert_eq!(
+        Host::mul_integer(&mut rt, 5.into(), 6.into()).await?,
+        30.into()
+    );
+
+    assert_eq!(
+        Host::div_integer(&mut rt, 5.into(), 2.into()).await?,
+        2.into()
+    );
+
     Ok(())
 }
 
@@ -67,6 +77,17 @@ async fn test_runtime_decimal_operations() -> Result<()> {
         )
         .await
         .is_err() // overflow
+    );
+
+    assert_eq!(
+        Host::div_decimal(&mut rt, (-123.0).into(), 2.0.into()).await?,
+        (-61.5).into()
+    );
+
+    assert!(
+        Host::div_decimal(&mut rt, 10.0.into(), 0.0.into())
+            .await
+            .is_err() // overflow
     );
 
     Ok(())

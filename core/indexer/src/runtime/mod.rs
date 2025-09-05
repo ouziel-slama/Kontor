@@ -72,6 +72,7 @@ impl fmt::Display for Error {
         match self {
             Error::Message(msg) => write!(f, "Error: {}", msg),
             Error::Overflow(msg) => write!(f, "Overflow Error: {}", msg),
+            Error::DivByZero(msg) => write!(f, "DivByZero Error: {}", msg),
         }
     }
 }
@@ -89,6 +90,11 @@ impl From<Error> for wasm_wave::value::Value {
                 "overflow",
                 Some(wasm_wave::value::Value::from(operand)),
             ),
+            Error::DivByZero(operand) => wasm_wave::value::Value::make_variant(
+                &Error::wave_type(),
+                "div-by-zero",
+                Some(wasm_wave::value::Value::from(operand)),
+            ),
         })
         .unwrap()
     }
@@ -102,6 +108,9 @@ impl From<wasm_wave::value::Value> for Error {
             }
             key_ if key_.eq("overflow") => {
                 Error::Overflow(val_.unwrap().unwrap_string().into_owned())
+            }
+            key_ if key_.eq("div-by-zero") => {
+                Error::DivByZero(val_.unwrap().unwrap_string().into_owned())
             }
             key_ => panic!("Unknown tag {}", key_),
         }
@@ -990,6 +999,25 @@ impl built_in::numbers::Host for Runtime {
         })
     }
 
+    async fn mul_integer(&mut self, a: Integer, b: Integer) -> Result<Integer, anyhow::Error> {
+        let big_a = a.value.parse::<BigInt>()?;
+        let big_b = b.value.parse::<BigInt>()?;
+        Ok(Integer {
+            value: (big_a * big_b).to_string(),
+        })
+    }
+
+    async fn div_integer(&mut self, a: Integer, b: Integer) -> Result<Integer, anyhow::Error> {
+        let big_a = a.value.parse::<BigInt>()?;
+        let big_b = b.value.parse::<BigInt>()?;
+        if big_b == BigInt::ZERO {
+            return Err(Error::DivByZero("integer divide by zero".to_string()).into());
+        }
+        Ok(Integer {
+            value: (big_a / big_b).to_string(),
+        })
+    }
+
     async fn integer_to_decimal(&mut self, i: Integer) -> Result<Decimal, anyhow::Error> {
         let dec_ = i.value.parse::<D256>()?;
         let dec = dec_.with_ctx(CTX).quantize(MIN_DECIMAL);
@@ -1060,6 +1088,21 @@ impl built_in::numbers::Host for Runtime {
         let dec_a = a.value.parse::<D256>()?;
         let dec_b = b.value.parse::<D256>()?;
         let res = (dec_a * dec_b).with_ctx(CTX).quantize(MIN_DECIMAL);
+        if res.is_op_invalid() {
+            return Err(Error::Overflow("invalid decimal number".to_string()).into());
+        }
+        Ok(Decimal {
+            value: res.to_string(),
+        })
+    }
+
+    async fn div_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal, anyhow::Error> {
+        let dec_a = a.value.parse::<D256>()?;
+        let dec_b = b.value.parse::<D256>()?;
+        if dec_b.is_zero() {
+            return Err(Error::DivByZero("decimal divide by zero".to_string()).into());
+        }
+        let res = (dec_a / dec_b).with_ctx(CTX).quantize(MIN_DECIMAL);
         if res.is_op_invalid() {
             return Err(Error::Overflow("invalid decimal number".to_string()).into());
         }
