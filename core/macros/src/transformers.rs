@@ -190,7 +190,7 @@ pub fn syn_type_to_wave_type(ty: &SynType) -> syn::Result<TokenStream> {
     Ok(quote! { #ty::wave_type() })
 }
 
-pub fn syn_type_to_unwrap_expr(ty: &SynType) -> syn::Result<TokenStream> {
+pub fn syn_type_to_unwrap_expr(ty: &SynType, value: TokenStream) -> syn::Result<TokenStream> {
     if let SynType::Path(TypePath { qself: None, path }) = ty
         && path.segments.len() == 1
     {
@@ -198,13 +198,29 @@ pub fn syn_type_to_unwrap_expr(ty: &SynType) -> syn::Result<TokenStream> {
         if segment.arguments == PathArguments::None {
             let ident = segment.ident.to_string();
             match ident.as_str() {
-                "u64" => return Ok(quote! { unwrap_u64() }),
-                "i64" => return Ok(quote! { unwrap_s64() }),
-                "String" => return Ok(quote! { unwrap_string().into_owned() }),
-                "bool" => return Ok(quote! { unwrap_bool() }),
+                "u64" => {
+                    return Ok(
+                        quote! { stdlib::wasm_wave::wasm::WasmValue::unwrap_u64(&#value.into_owned()) },
+                    );
+                }
+                "i64" => {
+                    return Ok(
+                        quote! { stdlib::wasm_wave::wasm::WasmValue::unwrap_s64(&#value.into_owned()) },
+                    );
+                }
+                "String" => {
+                    return Ok(
+                        quote! { stdlib::wasm_wave::wasm::WasmValue::unwrap_string(&#value.into_owned()).into_owned() },
+                    );
+                }
+                "bool" => {
+                    return Ok(
+                        quote! { stdlib::wasm_wave::wasm::WasmValue::unwrap_bool(&#value.into_owned()) },
+                    );
+                }
                 _ => {}
             }
         }
     }
-    Ok(quote! { into_owned().into() })
+    Ok(quote! { #value.into_owned().into() })
 }
