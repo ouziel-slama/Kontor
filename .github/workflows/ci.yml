@@ -90,6 +90,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Free up disk space
+        if: runner.os == 'Linux'
+        run: |
+          df -h  # Log disk usage before cleanup
+          sudo rm -rf /usr/share/dotnet  # Remove unused .NET SDK
+          sudo rm -rf /usr/local/lib/android  # Remove Android SDK
+          sudo rm -rf /opt/hostedtoolcache  # Remove cached tools
+          sudo apt-get clean  # Clean apt cache
+          docker image prune -f  # Remove unused Docker images
+          df -h  # Log disk usage after cleanup
       - name: Install wasm32-unknown-unknown
         run: rustup target add wasm32-unknown-unknown
       - name: Install cargo expand
