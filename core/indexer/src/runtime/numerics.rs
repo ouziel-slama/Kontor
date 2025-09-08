@@ -25,7 +25,7 @@ impl From<BigInt> for Integer {
         };
 
         Integer {
-            r0: if digits.len() > 0 { digits[0] } else { 0 },
+            r0: if !digits.is_empty() { digits[0] } else { 0 },
             r1: if digits.len() > 1 { digits[1] } else { 0 },
             r2: if digits.len() > 2 { digits[2] } else { 0 },
             r3: if digits.len() > 3 { digits[3] } else { 0 },
@@ -34,14 +34,14 @@ impl From<BigInt> for Integer {
     }
 }
 
-impl Into<BigInt> for Integer {
-    fn into(self) -> BigInt {
-        let mut big: BigInt = self.r3.into();
-        big = (big << 64) + self.r2;
-        big = (big << 64) + self.r1;
-        big = (big << 64) + self.r0;
+impl From<Integer> for BigInt {
+    fn from(i: Integer) -> BigInt {
+        let mut big: BigInt = i.r3.into();
+        big = (big << 64) + i.r2;
+        big = (big << 64) + i.r1;
+        big = (big << 64) + i.r0;
 
-        if self.sign == NumericSign::Minus {
+        if i.sign == NumericSign::Minus {
             big = -big
         };
 
@@ -66,7 +66,7 @@ pub fn s64_to_integer(i: i64) -> Result<Integer> {
         NumericSign::Plus
     };
     Ok(Integer {
-        r0: i.abs() as u64,
+        r0: i.unsigned_abs(),
         r1: 0,
         r2: 0,
         r3: 0,
