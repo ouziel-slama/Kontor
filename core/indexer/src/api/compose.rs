@@ -470,17 +470,39 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
         let mut selected_sum: u64 = 0;
 
-        loop {
-            // Estimate commit delta fee for current tentative selection using helper
-            let commit_delta_fee = estimate_commit_delta_fee(
-                &commit_psbt.unsigned_tx,
-                selected.len(),
-                script_spendable_address.script_pubkey().len(),
-                addr.address.script_pubkey().len(),
-                params.fee_rate,
+        // Fee paid so far by previous participants (inputs - outputs) on the current tx
+        let paid_so_far_inputs: u64 = commit_psbt
+            .inputs
+            .iter()
+            .map(|inp| inp.witness_utxo.as_ref().map_or(0, |o| o.value.to_sat()))
+            .sum::<u64>()
+            .saturating_sub(
+                commit_psbt
+                    .unsigned_tx
+                    .output
+                    .iter()
+                    .map(|o| o.value.to_sat())
+                    .sum::<u64>(),
             );
 
-            let required_total = script_value.saturating_add(commit_delta_fee);
+        loop {
+            // Waterfall-required total using dummy witnesses
+            let mut base = commit_psbt.unsigned_tx.clone();
+            for _ in 0..selected.len() {
+                base.input.push(dummy_txin());
+            }
+            base.output.push(TxOut {
+                value: Amount::from_sat(script_value),
+                script_pubkey: script_spendable_address.script_pubkey(),
+            });
+            base.output.push(TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: addr.address.script_pubkey(),
+            });
+            let total_fee_target = estimate_fee_with_dummy_key_witness(&base, params.fee_rate)
+                .ok_or(anyhow!("fee calculation overflow"))?;
+            let participant_fee_needed = total_fee_target.saturating_sub(paid_so_far_inputs);
+            let required_total = script_value.saturating_add(participant_fee_needed);
             if selected_sum >= required_total {
                 // We have enough; break selection loop
                 break;
@@ -498,6 +520,8 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         }
 
         // Compute change for this address and append real outputs/inputs
+        // Snapshot tx before adding this participant to compute total incremental fee correctly
+        let tx_before_participant = commit_psbt.unsigned_tx.clone();
         // Append selected inputs to the real PSBT and set per-input metadata
         for (outpoint, prevout) in selected.iter() {
             commit_psbt.unsigned_tx.input.push(TxIn {
@@ -518,23 +542,23 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         });
         // Maintain PSBT outputs array in sync with transaction outputs
         commit_psbt.outputs.push(bitcoin::psbt::Output::default());
-        // Recompute fees precisely: compare base (no change) vs with-change.
+        // Recompute fees precisely using total incremental delta relative to tx_before_participant
+        let before_fee =
+            estimate_fee_with_dummy_key_witness(&tx_before_participant, params.fee_rate)
+                .ok_or(anyhow!("fee calculation overflow"))?;
+        // Fee after adding a zero-valued change output for this participant:
         let mut with_change = commit_psbt.unsigned_tx.clone();
         with_change.output.push(TxOut {
             value: Amount::from_sat(0),
             script_pubkey: addr.address.script_pubkey(),
         });
-        let with_change_vb = tx_vbytes_est(&with_change);
-        let with_change_fee = params
-            .fee_rate
-            .fee_vb(with_change_vb)
-            .ok_or(anyhow!("fee calculation overflow"))?
-            .to_sat();
+        let with_change_fee = estimate_fee_with_dummy_key_witness(&with_change, params.fee_rate)
+            .ok_or(anyhow!("fee calculation overflow"))?;
+        let total_incremental_fee = with_change_fee.saturating_sub(before_fee);
 
-        // If we do NOT add change, miner fee will be: selected_sum - script_value - base_fee.
-        // If we DO add change, change amount equals: selected_sum - script_value - with_change_fee.
+        // Change amount equals inputs selected minus (script_value + total incremental fee)
         let change_candidate =
-            selected_sum.saturating_sub(script_value.saturating_add(with_change_fee));
+            selected_sum.saturating_sub(script_value.saturating_add(total_incremental_fee));
         if change_candidate >= params.envelope {
             commit_psbt.unsigned_tx.output.push(TxOut {
                 value: Amount::from_sat(change_candidate),
@@ -952,6 +976,21 @@ fn dummy_txin() -> TxIn {
     TxIn {
         ..Default::default()
     }
+}
+
+fn set_dummy_key_witness_for_all_inputs(tx: &mut Transaction) {
+    for inp in &mut tx.input {
+        let mut w = Witness::new();
+        w.push(vec![0u8; SCHNORR_SIGNATURE_SIZE]);
+        inp.witness = w;
+    }
+}
+
+fn estimate_fee_with_dummy_key_witness(tx: &Transaction, fee_rate: FeeRate) -> Option<u64> {
+    let mut t = tx.clone();
+    set_dummy_key_witness_for_all_inputs(&mut t);
+    let vb = tx_vbytes_est(&t);
+    fee_rate.fee_vb(vb).map(|a| a.to_sat())
 }
 
 pub fn split_even_chunks(data: &[u8], parts: usize) -> Result<Vec<Vec<u8>>> {
