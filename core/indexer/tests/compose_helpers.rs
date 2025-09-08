@@ -389,6 +389,8 @@ fn test_compose_reveal_op_return_size_validation() {
         commit_script_data: commit_data,
     };
 
+    // With single-push OP_RETURN, total payload includes the tag ("kon").
+    // So max user data length is 80 - 3 = 77 bytes.
     let ok_inputs = RevealInputs::builder()
         .commit_txid(
             Txid::from_str("0000000000000000000000000000000000000000000000000000000000000003")
@@ -396,11 +398,11 @@ fn test_compose_reveal_op_return_size_validation() {
         )
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![participant.clone()])
-        .op_return_data(vec![1u8; 80])
+        .op_return_data(vec![1u8; 77])
         .envelope(546)
         .build();
     let ok = indexer::api::compose::compose_reveal(ok_inputs);
-    assert!(ok.is_ok(), "80-byte OP_RETURN should be accepted");
+    assert!(ok.is_ok(), "77-byte OP_RETURN payload should be accepted");
 
     let err_inputs = RevealInputs::builder()
         .commit_txid(
@@ -409,11 +411,11 @@ fn test_compose_reveal_op_return_size_validation() {
         )
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![participant])
-        .op_return_data(vec![2u8; 81])
+        .op_return_data(vec![2u8; 78])
         .envelope(546)
         .build();
     let err = indexer::api::compose::compose_reveal(err_inputs);
-    assert!(err.is_err(), "81-byte OP_RETURN should be rejected");
+    assert!(err.is_err(), "78-byte OP_RETURN payload should be rejected");
     let msg = err.err().unwrap().to_string();
     assert!(
         msg.contains("OP_RETURN data exceeds 80 bytes"),

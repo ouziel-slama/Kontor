@@ -28,6 +28,7 @@ const MAX_PARTICIPANTS: usize = 1000;
 const MAX_SCRIPT_BYTES: usize = 16 * 1024; // 16 KiB
 const MAX_OP_RETURN_BYTES: usize = 80; // Standard policy
 const MIN_ENVELOPE_SATS: u64 = 330; // P2TR dust floor
+const MAX_UTXOS_PER_PARTICIPANT: usize = 64; // Hard cap per participant
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ComposeAddressQuery {
@@ -105,6 +106,10 @@ impl ComposeInputs {
             return Err(anyhow!("Too many participants (max {})", MAX_PARTICIPANTS));
         }
 
+        if query.sat_per_vbyte == 0 {
+            return Err(anyhow!("Invalid fee rate"));
+        }
+
         let addresses: Vec<ComposeAddressInputs> =
             try_join_all(query.addresses.iter().map(|address_query| async {
                 let address: Address = Address::from_str(&address_query.address)?
@@ -116,6 +121,22 @@ impl ComposeInputs {
                 let x_only_public_key = XOnlyPublicKey::from_str(&address_query.x_only_public_key)?;
                 let funding_utxos =
                     get_utxos(bitcoin_client, address_query.funding_utxo_ids.clone()).await?;
+                if funding_utxos.len() > MAX_UTXOS_PER_PARTICIPANT {
+                    return Err(anyhow!(
+                        "too many utxos for participant (max {})",
+                        MAX_UTXOS_PER_PARTICIPANT
+                    ));
+                }
+                // Ensure no duplicate outpoints within a participant
+                let mut local_set: HashSet<(Txid, u32)> = HashSet::new();
+                for (op, _) in funding_utxos.iter() {
+                    let key = (op.txid, op.vout);
+                    if !local_set.insert(key) {
+                        return Err(anyhow!(
+                            "duplicate funding outpoint provided for participant"
+                        ));
+                    }
+                }
                 Ok(ComposeAddressInputs {
                     address,
                     x_only_public_key,
@@ -285,6 +306,9 @@ pub struct RevealInputs {
 
 impl RevealInputs {
     pub async fn from_query(query: RevealQuery, bitcoin_client: &Client) -> Result<Self> {
+        if query.sat_per_vbyte == 0 {
+            return Err(anyhow!("Invalid fee rate"));
+        }
         let fee_rate =
             FeeRate::from_sat_per_vb(query.sat_per_vbyte).ok_or(anyhow!("Invalid fee rate"))?;
         let commit_txid = bitcoin::Txid::from_str(&query.commit_txid)?;
@@ -328,7 +352,10 @@ impl RevealInputs {
 
         let op_return_data = query.op_return_data.clone();
 
-        let envelope = query.envelope.unwrap_or(330);
+        let envelope = query
+            .envelope
+            .unwrap_or(MIN_ENVELOPE_SATS)
+            .max(MIN_ENVELOPE_SATS);
         let chained_script_data = query.chained_script_data.clone();
 
         Ok(Self {
@@ -620,7 +647,11 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
     let mut op_return_added = false;
     // Optional OP_RETURN first (keeps vsize expectations stable)
     if let Some(data) = params.op_return_data.clone() {
-        if data.len() > MAX_OP_RETURN_BYTES {
+        // Enforce total payload size including tag; policy considers total push size
+        let mut payload = Vec::with_capacity(3 + data.len());
+        payload.extend_from_slice(b"kon");
+        payload.extend_from_slice(&data);
+        if payload.len() > MAX_OP_RETURN_BYTES {
             return Err(anyhow!(
                 "OP_RETURN data exceeds {} bytes",
                 MAX_OP_RETURN_BYTES
@@ -631,8 +662,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
             script_pubkey: {
                 let mut s = ScriptBuf::new();
                 s.push_opcode(OP_RETURN);
-                s.push_slice(b"kon");
-                s.push_slice(PushBytesBuf::try_from(data)?);
+                s.push_slice(PushBytesBuf::try_from(payload)?);
                 s
             },
         });
@@ -865,7 +895,7 @@ pub fn estimate_reveal_fee_for_address(
         }],
     );
     let mut w = Witness::new();
-    w.push(vec![0u8; 65]);
+    w.push(vec![0u8; SCHNORR_SIGNATURE_SIZE]);
     w.push(tap_script.clone());
     if let Some(cb) = tap_info.control_block(&(tap_script.clone(), LeafVersion::TapScript)) {
         w.push(cb.serialize());
@@ -956,25 +986,27 @@ async fn get_utxos(bitcoin_client: &Client, utxo_ids: String) -> Result<Vec<(Out
         })
         .collect();
 
-    let funding_txs: Vec<Transaction> = bitcoin_client
-        .get_raw_transactions(
-            outpoints
-                .iter()
-                .map(|outpoint| outpoint.txid)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
+    let txids: Vec<Txid> = outpoints.iter().map(|op| op.txid).collect();
+    let results = bitcoin_client
+        .get_raw_transactions(txids.as_slice())
         .await
-        .map_err(|e| anyhow!("Failed to fetch transactions: {}", e))?
-        .into_iter()
-        .filter_map(Result::ok)
-        .collect::<Vec<_>>();
-    if funding_txs.is_empty() {
+        .map_err(|e| anyhow!("Failed to fetch transactions: {}", e))?;
+    if results.is_empty() {
         return Err(anyhow!("No funding transactions found"));
     }
 
+    if results.len() != outpoints.len() {
+        return Err(anyhow!(
+            "RPC returned mismatched number of transactions (expected {}, got {})",
+            outpoints.len(),
+            results.len()
+        ));
+    }
+
     let mut funding_utxos: Vec<(OutPoint, TxOut)> = Vec::with_capacity(outpoints.len());
-    for (outpoint, tx) in outpoints.into_iter().zip(funding_txs.into_iter()) {
+    for (outpoint, res) in outpoints.into_iter().zip(results.into_iter()) {
+        let tx =
+            res.map_err(|e| anyhow!("Failed to fetch transaction {}: {}", outpoint.txid, e))?;
         let maybe_prevout = tx.output.get(outpoint.vout as usize).cloned();
         match maybe_prevout {
             Some(prevout) => funding_utxos.push((outpoint, prevout)),
