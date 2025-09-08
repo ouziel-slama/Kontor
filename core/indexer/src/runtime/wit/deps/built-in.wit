@@ -77,8 +77,17 @@ interface error {
 }
 
 interface numbers {
+    enum sign {
+		plus,
+		minus
+    }
+
     record integer {
-		value: string,
+		r0: u64,
+		r1: u64,
+		r2: u64,
+		r3: u64,
+		sign: sign
     }
 
     record decimal {
