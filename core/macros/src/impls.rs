@@ -86,7 +86,8 @@ pub fn generate(config: Config) -> TokenStream {
         #[automatically_derived]
         impl std::fmt::Display for kontor::built_in::numbers::Integer {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.to_string())
+                let s = #numerics_mod_name::integer_to_string(*self)#numerics_unwrap;
+                write!(f, "{}", s)
             }
         }
 

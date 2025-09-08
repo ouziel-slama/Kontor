@@ -710,6 +710,10 @@ impl built_in::numbers::Host for Runtime {
         numerics::string_to_integer(&s)
     }
 
+    async fn integer_to_string(&mut self, i: Integer) -> Result<String> {
+        numerics::integer_to_string(i)
+    }
+
     async fn eq_integer(&mut self, a: Integer, b: Integer) -> Result<bool> {
         numerics::eq_integer(a, b)
     }

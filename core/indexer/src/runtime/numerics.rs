@@ -79,6 +79,11 @@ pub fn string_to_integer(s: &str) -> Result<Integer> {
     Ok(i.into())
 }
 
+pub fn integer_to_string(i: Integer) -> Result<String> {
+    let big_i: BigInt = i.into();
+    Ok(big_i.to_string())
+}
+
 pub fn eq_integer(a: Integer, b: Integer) -> Result<bool> {
     let big_a: BigInt = a.into();
     let big_b: BigInt = b.into();
