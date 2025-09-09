@@ -55,5 +55,15 @@ async fn test_runtime_decimal_operations() -> Result<()> {
 
     assert!(catch_unwind(|| Decimal::from(10.0) / 0.0.into()).is_err());
 
+    assert_eq!(
+        Decimal::from("-1000000000000000000000000000") / (-2).into(),
+        ("500000000000000000000000000").into()
+    );
+
+    assert_eq!(
+        Decimal::from("-100000000000000000000000000000000000000000000.000001") / (-2).into(),
+        ("50000000000000000000000000000000000000000000.0000005").into()
+    );
+
     Ok(())
 }

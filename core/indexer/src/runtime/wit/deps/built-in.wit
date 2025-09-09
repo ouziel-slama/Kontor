@@ -78,6 +78,8 @@ interface error {
 }
 
 interface numbers {
+    use error.{error};
+
     enum sign {
 		plus,
 		minus
@@ -92,7 +94,11 @@ interface numbers {
     }
 
     record decimal {
-		value: string,
+		r0: u64,
+		r1: u64,
+		r2: u64,
+		r3: u64,
+		sign: sign
     }
 
     enum ordering {
@@ -117,6 +123,7 @@ interface numbers {
     s64-to-decimal: func(i: s64) -> decimal;
     f64-to-decimal: func(f: f64) -> decimal;
     string-to-decimal: func(s: string) -> decimal;
+    decimal-to-string: func(d: decimal) -> string;
 	eq-decimal: func(a: decimal, b: decimal) -> bool;
 	cmp-decimal: func(a: decimal, b: decimal) -> ordering;
 	add-decimal: func(a: decimal, b: decimal) -> decimal;

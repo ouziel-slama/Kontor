@@ -778,32 +778,36 @@ impl built_in::numbers::Host for Runtime {
         numerics::string_to_decimal(&s)
     }
 
+    async fn decimal_to_string(&mut self, d: Decimal) -> Result<String> {
+        numerics::decimal_to_string(d)
+    }
+
     async fn eq_decimal(&mut self, a: Decimal, b: Decimal) -> Result<bool> {
-        numerics::eq_decimal(&a, &b)
+        numerics::eq_decimal(a, b)
     }
 
     async fn cmp_decimal(&mut self, a: Decimal, b: Decimal) -> Result<NumericOrdering> {
-        numerics::cmp_decimal(&a, &b)
+        numerics::cmp_decimal(a, b)
     }
 
     async fn add_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
-        numerics::add_decimal(&a, &b)
+        numerics::add_decimal(a, b)
     }
 
     async fn sub_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
-        numerics::sub_decimal(&a, &b)
+        numerics::sub_decimal(a, b)
     }
 
     async fn mul_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
-        numerics::mul_decimal(&a, &b)
+        numerics::mul_decimal(a, b)
     }
 
     async fn div_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
-        numerics::div_decimal(&a, &b)
+        numerics::div_decimal(a, b)
     }
 
     async fn log10(&mut self, a: Decimal) -> Result<Decimal> {
-        numerics::log10(&a)
+        numerics::log10(a)
     }
 
     async fn meta_force_generate_integer(&mut self, _i: built_in::numbers::Integer) -> Result<()> {
