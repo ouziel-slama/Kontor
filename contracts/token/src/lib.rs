@@ -45,6 +45,6 @@ impl Guest for Token {
         let ledger = storage(ctx).ledger();
         ledger
             .get(ctx, acc.clone())
-            .map(|i| numbers::log10(&i.into()))
+            .map(|i| numbers::log10(i.into()))
     }
 }
