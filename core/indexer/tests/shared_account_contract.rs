@@ -14,7 +14,7 @@ import!(
     path = "../contracts/shared-account/wit",
 );
 
-interface!(name = "token-dyn", path = "../contracts/token/wit",);
+interface!(name = "token-dyn", path = "../contracts/token/wit");
 
 #[tokio::test]
 async fn test_shared_account_contract() -> Result<()> {
