@@ -1,3 +1,4 @@
+use lazy_static::lazy_static;
 use std::cmp::Ordering;
 
 use anyhow::Result;
@@ -13,7 +14,14 @@ use super::{Decimal, Error, Integer, NumericOrdering, NumericSign};
 
 const DECIMAL_18_DECS: D256 = dec256!(1_000_000_000_000_000_000);
 const MIN_DECIMAL: D256 = dec256!(0.000_000_000_000_000_001);
-const MAX_UINT64: D256 = dec256!(18446744073709551616);
+const MAX_UINT64: D256 = dec256!(18446744073709551615);
+lazy_static! {
+    static ref MAX_INT: BigInt =
+        "115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457"
+            .parse::<BigInt>()
+            .unwrap();
+}
+
 const CTX: Context = Context::default().with_signal_traps(SignalsTraps::empty());
 
 impl From<BigInt> for Integer {
@@ -90,7 +98,7 @@ impl From<Decimal> for D256 {
         let d2 = D256::from(d.r2);
         let d3 = D256::from(d.r3);
 
-        let ii = MAX_UINT64;
+        let ii: D256 = MAX_UINT64 + 1; // effectively left-shift 64
         let mut dec = d0 + d1 * ii + d2 * ii * ii + d3 * ii * ii * ii;
 
         if d.sign == NumericSign::Minus {
@@ -126,9 +134,15 @@ pub fn s64_to_integer(i: i64) -> Result<Integer> {
     })
 }
 
-pub fn string_to_integer(s: &str) -> Result<Integer> {
+pub fn string_to_integer(s: &str) -> Result<Result<Integer, Error>> {
+    let max_int = MAX_INT.clone();
     let i = s.parse::<BigInt>()?;
-    Ok(i.into())
+    if i > max_int || i < -max_int {
+        return Ok(Err(
+            Error::Overflow("result overflows Integer".to_string()).into()
+        ));
+    }
+    Ok(Ok(i.into()))
 }
 
 pub fn integer_to_string(i: Integer) -> Result<String> {
@@ -152,31 +166,57 @@ pub fn cmp_integer(a: Integer, b: Integer) -> Result<NumericOrdering> {
     })
 }
 
-pub fn add_integer(a: Integer, b: Integer) -> Result<Integer> {
+pub fn add_integer(a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
+    let max_int = MAX_INT.clone();
+
     let big_a: BigInt = a.into();
     let big_b: BigInt = b.into();
-    Ok((big_a + big_b).into())
+    let res = big_a + big_b;
+    if res > max_int || res < -max_int {
+        return Ok(Err(
+            Error::Overflow("result overflows Integer".to_string()).into()
+        ));
+    }
+    Ok(Ok(res.into()))
 }
 
-pub fn sub_integer(a: Integer, b: Integer) -> Result<Integer> {
+pub fn sub_integer(a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
+    let max_int = MAX_INT.clone();
+
     let big_a: BigInt = a.into();
     let big_b: BigInt = b.into();
-    Ok((big_a - big_b).into())
+    let res = big_a - big_b;
+    if res > max_int || res < -max_int {
+        return Ok(Err(
+            Error::Overflow("result overflows Integer".to_string()).into()
+        ));
+    }
+    Ok(Ok(res.into()))
 }
 
-pub fn mul_integer(a: Integer, b: Integer) -> Result<Integer> {
+pub fn mul_integer(a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
+    let max_int = MAX_INT.clone();
+
     let big_a: BigInt = a.into();
     let big_b: BigInt = b.into();
-    Ok((big_a * big_b).into())
+    let res = big_a * big_b;
+    if res > max_int || res < -max_int {
+        return Ok(Err(
+            Error::Overflow("result overflows Integer".to_string()).into()
+        ));
+    }
+    Ok(Ok(res.into()))
 }
 
-pub fn div_integer(a: Integer, b: Integer) -> Result<Integer> {
+pub fn div_integer(a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
     let big_a: BigInt = a.into();
     let big_b: BigInt = b.into();
     if big_b == BigInt::ZERO {
-        return Err(Error::DivByZero("integer divide by zero".to_string()).into());
+        return Ok(Err(
+            Error::DivByZero("integer divide by zero".to_string()).into()
+        ));
     }
-    Ok((big_a / big_b).into())
+    Ok(Ok((big_a / big_b).into()))
 }
 
 pub fn integer_to_decimal(i: Integer) -> Result<Decimal> {
@@ -187,6 +227,12 @@ pub fn integer_to_decimal(i: Integer) -> Result<Decimal> {
         return Err(Error::Overflow("invalid decimal number".to_string()).into());
     }
     Ok(dec.into())
+}
+
+pub fn decimal_to_integer(d: Decimal) -> Result<Integer> {
+    let dec: D256 = d.into();
+    let big = dec.trunc().to_string().parse::<BigInt>()?;
+    Ok(big.into())
 }
 
 fn num_to_decimal(n: impl Into<D256>) -> Result<Decimal> {
@@ -210,13 +256,15 @@ pub fn f64_to_decimal(f: f64) -> Result<Decimal> {
     num_to_decimal(f)
 }
 
-pub fn string_to_decimal(s: &str) -> Result<Decimal> {
+pub fn string_to_decimal(s: &str) -> Result<Result<Decimal, Error>> {
     let dec = s.parse::<D256>()?;
     let res = dec.with_ctx(CTX).quantize(MIN_DECIMAL);
     if res.is_op_invalid() {
-        return Err(Error::Overflow("invalid decimal number".to_string()).into());
+        return Ok(Err(
+            Error::Overflow("invalid decimal number".to_string()).into()
+        ));
     }
-    Ok(res.into())
+    Ok(Ok(res.into()))
 }
 
 pub fn decimal_to_string(d: Decimal) -> Result<String> {
@@ -251,47 +299,57 @@ pub fn cmp_decimal(a: Decimal, b: Decimal) -> Result<NumericOrdering> {
     })
 }
 
-pub fn add_decimal(a: Decimal, b: Decimal) -> Result<Decimal> {
+pub fn add_decimal(a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
     let dec_a: D256 = a.into();
     let dec_b: D256 = b.into();
     let res = (dec_a + dec_b).with_ctx(CTX).quantize(MIN_DECIMAL);
     if res.is_op_invalid() {
-        return Err(Error::Overflow("invalid decimal number".to_string()).into());
+        return Ok(Err(
+            Error::Overflow("invalid decimal number".to_string()).into()
+        ));
     }
-    Ok(res.into())
+    Ok(Ok(res.into()))
 }
 
-pub fn sub_decimal(a: Decimal, b: Decimal) -> Result<Decimal> {
+pub fn sub_decimal(a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
     let dec_a: D256 = a.into();
     let dec_b: D256 = b.into();
     let res = (dec_a - dec_b).with_ctx(CTX).quantize(MIN_DECIMAL);
     if res.is_op_invalid() {
-        return Err(Error::Overflow("invalid decimal number".to_string()).into());
+        return Ok(Err(
+            Error::Overflow("invalid decimal number".to_string()).into()
+        ));
     }
-    Ok(res.into())
+    Ok(Ok(res.into()))
 }
 
-pub fn mul_decimal(a: Decimal, b: Decimal) -> Result<Decimal> {
+pub fn mul_decimal(a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
     let dec_a: D256 = a.into();
     let dec_b: D256 = b.into();
     let res = (dec_a * dec_b).with_ctx(CTX).quantize(MIN_DECIMAL);
     if res.is_op_invalid() {
-        return Err(Error::Overflow("invalid decimal number".to_string()).into());
+        return Ok(Err(
+            Error::Overflow("invalid decimal number".to_string()).into()
+        ));
     }
-    Ok(res.into())
+    Ok(Ok(res.into()))
 }
 
-pub fn div_decimal(a: Decimal, b: Decimal) -> Result<Decimal> {
+pub fn div_decimal(a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
     let dec_a: D256 = a.into();
     let dec_b: D256 = b.into();
     if dec_b.is_zero() {
-        return Err(Error::DivByZero("decimal divide by zero".to_string()).into());
+        return Ok(Err(
+            Error::DivByZero("decimal divide by zero".to_string()).into()
+        ));
     }
     let res = (dec_a / dec_b).with_ctx(CTX).quantize(MIN_DECIMAL);
     if res.is_op_invalid() {
-        return Err(Error::Overflow("invalid decimal number".to_string()).into());
+        return Ok(Err(
+            Error::Overflow("invalid decimal number".to_string()).into()
+        ));
     }
-    Ok(res.into())
+    Ok(Ok(res.into()))
 }
 
 pub fn log10(a: Decimal) -> Result<Decimal> {

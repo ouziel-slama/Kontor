@@ -51,22 +51,6 @@ use crate::runtime::{
     wit::{FallContext, HasContractId, Keys, ProcContext, Signer, ViewContext},
 };
 
-impl std::fmt::Display for kontor::built_in::error::Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            kontor::built_in::error::Error::Message(msg) => write!(f, "Error: {}", msg),
-            kontor::built_in::error::Error::Overflow(msg) => write!(f, "Overflow Error: {}", msg),
-            kontor::built_in::error::Error::DivByZero(msg) => write!(f, "DivByZero Error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for kontor::built_in::error::Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
-
 impls!(host = true);
 
 pub fn serialize_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>> {
@@ -726,7 +710,7 @@ impl built_in::numbers::Host for Runtime {
         numerics::s64_to_integer(i)
     }
 
-    async fn string_to_integer(&mut self, s: String) -> Result<Integer> {
+    async fn string_to_integer(&mut self, s: String) -> Result<Result<Integer, Error>> {
         numerics::string_to_integer(&s)
     }
 
@@ -742,24 +726,28 @@ impl built_in::numbers::Host for Runtime {
         numerics::cmp_integer(a, b)
     }
 
-    async fn add_integer(&mut self, a: Integer, b: Integer) -> Result<Integer> {
+    async fn add_integer(&mut self, a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
         numerics::add_integer(a, b)
     }
 
-    async fn sub_integer(&mut self, a: Integer, b: Integer) -> Result<Integer> {
+    async fn sub_integer(&mut self, a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
         numerics::sub_integer(a, b)
     }
 
-    async fn mul_integer(&mut self, a: Integer, b: Integer) -> Result<Integer> {
+    async fn mul_integer(&mut self, a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
         numerics::mul_integer(a, b)
     }
 
-    async fn div_integer(&mut self, a: Integer, b: Integer) -> Result<Integer> {
+    async fn div_integer(&mut self, a: Integer, b: Integer) -> Result<Result<Integer, Error>> {
         numerics::div_integer(a, b)
     }
 
     async fn integer_to_decimal(&mut self, i: Integer) -> Result<Decimal> {
         numerics::integer_to_decimal(i)
+    }
+
+    async fn decimal_to_integer(&mut self, d: Decimal) -> Result<Integer> {
+        numerics::decimal_to_integer(d)
     }
 
     async fn u64_to_decimal(&mut self, i: u64) -> Result<Decimal> {
@@ -774,7 +762,7 @@ impl built_in::numbers::Host for Runtime {
         numerics::f64_to_decimal(f)
     }
 
-    async fn string_to_decimal(&mut self, s: String) -> Result<Decimal> {
+    async fn string_to_decimal(&mut self, s: String) -> Result<Result<Decimal, Error>> {
         numerics::string_to_decimal(&s)
     }
 
@@ -790,19 +778,19 @@ impl built_in::numbers::Host for Runtime {
         numerics::cmp_decimal(a, b)
     }
 
-    async fn add_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
+    async fn add_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
         numerics::add_decimal(a, b)
     }
 
-    async fn sub_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
+    async fn sub_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
         numerics::sub_decimal(a, b)
     }
 
-    async fn mul_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
+    async fn mul_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
         numerics::mul_decimal(a, b)
     }
 
-    async fn div_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Decimal> {
+    async fn div_decimal(&mut self, a: Decimal, b: Decimal) -> Result<Result<Decimal, Error>> {
         numerics::div_decimal(a, b)
     }
 

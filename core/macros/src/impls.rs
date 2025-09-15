@@ -109,7 +109,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
-                #numerics_mod_name::add_integer(self, other)#numerics_unwrap
+                #numerics_mod_name::add_integer(self, other)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -118,7 +118,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
-                #numerics_mod_name::sub_integer(self, other)#numerics_unwrap
+                #numerics_mod_name::sub_integer(self, other)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -127,7 +127,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self {
-                #numerics_mod_name::mul_integer(self, rhs)#numerics_unwrap
+                #numerics_mod_name::mul_integer(self, rhs)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -136,7 +136,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self {
-                #numerics_mod_name::div_integer(self, rhs)#numerics_unwrap
+                #numerics_mod_name::div_integer(self, rhs)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -199,7 +199,7 @@ pub fn generate(config: Config) -> TokenStream {
         #[automatically_derived]
         impl From<&str> for kontor::built_in::numbers::Integer {
             fn from(s: &str) -> Self {
-                #numerics_mod_name::string_to_integer(s)#numerics_unwrap
+                #numerics_mod_name::string_to_integer(s)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -236,7 +236,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
-                #numerics_mod_name::add_decimal(self, other)#numerics_unwrap
+                #numerics_mod_name::add_decimal(self, other)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -245,7 +245,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
-                #numerics_mod_name::sub_decimal(self, other)#numerics_unwrap
+                #numerics_mod_name::sub_decimal(self, other)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -254,7 +254,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self {
-                #numerics_mod_name::mul_decimal(self, rhs)#numerics_unwrap
+                #numerics_mod_name::mul_decimal(self, rhs)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -263,7 +263,7 @@ pub fn generate(config: Config) -> TokenStream {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self {
-                #numerics_mod_name::div_decimal(self, rhs)#numerics_unwrap
+                #numerics_mod_name::div_decimal(self, rhs)#numerics_unwrap #numerics_unwrap
             }
         }
 
@@ -341,7 +341,7 @@ pub fn generate(config: Config) -> TokenStream {
 
         impl From<&str> for kontor::built_in::numbers::Decimal {
             fn from(s: &str) -> Self {
-                #numerics_mod_name::string_to_decimal(s)#numerics_unwrap
+                #numerics_mod_name::string_to_decimal(s)#numerics_unwrap #numerics_unwrap
             }
         }
 
