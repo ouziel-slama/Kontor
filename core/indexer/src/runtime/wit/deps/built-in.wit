@@ -15,7 +15,6 @@ interface context {
         get-s64: func(path: string) -> option<s64>;
         get-bool: func(path: string) -> option<bool>;
         get-keys: func(path: string) -> keys;
-        is-void: func(path: string) -> bool;
         exists: func(path: string) -> bool;
         matching-path: func(regexp: string) -> option<string>;
     }
@@ -26,7 +25,6 @@ interface context {
         get-s64: func(path: string) -> option<s64>;
         get-bool: func(path: string) -> option<bool>;
         get-keys: func(path: string) -> keys;
-        is-void: func(path: string) -> bool;
         exists: func(path: string) -> bool;
         matching-path: func(regexp: string) -> option<string>;
 
