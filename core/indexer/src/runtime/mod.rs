@@ -261,7 +261,7 @@ impl Runtime {
         let table = self.table.lock().await;
         let _self = table.get(&resource)?;
         self.storage
-            .get(_self.get_contract_id(), &path)
+            .get(1000000, _self.get_contract_id(), &path)
             .await?
             .map(|bs| deserialize_cbor(&bs))
             .transpose()
@@ -316,24 +316,6 @@ impl Runtime {
         let contract_id = table.get(&resource)?.get_contract_id();
         let stream = Box::pin(self.storage.keys(contract_id, path.clone()).await?);
         Ok(table.push(Keys { stream })?)
-    }
-
-    async fn _is_void<T: HasContractId>(
-        &mut self,
-        resource: Resource<T>,
-        path: String,
-    ) -> Result<bool> {
-        let table = self.table.lock().await;
-        let _self = table.get(&resource)?;
-        let contract_id = _self.get_contract_id();
-        let bs = self.storage.get(contract_id, &path).await?;
-        Ok(if let Some(bs) = bs {
-            bs.is_empty()
-        } else if self.storage.exists(contract_id, &path).await? {
-            false
-        } else {
-            panic!("Key not found in is_void check")
-        })
     }
 
     async fn _exists<T: HasContractId>(
@@ -468,10 +450,6 @@ impl built_in::context::HostViewContext for Runtime {
         self._get_keys(resource, path).await
     }
 
-    async fn is_void(&mut self, resource: Resource<ViewContext>, path: String) -> Result<bool> {
-        self._is_void(resource, path).await
-    }
-
     async fn exists(&mut self, resource: Resource<ViewContext>, path: String) -> Result<bool> {
         self._exists(resource, path).await
     }
@@ -581,10 +559,6 @@ impl built_in::context::HostProcContext for Runtime {
     async fn set_void(&mut self, resource: Resource<ProcContext>, path: String) -> Result<()> {
         let contract_id = self.table.lock().await.get(&resource)?.contract_id;
         self.storage.set(contract_id, &path, &[]).await
-    }
-
-    async fn is_void(&mut self, resource: Resource<ProcContext>, path: String) -> Result<bool> {
-        self._is_void(resource, path).await
     }
 
     async fn exists(&mut self, resource: Resource<ProcContext>, path: String) -> Result<bool> {
