@@ -37,7 +37,7 @@ use anyhow::{Result, anyhow};
 use wasmtime::{
     AsContext, AsContextMut, Engine, Store,
     component::{
-        Accessor, Component, HasData, Linker, Resource, ResourceTable,
+        Accessor, Component, Func, HasData, Linker, Resource, ResourceTable, Val,
         wasm_wave::{
             parser::Parser as WaveParser, to_string as to_wave_string, value::Value as WaveValue,
         },
@@ -104,6 +104,141 @@ pub fn make_store(engine: &Engine, runtime: &Runtime, fuel: u64) -> Result<Store
     Ok(s)
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn prepare_call(
+    engine: &Engine,
+    runtime: &Runtime,
+    component_cache: &ComponentCache,
+    storage: &Storage,
+    stack: &Stack<i64>,
+    resource_table: Arc<Mutex<ResourceTable>>,
+    contract_address: &ContractAddress,
+    signer: Option<Signer>,
+    expr: &str,
+    fuel: u64,
+) -> Result<(Store<Runtime>, bool, Vec<Val>, Vec<Val>, Func)> {
+    let contract_id = storage
+        .contract_id(contract_address)
+        .await?
+        .ok_or(anyhow!("Contract not found"))?;
+    let component = load_component(engine, component_cache, storage, contract_id).await?;
+    let linker = make_linker(engine)?;
+    let mut store = make_store(engine, runtime, fuel)?;
+    let instance = linker.instantiate_async(&mut store, &component).await?;
+    let fallback_name = "fallback";
+    let fallback_expr = format!(
+        "{}({})",
+        fallback_name,
+        to_wave_string(&WaveValue::from(expr))?
+    );
+
+    let call = WaveParser::new(expr).parse_raw_func_call()?;
+    let (call, func) = if let Some(func) = instance.get_func(&mut store, call.name()) {
+        (call, func)
+    } else if let Some(func) = instance.get_func(&mut store, fallback_name) {
+        (WaveParser::new(&fallback_expr).parse_raw_func_call()?, func)
+    } else {
+        return Err(anyhow!("Expression does not refer to any known function"));
+    };
+
+    let func_params = func.params(&store);
+    let func_param_types = func_params.iter().map(|(_, t)| t).collect::<Vec<_>>();
+    let (func_ctx_param_type, func_param_types) = func_param_types
+        .split_first()
+        .ok_or(anyhow!("Context/signer parameter not found"))?;
+    let mut params = call.to_wasm_params(func_param_types.to_vec())?;
+    let resource_type = match func_ctx_param_type {
+        wasmtime::component::Type::Borrow(t) => Ok(*t),
+        _ => Err(anyhow!("Unsupported context type")),
+    }?;
+    {
+        if let Some(Signer::ContractId(id)) = signer
+            && stack.peek().await != Some(id)
+        {
+            return Err(anyhow!("Invalid contract id signer"));
+        }
+        let mut table = resource_table.lock().await;
+        match (resource_type, signer) {
+            (t, Some(signer))
+                if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
+            {
+                params.insert(
+                    0,
+                    wasmtime::component::Val::Resource(
+                        table
+                            .push(ProcContext {
+                                signer,
+                                contract_id,
+                            })?
+                            .try_into_resource_any(&mut store)?,
+                    ),
+                )
+            }
+            (t, _) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => params
+                .insert(
+                    0,
+                    wasmtime::component::Val::Resource(
+                        table
+                            .push(ViewContext { contract_id })?
+                            .try_into_resource_any(&mut store)?,
+                    ),
+                ),
+            (t, signer) if t.eq(&wasmtime::component::ResourceType::host::<FallContext>()) => {
+                params.insert(
+                    0,
+                    wasmtime::component::Val::Resource(
+                        table
+                            .push(FallContext {
+                                signer,
+                                contract_id,
+                            })?
+                            .try_into_resource_any(&mut store)?,
+                    ),
+                )
+            }
+            _ => return Err(anyhow!("Unsupported context/signer type")),
+        }
+    }
+
+    stack.push(contract_id).await?;
+    let results = func
+        .results(&store)
+        .iter()
+        .map(default_val_for_type)
+        .collect::<Vec<_>>();
+    Ok((store, call.name() == fallback_name, params, results, func))
+}
+
+async fn handle_call(
+    stack: &Stack<i64>,
+    is_fallback: bool,
+    call_result: Result<()>,
+    mut results: Vec<Val>,
+) -> Result<String> {
+    stack.pop().await;
+    call_result?;
+    if results.is_empty() {
+        return Ok("()".to_string());
+    }
+
+    if results.len() == 1 {
+        let result = results.remove(0);
+        return if is_fallback {
+            if let wasmtime::component::Val::String(return_expr) = result {
+                Ok(return_expr)
+            } else {
+                Err(anyhow!("fallback did not return a string"))
+            }
+        } else {
+            result.to_wave()
+        };
+    }
+
+    Err(anyhow!(
+        "Functions with multiple return values are not supported"
+    ))
+}
+
 #[derive(Clone)]
 pub struct Runtime {
     pub engine: Engine,
@@ -144,162 +279,29 @@ impl Runtime {
         self.storage = storage;
     }
 
-    pub fn make_store(&self) -> Result<Store<Self>> {
-        let mut s = Store::new(&self.engine, self.clone());
-        s.set_fuel(1000000)?;
-        Ok(s)
-    }
-
-    pub fn make_linker(&self) -> Result<Linker<Self>> {
-        let mut linker = Linker::new(&self.engine);
-        Contract::add_to_linker::<_, Runtime>(&mut linker, |s| s)?;
-        Ok(linker)
-    }
-
-    pub async fn load_component(&self, contract_id: i64) -> Result<Component> {
-        Ok(match self.component_cache.get(&contract_id) {
-            Some(component) => component,
-            None => {
-                let compressed_bytes = self
-                    .storage
-                    .contract_bytes(contract_id)
-                    .await?
-                    .ok_or(anyhow!("Contract not found"))?;
-                let mut decompressor = brotli::Decompressor::new(&compressed_bytes[..], 4096);
-                let mut module_bytes = Vec::new();
-                decompressor.read_to_end(&mut module_bytes)?;
-
-                let component_bytes = ComponentEncoder::default()
-                    .module(&module_bytes)?
-                    .validate(true)
-                    .encode()?;
-
-                let component = Component::from_binary(&self.engine, &component_bytes)?;
-                self.component_cache.put(contract_id, component.clone());
-                component
-            }
-        })
-    }
-
     pub async fn execute(
         &self,
         signer: Option<Signer>,
         contract_address: &ContractAddress,
         expr: &str,
     ) -> Result<String> {
-        let contract_id = self
-            .storage
-            .contract_id(contract_address)
-            .await?
-            .ok_or(anyhow!("Contract not found"))?;
-        let component = self.load_component(contract_id).await?;
-        let linker = self.make_linker()?;
-        let mut store = self.make_store()?;
-        let instance = linker.instantiate_async(&mut store, &component).await?;
-        let fallback_name = "fallback";
-        let fallback_expr = format!(
-            "{}({})",
-            fallback_name,
-            to_wave_string(&WaveValue::from(expr))?
-        );
+        let (mut store, is_fallback, params, mut results, func) = prepare_call(
+            &self.engine,
+            self,
+            &self.component_cache,
+            &self.storage,
+            &self.stack,
+            self.table.clone(),
+            contract_address,
+            signer,
+            expr,
+            1000000,
+        )
+        .await?;
 
-        let call = WaveParser::new(expr).parse_raw_func_call()?;
-        let (call, func) = if let Some(func) = instance.get_func(&mut store, call.name()) {
-            (call, func)
-        } else if let Some(func) = instance.get_func(&mut store, fallback_name) {
-            (WaveParser::new(&fallback_expr).parse_raw_func_call()?, func)
-        } else {
-            return Err(anyhow!("Expression does not refer to any known function"));
-        };
-
-        let func_params = func.params(&store);
-        let func_param_types = func_params.iter().map(|(_, t)| t).collect::<Vec<_>>();
-        let (func_ctx_param_type, func_param_types) = func_param_types
-            .split_first()
-            .ok_or(anyhow!("Context/signer parameter not found"))?;
-        let mut params = call.to_wasm_params(func_param_types.to_vec())?;
-        let resource_type = match func_ctx_param_type {
-            wasmtime::component::Type::Borrow(t) => Ok(*t),
-            _ => Err(anyhow!("Unsupported context type")),
-        }?;
-        {
-            if let Some(Signer::ContractId(id)) = signer
-                && self.stack.peek().await != Some(id)
-            {
-                return Err(anyhow!("Invalid contract id signer"));
-            }
-            let mut table = self.table.lock().await;
-            match (resource_type, signer) {
-                (t, Some(signer))
-                    if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
-                {
-                    params.insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(ProcContext {
-                                    signer,
-                                    contract_id,
-                                })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    )
-                }
-                (t, _) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => params
-                    .insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(ViewContext { contract_id })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    ),
-                (t, signer) if t.eq(&wasmtime::component::ResourceType::host::<FallContext>()) => {
-                    params.insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(FallContext {
-                                    signer,
-                                    contract_id,
-                                })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    )
-                }
-                _ => return Err(anyhow!("Unsupported context/signer type")),
-            }
-        }
-
-        self.stack.push(contract_id).await?;
-        let mut results = func
-            .results(&store)
-            .iter()
-            .map(default_val_for_type)
-            .collect::<Vec<_>>();
         let call_result = func.call_async(&mut store, &params, &mut results).await;
-        self.stack.pop().await;
-        call_result?;
-        if results.is_empty() {
-            return Ok("()".to_string());
-        }
 
-        if results.len() == 1 {
-            let result = results.remove(0);
-            return if call.name() == fallback_name {
-                if let wasmtime::component::Val::String(return_expr) = result {
-                    Ok(return_expr)
-                } else {
-                    Err(anyhow!("{fallback_name} did not return a string"))
-                }
-            } else {
-                result.to_wave()
-            };
-        }
-
-        Err(anyhow!(
-            "Functions with multiple return values are not supported"
-        ))
+        handle_call(&self.stack, is_fallback, call_result, results).await
     }
 
     async fn _get_primitive<T: HasContractId, R: for<'de> Deserialize<'de>>(
@@ -478,6 +480,8 @@ impl built_in::foreign::HostWithStore for Runtime {
                 )
             });
 
+        let fuel = accessor.with(|access| access.as_context().get_fuel())?;
+
         let signer = if let Some(resource) = signer {
             let _self = resource_table.lock().await.get(&resource)?.clone();
             Some(_self)
@@ -485,128 +489,29 @@ impl built_in::foreign::HostWithStore for Runtime {
             None
         };
 
-        let contract_id = storage
-            .contract_id(&contract_address)
-            .await?
-            .ok_or(anyhow!("Contract not found"))?;
-        let component = load_component(&engine, &component_cache, &storage, contract_id).await?;
-        let linker = make_linker(&engine)?;
-        let fuel = accessor.with(|access| access.as_context().get_fuel())?;
-        let mut store = make_store(&engine, &runtime, fuel)?;
-        let instance = linker.instantiate_async(&mut store, &component).await?;
-        let fallback_name = "fallback";
-        let fallback_expr = format!(
-            "{}({})",
-            fallback_name,
-            to_wave_string(&WaveValue::from(expr.clone()))?
-        );
+        let (mut store, is_fallback, params, mut results, func) = prepare_call(
+            &engine,
+            &runtime,
+            &component_cache,
+            &storage,
+            &stack,
+            resource_table,
+            &contract_address,
+            signer,
+            &expr,
+            fuel,
+        )
+        .await?;
 
-        let call = WaveParser::new(&expr).parse_raw_func_call()?;
-        let (call, func) = if let Some(func) = instance.get_func(&mut store, call.name()) {
-            (call, func)
-        } else if let Some(func) = instance.get_func(&mut store, fallback_name) {
-            (WaveParser::new(&fallback_expr).parse_raw_func_call()?, func)
-        } else {
-            return Err(anyhow!("Expression does not refer to any known function"));
-        };
-
-        let func_params = func.params(&store);
-        let func_param_types = func_params.iter().map(|(_, t)| t).collect::<Vec<_>>();
-        let (func_ctx_param_type, func_param_types) = func_param_types
-            .split_first()
-            .ok_or(anyhow!("Context/signer parameter not found"))?;
-        let mut params = call.to_wasm_params(func_param_types.to_vec())?;
-        let resource_type = match func_ctx_param_type {
-            wasmtime::component::Type::Borrow(t) => Ok(*t),
-            _ => Err(anyhow!("Unsupported context type")),
-        }?;
-        {
-            if let Some(Signer::ContractId(id)) = signer
-                && stack.peek().await != Some(id)
-            {
-                return Err(anyhow!("Invalid contract id signer"));
-            }
-            let mut table = resource_table.lock().await;
-            match (resource_type, signer) {
-                (t, Some(signer))
-                    if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
-                {
-                    params.insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(ProcContext {
-                                    signer,
-                                    contract_id,
-                                })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    )
-                }
-                (t, _) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => params
-                    .insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(ViewContext { contract_id })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    ),
-                (t, signer) if t.eq(&wasmtime::component::ResourceType::host::<FallContext>()) => {
-                    params.insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(FallContext {
-                                    signer,
-                                    contract_id,
-                                })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    )
-                }
-                _ => return Err(anyhow!("Unsupported context/signer type")),
-            }
-        }
-
-        stack.push(contract_id).await?;
-        let mut results = func
-            .results(&store)
-            .iter()
-            .map(default_val_for_type)
-            .collect::<Vec<_>>();
-        let (call_result, mut results, fuel_result) = tokio::spawn({
-            let mut store = store; // Move store into the task
-            async move {
-                let call_result = func.call_async(&mut store, &params, &mut results).await;
-                (call_result, results, store.get_fuel())
-            }
+        let (call_result, results, fuel_result) = tokio::spawn(async move {
+            let call_result = func.call_async(&mut store, &params, &mut results).await;
+            (call_result, results, store.get_fuel())
         })
         .await?;
-        stack.pop().await;
         let remaining_fuel = fuel_result?;
         accessor.with(|mut access| access.as_context_mut().set_fuel(remaining_fuel))?;
-        call_result?;
-        if results.is_empty() {
-            return Ok("()".to_string());
-        }
 
-        if results.len() == 1 {
-            let result = results.remove(0);
-            return if call.name() == fallback_name {
-                if let wasmtime::component::Val::String(return_expr) = result {
-                    Ok(return_expr)
-                } else {
-                    Err(anyhow!("{fallback_name} did not return a string"))
-                }
-            } else {
-                result.to_wave()
-            };
-        }
-
-        Err(anyhow!(
-            "Functions with multiple return values are not supported"
-        ))
+        handle_call(&stack, is_fallback, call_result, results).await
     }
 }
 
