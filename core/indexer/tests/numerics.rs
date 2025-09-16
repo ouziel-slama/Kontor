@@ -1,6 +1,7 @@
 use std::panic::catch_unwind;
 
 use testlib::*;
+
 #[tokio::test]
 async fn test_numerics() -> Result<()> {
     assert!(Integer::from(123) == 123.into());

@@ -105,17 +105,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        pub trait CheckedArithmetics<Other = Self> {
-            type Output;
-
-            fn add(self, other: Other) -> Result<Self::Output, kontor::built_in::error::Error>;
-            fn sub(self, other: Other) -> Result<Self::Output, kontor::built_in::error::Error>;
-            fn mul(self, other: Other) -> Result<Self::Output, kontor::built_in::error::Error>;
-            fn div(self, other: Other) -> Result<Self::Output, kontor::built_in::error::Error>;
-        }
-
-        #[automatically_derived]
-        impl CheckedArithmetics for kontor::built_in::numbers::Integer {
+        impl CheckedArithmetics<kontor::built_in::error::Error> for kontor::built_in::numbers::Integer {
             type Output = Self;
             fn add(self, other: Self) -> Result<Self::Output, kontor::built_in::error::Error> {
                 #numerics_mod_name::add_integer(self, other)
@@ -132,7 +122,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl CheckedArithmetics for kontor::built_in::numbers::Decimal {
+        impl CheckedArithmetics<kontor::built_in::error::Error> for kontor::built_in::numbers::Decimal {
             type Output = Self;
             fn add(self, other: Self) -> Result<Self::Output, kontor::built_in::error::Error> {
                 #numerics_mod_name::add_decimal(self, other)

@@ -13,6 +13,7 @@ use futures_util::StreamExt;
 use libsql::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+pub use stdlib::CheckedArithmetics;
 use stdlib::impls;
 pub use storage::Storage;
 use tokio::sync::Mutex;
