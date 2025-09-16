@@ -14,6 +14,8 @@ wasmtime::component::bindgen!({
     },
     additional_derives: [stdlib::Wavey],
     imports: {
+        "kontor:built-in/crypto": async | store | trappable,
+        "kontor:built-in/foreign": async | store | trappable,
         default: async | trappable,
     }
 });
