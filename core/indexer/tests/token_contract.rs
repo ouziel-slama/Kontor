@@ -68,7 +68,11 @@ async fn test_token_contract_large_numbers() -> Result<()> {
     );
 
     let max_int = "115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457";
-    assert!(token::mint_checked(&runtime, minter, max_int.into()).await?.is_err());
+    assert!(
+        token::mint_checked(&runtime, minter, max_int.into())
+            .await?
+            .is_err()
+    );
 
     token::transfer(
         &runtime,
