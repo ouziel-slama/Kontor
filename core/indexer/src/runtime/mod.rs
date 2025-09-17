@@ -107,24 +107,26 @@ pub fn make_store(engine: &Engine, runtime: &Runtime, fuel: u64) -> Result<Store
 
 #[allow(clippy::too_many_arguments)]
 async fn prepare_call(
-    engine: &Engine,
     runtime: &Runtime,
-    component_cache: &ComponentCache,
-    storage: &Storage,
-    stack: &Stack<i64>,
-    resource_table: Arc<Mutex<ResourceTable>>,
     contract_address: &ContractAddress,
     signer: Option<Signer>,
     expr: &str,
     fuel: u64,
 ) -> Result<(Store<Runtime>, bool, Vec<Val>, Vec<Val>, Func)> {
-    let contract_id = storage
+    let contract_id = runtime
+        .storage
         .contract_id(contract_address)
         .await?
         .ok_or(anyhow!("Contract not found"))?;
-    let component = load_component(engine, component_cache, storage, contract_id).await?;
-    let linker = make_linker(engine)?;
-    let mut store = make_store(engine, runtime, fuel)?;
+    let component = load_component(
+        &runtime.engine,
+        &runtime.component_cache,
+        &runtime.storage,
+        contract_id,
+    )
+    .await?;
+    let linker = make_linker(&runtime.engine)?;
+    let mut store = make_store(&runtime.engine, runtime, fuel)?;
     let instance = linker.instantiate_async(&mut store, &component).await?;
     let fallback_name = "fallback";
     let fallback_expr = format!(
@@ -154,11 +156,11 @@ async fn prepare_call(
     }?;
     {
         if let Some(Signer::ContractId(id)) = signer
-            && stack.peek().await != Some(id)
+            && runtime.stack.peek().await != Some(id)
         {
             return Err(anyhow!("Invalid contract id signer"));
         }
-        let mut table = resource_table.lock().await;
+        let mut table = runtime.table.lock().await;
         match (resource_type, signer) {
             (t, Some(signer))
                 if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
@@ -201,7 +203,7 @@ async fn prepare_call(
         }
     }
 
-    stack.push(contract_id).await?;
+    runtime.stack.push(contract_id).await?;
     let results = func
         .results(&store)
         .iter()
@@ -286,19 +288,8 @@ impl Runtime {
         contract_address: &ContractAddress,
         expr: &str,
     ) -> Result<String> {
-        let (mut store, is_fallback, params, mut results, func) = prepare_call(
-            &self.engine,
-            self,
-            &self.component_cache,
-            &self.storage,
-            &self.stack,
-            self.table.clone(),
-            contract_address,
-            signer,
-            expr,
-            1000000,
-        )
-        .await?;
+        let (mut store, is_fallback, params, mut results, func) =
+            prepare_call(self, contract_address, signer, expr, 1000000).await?;
 
         let call_result = func.call_async(&mut store, &params, &mut results).await;
 
@@ -428,41 +419,18 @@ impl built_in::foreign::HostWithStore for Runtime {
         contract_address: ContractAddress,
         expr: String,
     ) -> Result<String> {
-        let (runtime, engine, component_cache, storage, stack, resource_table) =
-            accessor.with(|mut access| {
-                let runtime = access.get();
-                (
-                    runtime.clone(),
-                    runtime.engine.clone(),
-                    runtime.component_cache.clone(),
-                    runtime.storage.clone(),
-                    runtime.stack.clone(),
-                    runtime.table.clone(),
-                )
-            });
-
+        let runtime = accessor.with(|mut access| access.get().clone());
         let fuel = accessor.with(|access| access.as_context().get_fuel())?;
 
         let signer = if let Some(resource) = signer {
-            let _self = resource_table.lock().await.get(&resource)?.clone();
+            let _self = runtime.table.lock().await.get(&resource)?.clone();
             Some(_self)
         } else {
             None
         };
 
-        let (mut store, is_fallback, params, mut results, func) = prepare_call(
-            &engine,
-            &runtime,
-            &component_cache,
-            &storage,
-            &stack,
-            resource_table,
-            &contract_address,
-            signer,
-            &expr,
-            fuel,
-        )
-        .await?;
+        let (mut store, is_fallback, params, mut results, func) =
+            prepare_call(&runtime, &contract_address, signer, &expr, fuel).await?;
 
         let (call_result, results, fuel_result) = tokio::spawn(async move {
             let call_result = func.call_async(&mut store, &params, &mut results).await;
@@ -472,7 +440,7 @@ impl built_in::foreign::HostWithStore for Runtime {
         let remaining_fuel = fuel_result?;
         accessor.with(|mut access| access.as_context_mut().set_fuel(remaining_fuel))?;
 
-        handle_call(&stack, is_fallback, call_result, results).await
+        handle_call(&runtime.stack, is_fallback, call_result, results).await
     }
 }
 
