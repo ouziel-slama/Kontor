@@ -319,46 +319,6 @@ impl Runtime {
             .transpose()
     }
 
-    async fn _get_str<T: HasContractId>(
-        &mut self,
-        resource: Resource<T>,
-        path: String,
-    ) -> Result<Option<String>> {
-        self._get_primitive(resource, path).await
-    }
-
-    async fn _get_u64<T: HasContractId>(
-        &mut self,
-        resource: Resource<T>,
-        path: String,
-    ) -> Result<Option<u64>> {
-        self._get_primitive(resource, path).await
-    }
-
-    async fn _get_s64<T: HasContractId>(
-        &mut self,
-        resource: Resource<T>,
-        path: String,
-    ) -> Result<Option<i64>> {
-        self._get_primitive(resource, path).await
-    }
-
-    async fn _get_bool<T: HasContractId>(
-        &mut self,
-        resource: Resource<T>,
-        path: String,
-    ) -> Result<Option<bool>> {
-        self._get_primitive(resource, path).await
-    }
-
-    async fn _get_void<T: HasContractId>(
-        &mut self,
-        resource: Resource<T>,
-        path: String,
-    ) -> Result<Option<()>> {
-        self._get_primitive(resource, path).await
-    }
-
     async fn _get_keys<T: HasContractId>(
         &mut self,
         resource: Resource<T>,
@@ -537,7 +497,7 @@ impl built_in::context::HostViewContextWithStore for Runtime {
     ) -> Result<Option<String>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_str(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -548,7 +508,7 @@ impl built_in::context::HostViewContextWithStore for Runtime {
     ) -> Result<Option<u64>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_u64(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -559,7 +519,7 @@ impl built_in::context::HostViewContextWithStore for Runtime {
     ) -> Result<Option<i64>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_s64(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -570,7 +530,7 @@ impl built_in::context::HostViewContextWithStore for Runtime {
     ) -> Result<Option<bool>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_bool(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -649,7 +609,7 @@ impl built_in::context::HostProcContextWithStore for Runtime {
     ) -> Result<Option<String>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_str(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -660,7 +620,7 @@ impl built_in::context::HostProcContextWithStore for Runtime {
     ) -> Result<Option<u64>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_u64(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -671,7 +631,7 @@ impl built_in::context::HostProcContextWithStore for Runtime {
     ) -> Result<Option<i64>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_s64(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
@@ -682,7 +642,7 @@ impl built_in::context::HostProcContextWithStore for Runtime {
     ) -> Result<Option<bool>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_bool(self_, path)
+            ._get_primitive(self_, path)
             .await
     }
 
