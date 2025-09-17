@@ -105,7 +105,6 @@ pub fn make_store(engine: &Engine, runtime: &Runtime, fuel: u64) -> Result<Store
     Ok(s)
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn prepare_call(
     runtime: &Runtime,
     contract_address: &ContractAddress,
