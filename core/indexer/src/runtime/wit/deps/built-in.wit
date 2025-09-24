@@ -116,6 +116,7 @@ interface numbers {
     sub-integer: func(a: integer, b: integer) -> result<integer, error>;
     mul-integer: func(a: integer, b: integer) -> result<integer, error>;
     div-integer: func(a: integer, b: integer) -> result<integer, error>;
+    sqrt-integer: func(i: integer) -> result<integer, error>;
 
     integer-to-decimal: func(i: integer) -> decimal;
     decimal-to-integer: func(d: decimal) -> integer;

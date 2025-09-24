@@ -1151,6 +1151,21 @@ impl built_in::numbers::HostWithStore for Runtime {
         Ok(numerics::div_integer(a, b))
     }
 
+    async fn sqrt_integer<T>(
+        accessor: &Accessor<T, Self>,
+        i: Integer,
+    ) -> Result<Result<Integer, Error>> {
+        Fuel::NumbersSqrtInteger
+            .consume(
+                accessor,
+                accessor
+                    .with(|mut access| access.get().gauge.clone())
+                    .as_ref(),
+            )
+            .await?;
+        Ok(numerics::sqrt_integer(i))
+    }
+
     async fn integer_to_decimal<T>(accessor: &Accessor<T, Self>, i: Integer) -> Result<Decimal> {
         Fuel::NumbersIntegerToDecimal
             .consume(

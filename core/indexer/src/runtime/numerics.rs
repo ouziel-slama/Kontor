@@ -212,6 +212,11 @@ pub fn div_integer(a: Integer, b: Integer) -> Result<Integer, Error> {
     Ok((big_a / big_b).into())
 }
 
+pub fn sqrt_integer(i: Integer) -> Result<Integer, Error> {
+    let big_i: BigInt = i.into();
+    Ok(big_i.sqrt().into())
+}
+
 pub fn integer_to_decimal(i: Integer) -> Decimal {
     let big: BigInt = i.into();
     let dec_ = big.to_string().parse::<D256>().unwrap();
