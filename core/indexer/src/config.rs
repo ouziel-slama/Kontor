@@ -35,14 +35,16 @@ pub struct Config {
     #[clap(
         long,
         env = "ZMQ_ADDRESS",
-        help = "ZMQ address for sequence notifications (e.g., tcp://localhost:28332)"
+        help = "ZMQ address for sequence notifications (e.g., tcp://localhost:28332)",
+        default_value = "tcp://localhost:28332"
     )]
     pub zmq_address: String,
 
     #[clap(
         long,
         env = "API_PORT",
-        help = "Port number for the API server (e.g., 8080)"
+        help = "Port number for the API server (e.g., 8080)",
+        default_value = "8443"
     )]
     pub api_port: u16,
 
@@ -105,11 +107,4 @@ pub struct TestConfig {
         help = "Full path to the taproot key file"
     )]
     pub taproot_key_path: PathBuf,
-
-    #[clap(
-        long,
-        env = "NETWORK",
-        help = "Network to use (bitcoin, testnet, regtest)"
-    )]
-    pub network: bitcoin::Network,
 }
