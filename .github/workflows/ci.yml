@@ -6,6 +6,21 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+  BITCOIN_RPC_URL: ${{ vars.BITCOIN_RPC_URL }}
+  BITCOIN_RPC_USER: ${{ vars.BITCOIN_RPC_USER }}
+  BITCOIN_RPC_PASSWORD: ${{ vars.BITCOIN_RPC_PASSWORD }}
+  TESTNET_BITCOIN_RPC_URL: ${{ vars.TESTNET_BITCOIN_RPC_URL }}
+  TESTNET_BITCOIN_RPC_USER: ${{ vars.TESTNET_BITCOIN_RPC_USER }}
+  TESTNET_BITCOIN_RPC_PASSWORD: ${{ vars.TESTNET_BITCOIN_RPC_PASSWORD }}
+  DATA_DIR: ${{ github.workspace }}/core/test-data
+  TAPROOT_KEY_CONTENT: ${{ secrets.TAPROOT_KEY_CONTENT }}
+  SEGWIT_SELLER_KEY_CONTENT: ${{ secrets.SEGWIT_SELLER_KEY_CONTENT }}
+  SEGWIT_BUYER_KEY_CONTENT: ${{ secrets.SEGWIT_BUYER_KEY_CONTENT }}
+  TAPROOT_KEY_PATH: ${{ github.workspace }}/core/keys/taproot_key.txt
+  SEGWIT_SELLER_KEY_PATH: ${{ github.workspace }}/core/keys/seller_key.txt
+  SEGWIT_BUYER_KEY_PATH: ${{ github.workspace }}/core/keys/buyer_key.txt
 
 jobs:
   quality-checks:
@@ -16,12 +31,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Cache Cargo things
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/target
+            core/target
+          key: cargo-${{ github.job }}-${{ runner.os }}-stable-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install wasm32-unknown-unknown
         run: rustup target add wasm32-unknown-unknown
-      - name: Install cargo expand
-        run: cargo install cargo-expand
-      - name: Install contract build dependencies (Linux)
-        run: sudo apt-get update && sudo apt-get install -y binaryen brotli
       - name: Check formatting (contracts)
         run: cargo fmt --all -- --check
         working-directory: ./contracts
@@ -30,9 +56,6 @@ jobs:
         working-directory: ./core
       - name: Run clippy (contracts)
         run: cargo clippy --workspace --tests -- -D warnings
-        working-directory: ./contracts
-      - name: Build native contracts
-        run: ./build.sh
         working-directory: ./contracts
       - name: Run clippy (core)
         run: cargo clippy --workspace --tests -- -D warnings
@@ -46,90 +69,122 @@ jobs:
         run: cargo audit
         working-directory: ./core
 
-  collect-testnet-vars:
-    name: Collect testnet4 vars
-    runs-on: ubuntu-latest
-    environment: testnet4
-    outputs:
-      TESTNET_BITCOIN_RPC_URL: ${{ steps.out.outputs.TESTNET_BITCOIN_RPC_URL }}
-      TESTNET_BITCOIN_RPC_USER: ${{ steps.out.outputs.TESTNET_BITCOIN_RPC_USER }}
-      TESTNET_BITCOIN_RPC_PASSWORD: ${{ steps.out.outputs.TESTNET_BITCOIN_RPC_PASSWORD }}
-    steps:
-      - name: Expose testnet4 vars
-        id: out
-        run: |
-          echo "TESTNET_BITCOIN_RPC_URL=${{ vars.TESTNET_BITCOIN_RPC_URL }}" >> $GITHUB_OUTPUT
-          echo "TESTNET_BITCOIN_RPC_USER=${{ vars.TESTNET_BITCOIN_RPC_USER }}" >> $GITHUB_OUTPUT
-          echo "TESTNET_BITCOIN_RPC_PASSWORD=${{ vars.TESTNET_BITCOIN_RPC_PASSWORD }}" >> $GITHUB_OUTPUT
-
-  test:
-    name: Build & Test
-    needs: collect-testnet-vars
+  build:
+    name: Build
     runs-on: ${{ matrix.os }}
     environment: mainnet
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest, macos-14]
-    env:
-      BITCOIN_RPC_URL: ${{ vars.BITCOIN_RPC_URL }}
-      BITCOIN_RPC_USER: ${{ vars.BITCOIN_RPC_USER }}
-      BITCOIN_RPC_PASSWORD: ${{ vars.BITCOIN_RPC_PASSWORD }}
-      TESTNET_BITCOIN_RPC_URL: ${{ needs.collect-testnet-vars.outputs.TESTNET_BITCOIN_RPC_URL }}
-      TESTNET_BITCOIN_RPC_USER: ${{ needs.collect-testnet-vars.outputs.TESTNET_BITCOIN_RPC_USER }}
-      TESTNET_BITCOIN_RPC_PASSWORD: ${{ needs.collect-testnet-vars.outputs.TESTNET_BITCOIN_RPC_PASSWORD }}
-      ZMQ_ADDRESS: ${{ vars.ZMQ_ADDRESS }}
-      API_PORT: ${{ vars.API_PORT }}
-      DATA_DIR: ${{ github.workspace }}/core/test-data
-      NETWORK: bitcoin
-      TAPROOT_KEY_CONTENT: ${{ secrets.TAPROOT_KEY_CONTENT }}
-      SEGWIT_SELLER_KEY_CONTENT: ${{ secrets.SEGWIT_SELLER_KEY_CONTENT }}
-      SEGWIT_BUYER_KEY_CONTENT: ${{ secrets.SEGWIT_BUYER_KEY_CONTENT }}
-      TAPROOT_KEY_PATH: ${{ github.workspace }}/core/keys/taproot_key.txt
-      SEGWIT_SELLER_KEY_PATH: ${{ github.workspace }}/core/keys/seller_key.txt
-      SEGWIT_BUYER_KEY_PATH: ${{ github.workspace }}/core/keys/buyer_key.txt
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Free up disk space
+      - name: Cache Cargo things
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/target
+            core/target
+          key: cargo-${{ github.job }}-${{ runner.os }}-stable-${{ hashFiles('**/Cargo.lock') }}
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install wasm32-unknown-unknown
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build contracts
+        run: cargo build
+        working-directory: ./contracts
+      - name: Build core
+        run: cargo build
+        working-directory: ./core
+
+  test:
+    name: Build & Test
+    runs-on: ${{ matrix.os }}
+    environment: mainnet
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disable man-db to make package install and removal faster
         if: runner.os == 'Linux'
         run: |
-          df -h  # Log disk usage before cleanup
-          sudo rm -rf /usr/share/dotnet  # Remove unused .NET SDK
-          sudo rm -rf /usr/local/lib/android  # Remove Android SDK
-          sudo rm -rf /opt/hostedtoolcache  # Remove cached tools
-          sudo apt-get clean  # Clean apt cache
-          docker image prune -f  # Remove unused Docker images
-          df -h  # Log disk usage after cleanup
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null
+          sudo dpkg-reconfigure man-db
+      - name: Initial disk usage
+        run: df -h
+      - name: Remove .NET SDK
+        if: runner.os == 'Linux'
+        run: |
+          echo "Removing .NET SDK..."
+          time sudo rm -rf /usr/share/dotnet
+          df -h
+      - name: Remove Android SDK
+        if: runner.os == 'Linux'
+        run: |
+          echo "Removing Android SDK..."
+          time sudo rm -rf /usr/local/lib/android
+          df -h
+      - name: Remove hosted tool cache
+        if: runner.os == 'Linux'
+        run: |
+          echo "Removing hosted tool cache..."
+          time sudo rm -rf /opt/hostedtoolcache
+          df -h
+      - name: Final disk usage
+        run: df -h
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo things
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/target
+            core/target
+          key: cargo-${{ github.job }}-${{ runner.os }}-stable-${{ hashFiles('**/Cargo.lock') }}
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y brotli libzmq3-dev libboost-all-dev
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zmq boost
+      - name: Cache Bitcoin binaries
+        id: bitcoin-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/bitcoin/build/bin
+          key: bitcoin-bin-${{ runner.os }}-${{ runner.arch }}-v29.1
+      - name: Build Bitcoin
+        if: steps.bitcoin-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/bitcoin/bitcoin.git --depth 1 --branch v29.1
+          cd bitcoin
+          cmake -B build -DENABLE_WALLET=OFF -DWITH_ZMQ=ON
+          cmake --build build
+      - name: Add Bitcoin to PATH
+        run: echo "${{ github.workspace }}/bitcoin/build/bin" >> $GITHUB_PATH
+      - name: Test bitcoind
+        run: bitcoind --version
       - name: Install wasm32-unknown-unknown
         run: rustup target add wasm32-unknown-unknown
       - name: Install cargo expand
         run: cargo install cargo-expand
-      - name: Setup MSYS2 (Windows only)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-      - name: Install contract build dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y binaryen brotli
-      - name: Install contract build dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install binaryen brotli
-      - name: Install contract build dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: pacman -S --noconfirm mingw-w64-x86_64-brotli mingw-w64-x86_64-binaryen
-      - name: Install wasm-opt via cargo (Windows)
-        if: runner.os == 'Windows'
+      - name: Install wasm-opt via cargo
         run: cargo install wasm-opt
       - name: Build contracts
         run: ./build.sh
         working-directory: ./contracts
-        shell: bash
-      - name: Build core
-        run: cargo build --workspace
-        working-directory: ./core
       - name: Install mkcert
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
@@ -159,6 +214,5 @@ jobs:
         working-directory: ./core
         shell: bash
       - name: Run core integration tests
-        run: cargo test --workspace
         working-directory: ./core
-        shell: bash
+        run: cargo test --workspace
