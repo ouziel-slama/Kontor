@@ -41,6 +41,7 @@ pub enum Fuel {
     NumbersSubInteger,
     NumbersMulInteger,
     NumbersDivInteger,
+    NumbersSqrtInteger,
     NumbersIntegerToDecimal,
     NumbersDecimalToInteger,
     NumbersU64ToDecimal,
@@ -97,6 +98,7 @@ impl Fuel {
             | Self::NumbersSubDecimal
             | Self::NumbersMulDecimal
             | Self::NumbersDivDecimal => 100,
+            Self::NumbersSqrtInteger => 500,
             Self::NumbersLog10 => 500,
         }
     }
