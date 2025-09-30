@@ -84,6 +84,7 @@ pub async fn load_native_contracts(runtime: &Runtime) -> Result<()> {
             ("token", TOKEN),
             ("token_a", TOKEN),
             ("token_b", TOKEN),
+            ("token_c", TOKEN),
         ],
     )
     .await
