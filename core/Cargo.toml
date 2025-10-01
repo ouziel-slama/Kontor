@@ -14,7 +14,7 @@ wit-parser = "=0.239.0"
 wasm-wave = "=0.239.0"
 
 anyhow = "=1.0.100"
-axum = { version = "=0.8.4", features = ["http2", "ws"] }
+axum = { version = "=0.8.6", features = ["http2", "ws"] }
 bon = "=3.7.2"
 tokio = { version = "=1.47.1", features = ["full"] }
 tower-http = { version = "=0.6.6", features = [
@@ -29,3 +29,4 @@ tower-http = { version = "=0.6.6", features = [
 tower = "=0.5.2"
 tracing = "=0.1.41"
 libsql = "=0.9.24"
+glob = "=0.3.3"
