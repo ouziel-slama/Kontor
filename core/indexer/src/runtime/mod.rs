@@ -274,12 +274,15 @@ impl Runtime {
             }
         }
 
-        self.stack.push(contract_id).await?;
         let results = func
             .results(&store)
             .iter()
             .map(default_val_for_type)
             .collect::<Vec<_>>();
+
+        self.stack.push(contract_id).await?;
+        self.storage.savepoint().await?;
+
         Ok((store, call.name() == fallback_name, params, results, func))
     }
 
@@ -295,22 +298,30 @@ impl Runtime {
             return Ok("()".to_string());
         }
 
-        if results.len() == 1 {
-            let result = results.remove(0);
-            return if is_fallback {
-                if let wasmtime::component::Val::String(return_expr) = result {
-                    Ok(return_expr)
-                } else {
-                    Err(anyhow!("fallback did not return a string"))
-                }
-            } else {
-                result.to_wave()
-            };
+        if results.len() != 1 {
+            return Err(anyhow!(
+                "Functions with multiple return values are not supported"
+            ));
         }
 
-        Err(anyhow!(
-            "Functions with multiple return values are not supported"
-        ))
+        let result = results.remove(0);
+        let expr = if is_fallback {
+            if let wasmtime::component::Val::String(return_expr) = result {
+                Ok(return_expr)
+            } else {
+                Err(anyhow!("fallback did not return a string"))
+            }
+        } else {
+            result.to_wave()
+        }?;
+
+        if expr.starts_with("err(") {
+            self.storage.rollback().await?;
+        } else {
+            self.storage.commit().await?;
+        }
+
+        Ok(expr)
     }
 
     async fn _call<T>(

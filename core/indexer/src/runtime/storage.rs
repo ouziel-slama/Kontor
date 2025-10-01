@@ -13,12 +13,14 @@ use crate::{
         },
         types::ContractStateRow,
     },
-    runtime::ContractAddress,
+    runtime::{ContractAddress, stack::Stack},
 };
 
 #[derive(Builder, Clone)]
 pub struct Storage {
     pub conn: Connection,
+    #[builder(default = Stack::builder().build())]
+    pub savepoint_stack: Stack<u64>,
     #[builder(default = 1)]
     pub tx_id: i64,
     #[builder(default = 1)]
@@ -75,5 +77,39 @@ impl Storage {
         path: String,
     ) -> Result<impl Stream<Item = Result<String, libsql::Error>> + Send + 'static> {
         Ok(path_prefix_filter_contract_state(&self.conn, contract_id, path).await?)
+    }
+
+    pub async fn savepoint(&self) -> Result<()> {
+        if self.savepoint_stack.is_empty().await {
+            self.conn.execute("BEGIN TRANSACTION", ()).await?;
+            self.savepoint_stack.push(0).await?;
+        } else {
+            let i = self.savepoint_stack.peek().await.unwrap() + 1;
+            self.conn.execute(&format!("SAVEPOINT S{}", i), ()).await?;
+            self.savepoint_stack.push(i).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn commit(&self) -> Result<()> {
+        match self.savepoint_stack.pop().await {
+            Some(0) => self.conn.execute("COMMIT", ()).await?,
+            Some(i) => self.conn.execute(&format!("RELEASE S{}", i), ()).await?,
+            None => 0,
+        };
+        Ok(())
+    }
+
+    pub async fn rollback(&self) -> Result<()> {
+        match self.savepoint_stack.pop().await {
+            Some(0) => self.conn.execute("ROLLBACK", ()).await?,
+            Some(i) => {
+                self.conn
+                    .execute(&format!("ROLLBACK TO S{}", i), ())
+                    .await?
+            }
+            None => 0,
+        };
+        Ok(())
     }
 }

@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use bon::Builder;
 use tokio::sync::Mutex;
 
-#[derive(Clone)]
+#[derive(Builder, Clone)]
 pub struct Counter {
+    #[builder(default = Arc::new(Mutex::new(0)))]
     value: Arc<Mutex<u64>>,
 }
 
