@@ -13,12 +13,14 @@ use crate::{
         },
         types::ContractStateRow,
     },
-    runtime::{ContractAddress, stack::Stack},
+    runtime::{ContractAddress, counter::Counter, stack::Stack},
 };
 
 #[derive(Builder, Clone)]
 pub struct Storage {
     pub conn: Connection,
+    #[builder(default = Counter::builder().build())]
+    pub savepoint_counter: Counter,
     #[builder(default = Stack::builder().build())]
     pub savepoint_stack: Stack<u64>,
     #[builder(default = 1)]
@@ -83,11 +85,13 @@ impl Storage {
         if self.savepoint_stack.is_empty().await {
             self.conn.execute("BEGIN TRANSACTION", ()).await?;
             self.savepoint_stack.push(0).await?;
+            self.savepoint_counter.reset().await;
         } else {
-            let i = self.savepoint_stack.peek().await.unwrap() + 1;
+            let i = self.savepoint_counter.get().await;
             self.conn.execute(&format!("SAVEPOINT S{}", i), ()).await?;
             self.savepoint_stack.push(i).await?;
         }
+        self.savepoint_counter.increment().await;
         Ok(())
     }
 

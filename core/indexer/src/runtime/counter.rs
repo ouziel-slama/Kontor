@@ -16,6 +16,11 @@ impl Counter {
         }
     }
 
+    pub async fn reset(&self) {
+        let mut value = self.value.lock().await;
+        *value = 0;
+    }
+
     pub async fn increment(&self) -> u64 {
         let mut value = self.value.lock().await;
         *value += 1;
