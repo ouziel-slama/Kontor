@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use bon::Builder;
 use tokio::sync::Mutex;
 
-#[derive(Clone)]
+#[derive(Builder, Clone)]
 pub struct Counter {
+    #[builder(default = Arc::new(Mutex::new(0)))]
     value: Arc<Mutex<u64>>,
 }
 
@@ -12,6 +14,11 @@ impl Counter {
         Counter {
             value: Arc::new(Mutex::new(0)),
         }
+    }
+
+    pub async fn reset(&self) {
+        let mut value = self.value.lock().await;
+        *value = 0;
     }
 
     pub async fn increment(&self) -> u64 {

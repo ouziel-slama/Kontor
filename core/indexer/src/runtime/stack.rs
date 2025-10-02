@@ -1,3 +1,4 @@
+use bon::Builder;
 use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;
@@ -9,8 +10,9 @@ pub enum StackError {
     CycleDetected(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Builder)]
 pub struct Stack<T> {
+    #[builder(default = Arc::new(Mutex::new(Vec::new())))]
     inner: Arc<Mutex<Vec<T>>>,
 }
 
@@ -19,6 +21,11 @@ impl<T: Send + PartialEq + Debug + Clone> Stack<T> {
         Stack {
             inner: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    pub async fn clear(&self) {
+        let mut stack = self.inner.lock().await;
+        stack.clear();
     }
 
     pub async fn push(&self, item: T) -> Result<(), StackError> {
@@ -40,5 +47,10 @@ impl<T: Send + PartialEq + Debug + Clone> Stack<T> {
     pub async fn peek(&self) -> Option<T> {
         let stack = self.inner.lock().await;
         stack.last().cloned()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        let stack = self.inner.lock().await;
+        stack.is_empty()
     }
 }
