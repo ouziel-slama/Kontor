@@ -158,11 +158,12 @@ pub struct ContractResultRow {
     #[builder(default = 0)]
     pub contract_id: i64,
     pub height: i64,
+    #[builder(default = false)]
     pub ok: bool,
     pub value: Option<String>,
 }
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct ContractResultId {
     pub txid: String,
     #[builder(default = 0)]
