@@ -108,13 +108,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/bitcoin/build/bin
-          key: bitcoin-bin-${{ runner.os }}-${{ runner.arch }}-v29.1
+          key: bitcoin-bin-${{ runner.os }}-${{ runner.arch }}-v30.0
       - name: Build Bitcoin
         if: steps.bitcoin-cache.outputs.cache-hit != 'true'
         run: |
-          git clone https://github.com/bitcoin/bitcoin.git --depth 1 --branch v29.1
+          git clone https://github.com/bitcoin/bitcoin.git --depth 1 --branch v30.0
           cd bitcoin
-          cmake -B build -DENABLE_WALLET=OFF -DWITH_ZMQ=ON
+          cmake -B build -DENABLE_WALLET=OFF -DENABLE_IPC=OFF -DWITH_ZMQ=ON
           cmake --build build
       - name: Add Bitcoin to PATH
         run: echo "${{ github.workspace }}/bitcoin/build/bin" >> $GITHUB_PATH
