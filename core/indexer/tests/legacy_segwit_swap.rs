@@ -232,7 +232,7 @@ async fn test_psbt_with_incorrect_prefix() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+        "mempool-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
     );
 
     Ok(())
@@ -313,7 +313,7 @@ async fn test_psbt_without_secret() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Witness program hash mismatch)"
+        "mempool-script-verify-flag-failed (Witness program hash mismatch)"
     );
 
     Ok(())
@@ -392,7 +392,7 @@ async fn test_psbt_without_token_balance() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+        "mempool-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
     );
 
     Ok(())
@@ -472,7 +472,7 @@ async fn test_psbt_without_prefix() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+        "mempool-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
     );
 
     Ok(())
@@ -563,7 +563,7 @@ async fn test_psbt_with_malformed_witness_script() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Witness program hash mismatch)"
+        "mempool-script-verify-flag-failed (Witness program hash mismatch)"
     );
 
     Ok(())
@@ -653,7 +653,7 @@ async fn test_psbt_with_wrong_token_name() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+        "mempool-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
     );
 
     Ok(())
@@ -743,7 +743,7 @@ async fn test_psbt_with_insufficient_funds() -> Result<()> {
     );
     assert_eq!(
         result[1].reject_reason.as_ref().unwrap(),
-        "mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
+        "mempool-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation)"
     );
 
     Ok(())

@@ -21,11 +21,13 @@ use crate::{
     database::{
         self,
         queries::{
-            insert_block, rollback_to_height, select_block_at_height, select_block_latest,
-            select_block_with_hash,
+            insert_block, insert_transaction, rollback_to_height, select_block_at_height,
+            select_block_latest, select_block_with_hash, set_block_processed,
         },
-        types::BlockRow,
+        types::{BlockRow, TransactionRow},
     },
+    reactor::types::Op,
+    runtime::{ComponentCache, Runtime, Storage},
 };
 
 struct Reactor {
@@ -35,6 +37,7 @@ struct Reactor {
     ctrl: CtrlChannel,
     event_rx: Option<Receiver<Event>>,
     init_tx: Option<oneshot::Sender<bool>>,
+    runtime: Runtime,
 
     last_height: u64,
     option_last_hash: Option<BlockHash>,
@@ -50,50 +53,48 @@ impl Reactor {
         init_tx: Option<oneshot::Sender<bool>>,
     ) -> Result<Self> {
         let conn = &*reader.connection().await?;
-        match select_block_latest(conn).await? {
+        let (last_height, option_last_hash) = match select_block_latest(conn).await? {
             Some(block) => {
-                if (block.height as u64) < starting_block_height - 1 {
+                let block_height = block.height as u64;
+                if block_height < starting_block_height - 1 {
                     bail!(
                         "Latest block has height {}, less than start height {}",
-                        block.height,
+                        block_height,
                         starting_block_height
                     );
                 }
 
                 info!(
                     "Continuing from block height {} ({})",
-                    block.height, block.hash
+                    block_height, block.hash
                 );
-
-                Ok(Self {
-                    reader,
-                    writer,
-                    cancel_token,
-                    ctrl,
-                    event_rx: None,
-                    last_height: block.height as u64,
-                    option_last_hash: Some(block.hash),
-                    init_tx,
-                })
+                (block_height, Some(block.hash))
             }
             None => {
                 info!(
                     "No previous blocks found, starting from height {}",
                     starting_block_height
                 );
-
-                Ok(Self {
-                    reader,
-                    writer,
-                    cancel_token,
-                    ctrl,
-                    event_rx: None,
-                    last_height: starting_block_height - 1,
-                    option_last_hash: None,
-                    init_tx,
-                })
+                (starting_block_height - 1, None)
             }
-        }
+        };
+
+        let runtime = Runtime::new(
+            Storage::builder().conn(writer.connection()).build(),
+            ComponentCache::new(),
+        )
+        .await?;
+        Ok(Self {
+            reader,
+            writer,
+            cancel_token,
+            ctrl,
+            event_rx: None,
+            last_height,
+            option_last_hash,
+            init_tx,
+            runtime,
+        })
     }
 
     async fn rollback(&mut self, height: u64) -> Result<()> {
@@ -188,8 +189,9 @@ impl Reactor {
         self.last_height = height;
         self.option_last_hash = Some(hash);
 
+        let conn = self.writer.connection();
         insert_block(
-            &self.writer.connection(),
+            &conn,
             BlockRow {
                 height: height as i64,
                 hash,
@@ -198,6 +200,39 @@ impl Reactor {
         .await?;
 
         info!("# Block Kontor Transactions: {}", block.transactions.len());
+
+        for t in block.transactions {
+            let tx_id = insert_transaction(
+                &conn,
+                TransactionRow::builder()
+                    .height(height as i64)
+                    .tx_index(t.index)
+                    .txid(t.txid.to_string())
+                    .build(),
+            )
+            .await?;
+            for op in t.ops {
+                let input_index = op.metadata().input_index;
+                self.runtime
+                    .set_context(height as i64, tx_id, input_index, 0);
+                self.runtime.set_starting_fuel(10_000_000);
+                info!("Op: {:#?}", op);
+                match op {
+                    Op::Publish {
+                        metadata,
+                        name,
+                        bytes,
+                    } => {
+                        self.runtime
+                            .publish(&metadata.signer, &name, &bytes)
+                            .await?;
+                    }
+                    _ => todo!(),
+                }
+            }
+        }
+
+        set_block_processed(&conn, height as i64).await?;
 
         Ok(())
     }

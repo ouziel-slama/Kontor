@@ -359,7 +359,7 @@ pub fn new_mock_transaction(txid_num: u32) -> Transaction {
     bytes[0..4].copy_from_slice(&txid_num.to_le_bytes()); // Use the 4 bytes of txid_num
     Transaction {
         txid: Txid::from_slice(&bytes).unwrap(),
-        tx_index: 0,
+        index: 0,
         ops: vec![],
     }
 }
@@ -579,7 +579,7 @@ impl rpc::MempoolFetcher for MockBlockchain {
 
 pub async fn await_block_at_height(conn: &Connection, height: i64) -> BlockRow {
     loop {
-        match queries::select_block_at_height(conn, height).await {
+        match queries::select_processed_block_at_height(conn, height).await {
             Ok(Some(row)) => return row,
             Ok(None) => {}
             Err(e) => panic!("error: {:?}", e),

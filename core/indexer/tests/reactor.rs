@@ -404,21 +404,9 @@ async fn test_reactor_rollback_hash_event() -> Result<()> {
 
     let blocks = new_numbered_blockchain(5);
     let conn = &writer.connection();
-    assert!(
-        queries::insert_block(conn, (&blocks[1 - 1]).into())
-            .await
-            .is_ok()
-    );
-    assert!(
-        queries::insert_block(conn, (&blocks[2 - 1]).into())
-            .await
-            .is_ok()
-    );
-    assert!(
-        queries::insert_block(conn, (&blocks[3 - 1]).into())
-            .await
-            .is_ok()
-    );
+    queries::insert_processed_block(conn, (&blocks[1 - 1]).into()).await?;
+    queries::insert_processed_block(conn, (&blocks[2 - 1]).into()).await?;
+    queries::insert_processed_block(conn, (&blocks[3 - 1]).into()).await?;
 
     let handle = reactor::run(
         4,

@@ -29,17 +29,17 @@ async fn test_follower_reactor_fetching() -> Result<()> {
     let blocks = new_random_blockchain(5);
     let conn = &writer.connection();
     assert!(
-        queries::insert_block(conn, (&blocks[0]).into())
+        queries::insert_processed_block(conn, (&blocks[0]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[1]).into())
+        queries::insert_processed_block(conn, (&blocks[1]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[2]).into())
+        queries::insert_processed_block(conn, (&blocks[2]).into())
             .await
             .is_ok()
     );
@@ -124,17 +124,17 @@ async fn test_follower_reactor_rollback_during_start() -> Result<()> {
     let mut blocks = new_random_blockchain(3);
     let conn = &writer.connection();
     assert!(
-        queries::insert_block(conn, (&blocks[1 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[1 - 1]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[2 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[2 - 1]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[3 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[3 - 1]).into())
             .await
             .is_ok()
     );
@@ -245,12 +245,12 @@ async fn test_follower_reactor_rollback_during_catchup() -> Result<()> {
 
     let conn = &writer.connection();
     assert!(
-        queries::insert_block(conn, (&blocks[1 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[1 - 1]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[2 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[2 - 1]).into())
             .await
             .is_ok()
     );
@@ -478,12 +478,12 @@ async fn test_follower_reactor_rollback_zmq_message_multiple_blocks() -> Result<
 
     let conn = &writer.connection();
     assert!(
-        queries::insert_block(conn, (&blocks[1 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[1 - 1]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[2 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[2 - 1]).into())
             .await
             .is_ok()
     );
@@ -602,12 +602,12 @@ async fn test_follower_reactor_rollback_zmq_message_redundant_messages() -> Resu
 
     let conn = &writer.connection();
     assert!(
-        queries::insert_block(conn, (&blocks[1 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[1 - 1]).into())
             .await
             .is_ok()
     );
     assert!(
-        queries::insert_block(conn, (&blocks[2 - 1]).into())
+        queries::insert_processed_block(conn, (&blocks[2 - 1]).into())
             .await
             .is_ok()
     );

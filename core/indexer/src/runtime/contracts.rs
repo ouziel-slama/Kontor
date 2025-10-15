@@ -2,11 +2,14 @@ use anyhow::Result;
 
 use crate::{
     database::{
-        queries::{contract_has_state, insert_block, insert_contract, select_block_at_height},
-        types::{BlockRow, ContractRow},
+        queries::{
+            contract_has_state, get_transaction_by_txid, insert_block, insert_contract,
+            insert_transaction, select_block_at_height,
+        },
+        types::{BlockRow, ContractRow, TransactionRow},
     },
     runtime::{ContractAddress, Runtime, wit::Signer},
-    test_utils::new_mock_block_hash,
+    test_utils::{new_mock_block_hash, new_mock_transaction},
 };
 
 pub async fn load_contracts(
@@ -27,12 +30,28 @@ pub async fn load_contracts(
         )
         .await?;
     }
+
+    let tx = new_mock_transaction(1);
+    let tx_id = if let Some(tx) = get_transaction_by_txid(&conn, &tx.txid.to_string()).await? {
+        tx.id.unwrap()
+    } else {
+        insert_transaction(
+            &conn,
+            TransactionRow::builder()
+                .height(height)
+                .tx_index(0)
+                .txid(tx.txid.to_string())
+                .build(),
+        )
+        .await?
+    };
+
     for (name, bytes) in contracts {
         let contract_id = insert_contract(
             &conn,
             ContractRow::builder()
                 .height(height)
-                .tx_index(tx_index)
+                .tx_id(tx_id)
                 .name(name.to_string())
                 .bytes(bytes.to_vec())
                 .build(),

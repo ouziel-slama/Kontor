@@ -91,7 +91,7 @@ async fn test_basic_pagination_no_filters() -> Result<()> {
     let cursor = meta.next_cursor.clone().unwrap();
     let decoded_cursor = TransactionCursor::decode(&cursor)?;
     assert_eq!(decoded_cursor.height, 800001);
-    assert_eq!(decoded_cursor.tx_index, 2);
+    assert_eq!(decoded_cursor.index, 2);
 
     // Verify ordering (DESC by height, then DESC by tx_index)
     assert_eq!(transactions[0].height, 800002);
@@ -169,7 +169,7 @@ async fn test_cursor_pagination() -> Result<()> {
     let cursor = meta1.next_cursor.clone().unwrap();
     let decoded_cursor = TransactionCursor::decode(&cursor)?;
     assert_eq!(decoded_cursor.height, 800001);
-    assert_eq!(decoded_cursor.tx_index, 2);
+    assert_eq!(decoded_cursor.index, 2);
 
     // Create NEW connection for second transaction
     let tx2 = reader.connection().await?.transaction().await?;
@@ -184,7 +184,7 @@ async fn test_cursor_pagination() -> Result<()> {
     let cursor = meta2.next_cursor.clone().unwrap();
     let decoded_cursor = TransactionCursor::decode(&cursor)?;
     assert_eq!(decoded_cursor.height, 800000);
-    assert_eq!(decoded_cursor.tx_index, 4);
+    assert_eq!(decoded_cursor.index, 4);
 
     // Create NEW connection for third transaction
     let tx3 = reader.connection().await?.transaction().await?;
@@ -198,7 +198,7 @@ async fn test_cursor_pagination() -> Result<()> {
     let cursor = meta3.next_cursor.clone().unwrap();
     let decoded_cursor = TransactionCursor::decode(&cursor)?;
     assert_eq!(decoded_cursor.height, 800000);
-    assert_eq!(decoded_cursor.tx_index, 1);
+    assert_eq!(decoded_cursor.index, 1);
 
     let tx4 = reader.connection().await?.transaction().await?;
     let (page4, meta4) = get_transactions_paginated(&tx4, None, meta3.next_cursor, None, 3).await?;
@@ -292,7 +292,7 @@ async fn test_cursor_and_offset_conflict() -> Result<()> {
     // This should be handled at the handler level, but let's test the query behavior
     let cursor = TransactionCursor {
         height: 800001,
-        tx_index: 1,
+        index: 1,
     }
     .encode();
 
@@ -337,14 +337,14 @@ async fn test_empty_result_set() -> Result<()> {
 async fn test_cursor_encoding_decoding() -> Result<()> {
     let original = TransactionCursor {
         height: 800001,
-        tx_index: 42,
+        index: 42,
     };
 
     let encoded = original.encode();
     let decoded = TransactionCursor::decode(&encoded)?;
 
     assert_eq!(original.height, decoded.height);
-    assert_eq!(original.tx_index, decoded.tx_index);
+    assert_eq!(original.index, decoded.index);
 
     Ok(())
 }
@@ -421,7 +421,7 @@ async fn test_cursor_boundary_conditions() -> Result<()> {
     // Cursor pointing to the very first transaction
     let cursor = TransactionCursor {
         height: 800002,
-        tx_index: 1,
+        index: 1,
     }
     .encode();
 
@@ -436,7 +436,7 @@ async fn test_cursor_boundary_conditions() -> Result<()> {
     // Cursor pointing beyond all transactions
     let cursor = TransactionCursor {
         height: 900000,
-        tx_index: 0,
+        index: 0,
     }
     .encode();
 
@@ -451,7 +451,7 @@ async fn test_cursor_boundary_conditions() -> Result<()> {
     // Cursor pointing before all transactions
     let cursor = TransactionCursor {
         height: 700000,
-        tx_index: 0,
+        index: 0,
     }
     .encode();
 

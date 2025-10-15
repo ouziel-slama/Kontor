@@ -22,6 +22,15 @@ pub enum Op {
     },
 }
 
+impl Op {
+    pub fn metadata(&self) -> &OpMetadata {
+        match self {
+            Op::Publish { metadata, .. } => metadata,
+            Op::Call { metadata, .. } => metadata,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Inst {
     #[serde(rename = "p")]
