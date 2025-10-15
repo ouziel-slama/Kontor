@@ -11,7 +11,7 @@ use indexer::{
             get_contract_id_from_address, get_contract_result, get_latest_contract_state,
             get_latest_contract_state_value, get_transaction_by_id, get_transaction_by_txid,
             get_transactions_at_height, insert_block, insert_contract, insert_contract_result,
-            insert_contract_state, insert_transaction, matching_path,
+            insert_contract_state, insert_processed_block, insert_transaction, matching_path,
             path_prefix_filter_contract_state, select_block_at_height,
             select_block_by_height_or_hash, select_block_latest,
         },
@@ -22,7 +22,7 @@ use indexer::{
     },
     logging,
     runtime::ContractAddress,
-    test_utils::{new_mock_block_hash, new_test_db},
+    test_utils::{new_mock_block_hash, new_mock_transaction, new_test_db},
 };
 use libsql::params;
 
@@ -36,7 +36,7 @@ async fn test_database() -> Result<()> {
 
     let (reader, writer, _temp_dir) = new_test_db(&config).await?;
 
-    insert_block(&writer.connection(), block).await?;
+    insert_processed_block(&writer.connection(), block).await?;
     let block_at_height = select_block_at_height(&*reader.connection().await?, height)
         .await?
         .unwrap();
@@ -60,7 +60,7 @@ async fn test_transaction() -> Result<()> {
     let client = Client::new_from_config(&config)?;
     let hash = client.get_block_hash(height as u64).await?;
     let block = BlockRow { height, hash };
-    insert_block(&tx, block).await?;
+    insert_processed_block(&tx, block).await?;
     assert!(select_block_latest(&tx).await?.is_some());
     tx.commit().await?;
     Ok(())
@@ -435,10 +435,19 @@ async fn test_contracts() -> Result<()> {
             .build(),
     )
     .await?;
+    let tx_id = insert_transaction(
+        &conn,
+        TransactionRow::builder()
+            .height(0)
+            .tx_index(1)
+            .txid(new_mock_transaction(1).txid.to_string())
+            .build(),
+    )
+    .await?;
     let row = ContractRow::builder()
         .bytes("value".as_bytes().to_vec())
         .height(0)
-        .tx_index(1)
+        .tx_id(tx_id)
         .name("test".to_string())
         .build();
     insert_contract(&conn, row.clone()).await?;

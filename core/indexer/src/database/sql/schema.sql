@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS blocks (
   height INTEGER PRIMARY KEY,
-  hash TEXT NOT NULL UNIQUE
+  hash TEXT NOT NULL UNIQUE,
+  processed BOOLEAN NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS checkpoints (
@@ -21,20 +22,20 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_height_tx_index ON transactions (height DESC, tx_index DESC);
 
-CREATE INDEX IF NOT EXISTS idx_transactions_txid ON transactions (txid);
+CREATE INDEX IF NOT EXISTS idx_transactions_tx_index ON transactions (tx_index);
 
 CREATE TABLE IF NOT EXISTS contracts (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   height INTEGER NOT NULL,
-  tx_index INTEGER NOT NULL,
+  tx_id INTEGER NOT NULL,
   size INTEGER NOT NULL,
   bytes BLOB NOT NULL,
-  UNIQUE (name, height, tx_index),
+  UNIQUE (name, height, tx_id),
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_contracts_lookup ON contracts (name, height, tx_index);
+CREATE INDEX IF NOT EXISTS idx_contracts_lookup ON contracts (name, height, tx_id);
 
 CREATE TABLE IF NOT EXISTS contract_state (
   id INTEGER PRIMARY KEY,

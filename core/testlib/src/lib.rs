@@ -10,7 +10,7 @@ pub use indexer::runtime::wit::kontor::built_in::{
 pub use indexer::runtime::{CheckedArithmetics, numerics as numbers, wit::Signer};
 use indexer::{
     config::Config,
-    database::{queries::insert_block, types::BlockRow},
+    database::{queries::insert_processed_block, types::BlockRow},
     runtime::{
         ComponentCache, Runtime as IndexerRuntime, Storage, fuel::FuelGauge, load_contracts,
     },
@@ -101,7 +101,7 @@ pub struct Runtime {
 
 impl Runtime {
     async fn make_storage(call_context: CallContext, conn: Connection) -> Result<Storage> {
-        insert_block(
+        insert_processed_block(
             &conn,
             BlockRow::builder()
                 .height(call_context.height)

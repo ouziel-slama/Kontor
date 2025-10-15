@@ -7,9 +7,11 @@ use stdlib::DotPathBuf;
 use strum::{EnumDiscriminants, EnumIter};
 use tokio::sync::Mutex;
 use wasmtime::{
-    AsContextMut,
+    AsContextMut, Store,
     component::{Accessor, HasData},
 };
+
+use crate::runtime::Runtime;
 
 #[derive(Debug, Clone, EnumDiscriminants, EnumIter)]
 #[strum_discriminants(derive(Hash))]
@@ -119,6 +121,20 @@ impl Fuel {
             store.set_fuel(fuel)?;
             Ok(fuel)
         })
+    }
+
+    pub async fn consume_with_store(
+        &self,
+        gauge: Option<&FuelGauge>,
+        store: &mut Store<Runtime>,
+    ) -> Result<u64> {
+        OptionFuture::from(gauge.map(|g| g.track(self))).await;
+        let fuel = store
+            .get_fuel()?
+            .checked_sub(self.cost())
+            .ok_or(anyhow!("Insufficient fuel"))?;
+        store.set_fuel(fuel)?;
+        Ok(fuel)
     }
 }
 

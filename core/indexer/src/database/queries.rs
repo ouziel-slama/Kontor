@@ -35,6 +35,15 @@ pub async fn insert_block(conn: &Connection, block: BlockRow) -> Result<i64, Err
     Ok(conn.last_insert_rowid())
 }
 
+pub async fn insert_processed_block(conn: &Connection, block: BlockRow) -> Result<i64, Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO blocks (height, hash, processed) VALUES (?, ?, 1)",
+        (block.height, block.hash.to_string()),
+    )
+    .await?;
+    Ok(conn.last_insert_rowid())
+}
+
 pub async fn rollback_to_height(conn: &Connection, height: u64) -> Result<u64, Error> {
     let num_rows = conn
         .execute("DELETE FROM blocks WHERE height > ?", [height])
@@ -46,11 +55,26 @@ pub async fn rollback_to_height(conn: &Connection, height: u64) -> Result<u64, E
 pub async fn select_block_latest(conn: &Connection) -> Result<Option<BlockRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT height, hash FROM blocks ORDER BY height DESC LIMIT 1",
+            "SELECT height, hash FROM blocks WHERE processed = 1 ORDER BY height DESC LIMIT 1",
             params![],
         )
         .await?;
     Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
+}
+
+pub async fn set_block_processed(conn: &Connection, height: i64) -> Result<(), Error> {
+    conn.execute(
+        "UPDATE blocks SET processed = 1 WHERE height = ?",
+        params![height],
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_unprocessed_blocks(conn: &Connection) -> Result<(), Error> {
+    conn.execute("DELETE FROM blocks WHERE processed = 0", params![])
+        .await?;
+    Ok(())
 }
 
 pub async fn select_block_by_height_or_hash(
@@ -73,6 +97,19 @@ pub async fn select_block_at_height(
     let mut rows = conn
         .query(
             "SELECT height, hash FROM blocks WHERE height = ?",
+            params![height],
+        )
+        .await?;
+    Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
+}
+
+pub async fn select_processed_block_at_height(
+    conn: &Connection,
+    height: i64,
+) -> Result<Option<BlockRow>, Error> {
+    let mut rows = conn
+        .query(
+            "SELECT height, hash FROM blocks WHERE height = ? AND processed = 1",
             params![height],
         )
         .await?;
@@ -336,20 +373,18 @@ pub async fn contract_has_state(conn: &Connection, contract_id: i64) -> Result<b
 
 pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<i64, Error> {
     conn.execute(
-        "INSERT OR IGNORE INTO contracts (name, height, tx_index, size, bytes) VALUES (?, ?, ?, ?, ?)",
-        params![row.name.clone(), row.height, row.tx_index, row.size(), row.bytes],
+        "INSERT OR REPLACE INTO contracts (name, height, tx_id, size, bytes) VALUES (?, ?, ?, ?, ?)",
+        params![
+            row.name.clone(),
+            row.height,
+            row.tx_id,
+            row.size(),
+            row.bytes
+        ],
     )
     .await?;
-    Ok(get_contract_id_from_address(
-        conn,
-        &ContractAddress {
-            name: row.name,
-            height: row.height,
-            tx_index: row.tx_index,
-        },
-    )
-    .await?
-    .expect("Contract was just inserted"))
+
+    Ok(conn.last_insert_rowid())
 }
 
 pub async fn get_contract_bytes_by_address(
@@ -359,10 +394,11 @@ pub async fn get_contract_bytes_by_address(
     let mut rows = conn
         .query(
             r#"
-        SELECT bytes FROM contracts
-        WHERE name = :name
-        AND height = :height
-        AND tx_index = :tx_index
+        SELECT c.bytes FROM contracts c
+        JOIN transactions t ON c.tx_id = t.id
+        WHERE t.tx_index = :tx_index
+        AND c.name = :name
+        AND c.height = :height
         "#,
             (
                 (":name", address.name.clone()),
@@ -374,6 +410,36 @@ pub async fn get_contract_bytes_by_address(
     Ok(rows.next().await?.map(|r| r.get(0)).transpose()?)
 }
 
+pub async fn get_contract_address_from_id(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<ContractAddress>, Error> {
+    let mut rows = conn
+        .query(
+            r#"
+        SELECT c.name, c.height, t.tx_index FROM contracts c
+        JOIN transactions t ON c.tx_id = t.id
+        WHERE c.id = ?
+        "#,
+            params![id],
+        )
+        .await?;
+
+    let row = rows.next().await?;
+    if let Some(row) = row {
+        let name = row.get(0)?;
+        let height = row.get(1)?;
+        let tx_index = row.get(2)?;
+        Ok(Some(ContractAddress {
+            name,
+            height,
+            tx_index,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 pub async fn get_contract_id_from_address(
     conn: &Connection,
     address: &ContractAddress,
@@ -381,10 +447,11 @@ pub async fn get_contract_id_from_address(
     let mut rows = conn
         .query(
             r#"
-        SELECT id FROM contracts
-        WHERE name = :name
-        AND height = :height
-        AND tx_index = :tx_index
+        SELECT c.id FROM contracts c
+        JOIN transactions t ON c.tx_id = t.id
+        WHERE t.tx_index = :tx_index
+        AND c.name = :name
+        AND c.height = :height
         "#,
             (
                 (":name", address.name.clone()),
@@ -482,12 +549,12 @@ pub async fn get_transactions_paginated(
         .transpose()?;
 
     if cursor_decoded.is_some() {
-        where_clauses.push("(t.height, t.tx_index) < (:cursor_height, :cursor_tx_index)");
+        where_clauses.push("(t.height, t.tx_index) < (:cursor_height, :cursor_index)");
     }
 
-    let (cursor_height, cursor_tx_index) = cursor_decoded
+    let (cursor_height, cursor_index) = cursor_decoded
         .as_ref()
-        .map_or((None, None), |c| (Some(c.height), Some(c.tx_index)));
+        .map_or((None, None), |c| (Some(c.height), Some(c.index)));
 
     // Build WHERE clause
     let where_sql = if where_clauses.is_empty() {
@@ -504,7 +571,7 @@ pub async fn get_transactions_paginated(
             named_params! {
                 ":height": height,
                 ":cursor_height": cursor_height,
-                ":cursor_tx_index": cursor_tx_index,
+                ":cursor_index": cursor_index,
             },
         )
         .await?;
@@ -541,7 +608,7 @@ pub async fn get_transactions_paginated(
             named_params! {
                 ":height": height,
                 ":cursor_height": cursor_height,
-                ":cursor_tx_index": cursor_tx_index,
+                ":cursor_index": cursor_index,
                 ":offset": offset,
                 ":limit": (limit + 1),
             },
@@ -565,7 +632,7 @@ pub async fn get_transactions_paginated(
         .map(|last_tx| {
             TransactionCursor {
                 height: last_tx.height,
-                tx_index: last_tx.tx_index,
+                index: last_tx.tx_index,
             }
             .encode()
         });

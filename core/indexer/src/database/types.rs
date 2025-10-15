@@ -63,7 +63,7 @@ pub struct ContractRow {
     pub id: i64,
     pub name: String,
     pub height: i64,
-    pub tx_index: i64,
+    pub tx_id: i64,
     pub bytes: Vec<u8>,
 }
 
@@ -76,12 +76,12 @@ impl ContractRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionCursor {
     pub height: i64,
-    pub tx_index: i64,
+    pub index: i64,
 }
 
 impl TransactionCursor {
     pub fn encode(&self) -> String {
-        let cursor_str = format!("{}:{}", self.height, self.tx_index);
+        let cursor_str = format!("{}:{}", self.height, self.index);
         general_purpose::STANDARD.encode(cursor_str.as_bytes())
     }
 
@@ -99,9 +99,9 @@ impl TransactionCursor {
         }
 
         let height = parts[0].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
-        let tx_index = parts[1].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
+        let index = parts[1].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
 
-        Ok(TransactionCursor { height, tx_index })
+        Ok(TransactionCursor { height, index })
     }
 }
 

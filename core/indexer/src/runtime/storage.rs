@@ -7,11 +7,11 @@ use crate::{
     database::{
         queries::{
             delete_contract_state, delete_matching_paths, exists_contract_state,
-            get_contract_bytes_by_id, get_contract_id_from_address,
-            get_latest_contract_state_value, insert_contract_result, insert_contract_state,
-            matching_path, path_prefix_filter_contract_state,
+            get_contract_address_from_id, get_contract_bytes_by_id, get_contract_id_from_address,
+            get_latest_contract_state_value, insert_contract, insert_contract_result,
+            insert_contract_state, matching_path, path_prefix_filter_contract_state,
         },
-        types::{ContractResultRow, ContractStateRow},
+        types::{ContractResultRow, ContractRow, ContractStateRow},
     },
     runtime::{ContractAddress, counter::Counter, stack::Stack},
 };
@@ -73,8 +73,25 @@ impl Storage {
         Ok(get_contract_id_from_address(&self.conn, contract_address).await?)
     }
 
+    pub async fn contract_address(&self, contract_id: i64) -> Result<Option<ContractAddress>> {
+        Ok(get_contract_address_from_id(&self.conn, contract_id).await?)
+    }
+
     pub async fn contract_bytes(&self, contract_id: i64) -> Result<Option<Vec<u8>>> {
         Ok(get_contract_bytes_by_id(&self.conn, contract_id).await?)
+    }
+
+    pub async fn insert_contract(&self, name: &str, bytes: &[u8]) -> Result<i64> {
+        Ok(insert_contract(
+            &self.conn,
+            ContractRow::builder()
+                .height(self.height)
+                .tx_id(self.tx_id)
+                .name(name.to_string())
+                .bytes(bytes.to_vec())
+                .build(),
+        )
+        .await?)
     }
 
     pub async fn insert_contract_result(

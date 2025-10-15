@@ -12,7 +12,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transaction {
     pub txid: Txid,
-    pub tx_index: i64,
+    pub index: i64,
     pub ops: Vec<Op>,
 }
 
@@ -82,7 +82,7 @@ pub fn filter_map((tx_index, tx): (usize, bitcoin::Transaction)) -> Option<Trans
 
     Some(Transaction {
         txid: tx.compute_txid(),
-        tx_index: tx_index as i64,
+        index: tx_index as i64,
         ops,
     })
 }

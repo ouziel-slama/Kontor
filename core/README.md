@@ -11,12 +11,12 @@ Clone Bitcoin:
 ```bash
 git clone https://github.com/bitcoin/bitcoin.git
 cd bitcoin
-git checkout v29.0
+git checkout v30.0
 ```
 
 Compile Bitcoin:
 ```bash
-cmake -B build -DENABLE_WALLET=OFF -DWITH_ZMQ=ON
+cmake -B build -DENABLE_WALLET=OFF -DENABLE_IPC=OFF -DWITH_ZMQ=ON
 cmake --build build
 ```
 The binary is now located in `build/bin/bitcoind`

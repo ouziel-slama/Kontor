@@ -10,7 +10,7 @@ use indexer::{
     bitcoin_client::Client,
     config::Config,
     database::{
-        queries::{insert_block, insert_transaction},
+        queries::{insert_processed_block, insert_transaction},
         types::{BlockRow, TransactionCursor, TransactionListResponse, TransactionRow},
     },
     reactor::results::ResultSubscriber,
@@ -56,9 +56,9 @@ async fn create_test_app() -> Result<Router> {
         hash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789".parse()?,
     };
 
-    insert_block(&conn, block1).await?;
-    insert_block(&conn, block2).await?;
-    insert_block(&conn, block3).await?;
+    insert_processed_block(&conn, block1).await?;
+    insert_processed_block(&conn, block2).await?;
+    insert_processed_block(&conn, block3).await?;
 
     let reader_conn = reader.connection().await?;
     let mut reader_verify_rows = reader_conn
@@ -279,7 +279,7 @@ async fn test_get_transactions_with_cursor() -> Result<()> {
     let decoded_cursor = TransactionCursor::decode(&cursor)?;
 
     assert_eq!(decoded_cursor.height, 800001);
-    assert_eq!(decoded_cursor.tx_index, 0);
+    assert_eq!(decoded_cursor.index, 0);
 
     // Use cursor for next page
     let response: TestResponse = server

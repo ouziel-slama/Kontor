@@ -102,6 +102,13 @@ impl Runtime {
         })
     }
 
+    pub fn set_context(&mut self, height: i64, tx_id: i64, input_index: i64, op_index: i64) {
+        self.storage.height = height;
+        self.storage.tx_id = tx_id;
+        self.storage.input_index = input_index;
+        self.storage.op_index = op_index;
+    }
+
     pub fn get_storage_conn(&self) -> Connection {
         self.storage.conn.clone()
     }
@@ -112,6 +119,26 @@ impl Runtime {
 
     pub fn set_starting_fuel(&mut self, starting_fuel: u64) {
         self.starting_fuel = starting_fuel
+    }
+
+    pub async fn publish(
+        &self,
+        _signer: &Signer,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<ContractAddress> {
+        let id = self
+            .storage
+            .insert_contract(name, bytes)
+            .await
+            .expect("Failed to insert contract");
+        let address = self
+            .storage
+            .contract_address(id)
+            .await
+            .expect("Failed to get contract address")
+            .expect("Contract doesn't exist");
+        Ok(address)
     }
 
     pub async fn execute(
@@ -136,8 +163,12 @@ impl Runtime {
         })
         .await
         .context("Failed to join execution");
-        let result = self
-            .handle_call(is_fallback, result, |remaining_fuel| async move {
+        self.handle_call(
+            is_fallback,
+            is_proc,
+            contract_id,
+            result,
+            |remaining_fuel| async move {
                 OptionFuture::from(
                     self.gauge
                         .as_ref()
@@ -145,18 +176,9 @@ impl Runtime {
                 )
                 .await;
                 Ok(())
-            })
-            .await;
-        if is_proc {
-            self.storage
-                .insert_contract_result(
-                    contract_id,
-                    result.is_ok(),
-                    result.as_ref().map(|s| s.clone()).ok(),
-                )
-                .await?;
-        }
-        result
+            },
+        )
+        .await
     }
 
     async fn load_component(&self, contract_id: i64) -> Result<Component> {
@@ -314,7 +336,10 @@ impl Runtime {
     }
 
     async fn extract_wave_expr<F, Fut>(
+        &self,
         is_fallback: bool,
+        write_result: bool,
+        contract_id: i64,
         result: Result<(Result<()>, Vec<Val>, Store<Runtime>)>,
         fuel_callback: F,
     ) -> Result<String>
@@ -322,36 +347,55 @@ impl Runtime {
         F: FnOnce(u64) -> Fut,
         Fut: Future<Output = Result<()>>,
     {
-        let (call_result, mut results, store) = result?;
+        let (call_result, mut results, mut store) = result?;
+
+        let mut result = if let Err(e) = call_result {
+            Err(e)
+        } else if results.is_empty() {
+            Ok("()".to_string())
+        } else if results.len() != 1 {
+            Err(anyhow!(
+                "Functions with multiple return values are not supported"
+            ))
+        } else {
+            let val = results.remove(0);
+            if is_fallback {
+                if let wasmtime::component::Val::String(return_expr) = val {
+                    Ok(return_expr)
+                } else {
+                    Err(anyhow!("fallback did not return a string"))
+                }
+            } else {
+                val.to_wave()
+            }
+        };
+
+        if write_result {
+            let value = result.as_ref().map(|s| s.clone()).ok();
+            if let Err(e) = Fuel::Result(value.as_ref().map_or(1, |v| v.len() as u64))
+                .consume_with_store(self.gauge.as_ref(), &mut store)
+                .await
+            {
+                result = Err(e);
+            } else {
+                self.storage
+                    .insert_contract_result(contract_id, result.is_ok(), value)
+                    .await
+                    .expect("Failed to insert contract result");
+            }
+        }
+
         let remaining_fuel = store.get_fuel()?;
         fuel_callback(remaining_fuel).await?;
 
-        call_result.context("Failed to execute call")?;
-        if results.is_empty() {
-            return Ok("()".to_string());
-        }
-
-        if results.len() != 1 {
-            return Err(anyhow!(
-                "Functions with multiple return values are not supported"
-            ));
-        }
-
-        let result = results.remove(0);
-        if is_fallback {
-            if let wasmtime::component::Val::String(return_expr) = result {
-                Ok(return_expr)
-            } else {
-                Err(anyhow!("fallback did not return a string"))
-            }
-        } else {
-            result.to_wave()
-        }
+        result
     }
 
     async fn handle_call<F, Fut>(
         &self,
         is_fallback: bool,
+        write_result: bool,
+        contract_id: i64,
         result: Result<(Result<()>, Vec<Val>, Store<Runtime>)>,
         fuel_callback: F,
     ) -> Result<String>
@@ -361,17 +405,34 @@ impl Runtime {
     {
         self.stack.pop().await;
 
-        let result = Self::extract_wave_expr(is_fallback, result, fuel_callback).await;
+        let result = self
+            .extract_wave_expr(
+                is_fallback,
+                write_result,
+                contract_id,
+                result,
+                fuel_callback,
+            )
+            .await;
 
         if result.is_err() {
-            self.storage.rollback().await?;
+            self.storage
+                .rollback()
+                .await
+                .expect("Failed to rollback storage after failure to extract expression");
         }
         let expr = result?;
 
         if expr.starts_with("err(") {
-            self.storage.rollback().await?;
+            self.storage
+                .rollback()
+                .await
+                .expect("Failed to rollback storage after Err returning call");
         } else {
-            self.storage.commit().await?;
+            self.storage
+                .commit()
+                .await
+                .expect("Failed to commit storage after successful call");
         }
 
         Ok(expr)
@@ -391,7 +452,7 @@ impl Runtime {
                 .await
                 .transpose()?;
 
-        let (mut store, _contract_id, is_fallback, params, mut results, func, _is_proc) = self
+        let (mut store, contract_id, is_fallback, params, mut results, func, _is_proc) = self
             .prepare_call(&contract_address, signer.as_ref(), &expr, fuel)
             .await?;
         let result = tokio::spawn(async move {
@@ -400,9 +461,15 @@ impl Runtime {
         })
         .await
         .context("Failed to join call");
-        self.handle_call(is_fallback, result, |remaining_fuel| async move {
-            accessor.with(|mut access| access.as_context_mut().set_fuel(remaining_fuel))
-        })
+        self.handle_call(
+            is_fallback,
+            false,
+            contract_id,
+            result,
+            |remaining_fuel| async move {
+                accessor.with(|mut access| access.as_context_mut().set_fuel(remaining_fuel))
+            },
+        )
         .await
     }
 

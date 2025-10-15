@@ -3,6 +3,7 @@ use anyhow::Result;
 use bitcoin::Network;
 use clap::Parser;
 use indexer::config::RegtestConfig;
+use indexer::database::queries::delete_unprocessed_blocks;
 use indexer::reactor::results::ResultSubscriber;
 use indexer::{api, block, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
@@ -29,6 +30,7 @@ async fn main() -> Result<()> {
     let filename = "state.db";
     let reader = database::Reader::new(config.clone(), filename).await?;
     let writer = database::Writer::new(&config, filename).await?;
+    delete_unprocessed_blocks(&writer.connection()).await?;
 
     let (ctrl, ctrl_rx) = bitcoin_follower::ctrl::CtrlChannel::create();
     let (init_tx, init_rx) = oneshot::channel();
