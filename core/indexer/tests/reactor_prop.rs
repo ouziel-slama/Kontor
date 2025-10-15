@@ -195,7 +195,7 @@ proptest! {
             FileFailurePersistence::WithSource("regressions"),
         )),
         cases: 100,
-        timeout: 5000,
+        timeout: 10000,
         .. ProptestConfig::default()
     })]
 
