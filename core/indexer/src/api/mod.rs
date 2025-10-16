@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod result;
 pub mod router;
 pub mod ws;
+pub mod ws_client;
 
 use std::{net::SocketAddr, path::Path, time::Duration};
 
