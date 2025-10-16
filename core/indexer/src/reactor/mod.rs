@@ -238,7 +238,7 @@ impl Reactor {
                             .input_index(input_index)
                             .build();
                         let result = ResultEvent::Ok {
-                            value: Some(address_expr),
+                            value: address_expr,
                         };
                         if let Some(tx) = self.event_tx.clone() {
                             tx.send((id, result)).await?;

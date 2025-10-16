@@ -662,7 +662,6 @@ pub async fn get_contract_result(
              cr.op_index,
              cr.contract_id,
              cr.height,
-             cr.ok,
              cr.value
            FROM contract_results cr
            JOIN transactions t ON cr.tx_id = t.id
@@ -691,9 +690,8 @@ pub async fn insert_contract_result(
                 op_index,
                 contract_id,
                 height,
-                ok,
                 value
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?)
         "#,
         params![
             row.tx_id,
@@ -701,7 +699,6 @@ pub async fn insert_contract_result(
             row.op_index,
             row.contract_id,
             row.height,
-            row.ok,
             row.value
         ],
     )

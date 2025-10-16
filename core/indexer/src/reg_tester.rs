@@ -255,11 +255,8 @@ impl RegTester {
         );
         if let Response::Result { result, .. } = self.ws_client.next().await? {
             match result {
-                ResultEvent::Ok { value } => Ok(value.unwrap()),
-                ResultEvent::Err {
-                    message: Some(message),
-                } => Err(anyhow!("{}", message)),
-                ResultEvent::Err { message: None } => Err(anyhow!("Instruction failed to process")),
+                ResultEvent::Ok { value } => Ok(value),
+                ResultEvent::Err { message } => Err(anyhow!("{}", message)),
             }
         } else {
             Err(anyhow!("Unexpected response from websocket"))

@@ -570,7 +570,7 @@ async fn test_contract_result_operations() -> Result<()> {
     let result = ContractResultRow::builder()
         .tx_id(tx_id)
         .height(height)
-        .ok(true)
+        .value("".to_string())
         .build();
 
     insert_contract_result(&conn, result.clone()).await?;

@@ -135,7 +135,7 @@ impl Runtime {
             .expect("Contract doesn't exist");
         let value = wasm_wave::to_string(&wasm_wave::value::Value::from(address))?;
         self.storage
-            .insert_contract_result(id, true, Some(value.clone()))
+            .insert_contract_result(id, Some(value.clone()))
             .await?;
         Ok(value)
     }
@@ -351,7 +351,7 @@ impl Runtime {
         let mut result = if let Err(e) = call_result {
             Err(e)
         } else if results.is_empty() {
-            Ok("()".to_string())
+            Ok("".to_string())
         } else if results.len() != 1 {
             Err(anyhow!(
                 "Functions with multiple return values are not supported"
@@ -378,7 +378,7 @@ impl Runtime {
                 result = Err(e);
             } else {
                 self.storage
-                    .insert_contract_result(contract_id, result.is_ok(), value)
+                    .insert_contract_result(contract_id, value)
                     .await
                     .expect("Failed to insert contract result");
             }
