@@ -221,30 +221,37 @@ impl Reactor {
                 let input_index = op.metadata().input_index;
                 self.runtime
                     .set_context(height as i64, tx_id, input_index, 0);
-                self.runtime.set_starting_fuel(10_000_000);
                 info!("Op: {:#?}", op);
-                match op {
+                let id = ContractResultId::builder()
+                    .txid(t.txid.to_string())
+                    .input_index(input_index)
+                    .build();
+
+                let result = match op {
                     Op::Publish {
                         metadata,
                         name,
                         bytes,
+                    } => self.runtime.publish(&metadata.signer, &name, &bytes).await,
+                    Op::Call {
+                        metadata,
+                        contract,
+                        expr,
                     } => {
-                        let address_expr = self
-                            .runtime
-                            .publish(&metadata.signer, &name, &bytes)
-                            .await?;
-                        let id = ContractResultId::builder()
-                            .txid(t.txid.to_string())
-                            .input_index(input_index)
-                            .build();
-                        let result = ResultEvent::Ok {
-                            value: address_expr,
-                        };
-                        if let Some(tx) = self.event_tx.clone() {
-                            tx.send((id, result)).await?;
-                        }
+                        self.runtime
+                            .execute(Some(&metadata.signer), &contract, &expr)
+                            .await
                     }
-                    _ => todo!(),
+                };
+
+                let event = match result {
+                    Ok(value) => ResultEvent::Ok { value },
+                    Err(e) => ResultEvent::Err {
+                        message: e.to_string(),
+                    },
+                };
+                if let Some(tx) = self.event_tx.clone() {
+                    tx.send((id, event)).await?;
                 }
             }
         }

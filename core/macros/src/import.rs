@@ -185,9 +185,9 @@ pub fn generate_functions(
     } else {
         params.insert(
             if test { 1 } else { 0 },
-            quote! { contract_address: &ContractAddress },
+            quote! { contract_address_: &ContractAddress },
         );
-        quote! { contract_address }
+        quote! { contract_address_ }
     };
 
     let mut ret_ty = match &export.result {

@@ -133,10 +133,13 @@ impl Runtime {
             .await
             .expect("Failed to get contract address")
             .expect("Contract doesn't exist");
-        let value = wasm_wave::to_string(&wasm_wave::value::Value::from(address))?;
+        // self.execute(Some(signer), &address, "init()").await?;
+        let value = wasm_wave::to_string(&wasm_wave::value::Value::from(address))
+            .expect("Failed to convert address to string");
         self.storage
             .insert_contract_result(id, Some(value.clone()))
-            .await?;
+            .await
+            .expect("Failed to insert contract result");
         Ok(value)
     }
 

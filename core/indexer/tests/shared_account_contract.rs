@@ -1,79 +1,76 @@
 use testlib::*;
 
-import!(
-    name = "token",
-    height = 0,
-    tx_index = 0,
-    path = "../contracts/token/wit",
-);
+interface!(name = "token", path = "../contracts/token/wit",);
 
-import!(
+interface!(
     name = "shared-account",
-    height = 0,
-    tx_index = 0,
     path = "../contracts/shared-account/wit",
 );
 
-interface!(name = "token-dyn", path = "../contracts/token/wit");
-
 #[runtime(contracts_dir = "../../contracts")]
 async fn test_shared_account_contract() -> Result<()> {
-    let alice = runtime.identity("alice").await?;
-    let bob = runtime.identity("bob").await?;
-    let claire = runtime.identity("claire").await?;
-    let dara = runtime.identity("dara").await?;
+    let alice = runtime.identity().await?;
+    let bob = runtime.identity().await?;
+    let claire = runtime.identity().await?;
+    let dara = runtime.identity().await?;
 
-    runtime.publish(&alice, "token").await?;
-    runtime.publish(&alice, "shared-account").await?;
+    let token = runtime.publish(&alice, "token").await?;
+    let shared_account = runtime.publish(&alice, "shared-account").await?;
 
-    token::mint(&mut runtime, &alice, 100.into()).await?;
+    token::mint(runtime, &token, &alice, 100.into()).await?;
 
-    let account_id =
-        shared_account::open(&mut runtime, &alice, 50.into(), vec![&bob, &dara]).await??;
+    let account_id = shared_account::open(
+        runtime,
+        &shared_account,
+        &alice,
+        50.into(),
+        vec![&bob, &dara],
+    )
+    .await??;
 
-    let result = shared_account::balance(&mut runtime, &account_id).await?;
+    let result = shared_account::balance(runtime, &shared_account, &account_id).await?;
     assert_eq!(result, Some(50.into()));
 
-    shared_account::deposit(&mut runtime, &alice, &account_id, 25.into()).await??;
+    shared_account::deposit(runtime, &shared_account, &alice, &account_id, 25.into()).await??;
 
-    let result = shared_account::balance(&mut runtime, &account_id).await?;
+    let result = shared_account::balance(runtime, &shared_account, &account_id).await?;
     assert_eq!(result, Some(75.into()));
 
-    shared_account::withdraw(&mut runtime, &bob, &account_id, 25.into()).await??;
+    shared_account::withdraw(runtime, &shared_account, &bob, &account_id, 25.into()).await??;
 
-    let result = shared_account::balance(&mut runtime, &account_id).await?;
+    let result = shared_account::balance(runtime, &shared_account, &account_id).await?;
     assert_eq!(result, Some(50.into()));
 
-    shared_account::withdraw(&mut runtime, &alice, &account_id, 50.into()).await??;
+    shared_account::withdraw(runtime, &shared_account, &alice, &account_id, 50.into()).await??;
 
-    let result = shared_account::balance(&mut runtime, &account_id).await?;
+    let result = shared_account::balance(runtime, &shared_account, &account_id).await?;
     assert_eq!(result, Some(0.into()));
 
-    let result = shared_account::withdraw(&mut runtime, &bob, &account_id, 1.into()).await?;
+    let result =
+        shared_account::withdraw(runtime, &shared_account, &bob, &account_id, 1.into()).await?;
     assert_eq!(
         result,
         Err(Error::Message("insufficient balance".to_string()))
     );
 
-    let result = shared_account::withdraw(&mut runtime, &claire, &account_id, 1.into()).await?;
+    let result =
+        shared_account::withdraw(runtime, &shared_account, &claire, &account_id, 1.into()).await?;
     assert_eq!(result, Err(Error::Message("unauthorized".to_string())));
 
-    let token_address = ContractAddress {
-        name: "token".to_string(),
-        height: 0,
-        tx_index: 0,
-    };
-    let result = shared_account::token_balance(&mut runtime, token_address.clone(), &alice).await?;
+    let result =
+        shared_account::token_balance(runtime, &shared_account, token.clone(), &alice).await?;
     assert_eq!(result, Some(75.into()));
 
-    let result = token_dyn::balance(&mut runtime, &token_address, &bob).await?;
+    let result = token::balance(runtime, &token, &bob).await?;
     assert_eq!(result, Some(25.into()));
 
-    let result = shared_account::tenants(&mut runtime, &account_id).await?;
-    assert_eq!(
-        result,
-        Some(vec![alice.to_string(), bob.to_string(), dara.to_string()])
-    );
+    let result = shared_account::tenants(runtime, &shared_account, &account_id)
+        .await?
+        .unwrap();
+    assert_eq!(result.iter().len(), 3);
+    assert!(result.contains(&alice.to_string()));
+    assert!(result.contains(&dara.to_string()));
+    assert!(result.contains(&bob.to_string()));
 
     Ok(())
 }

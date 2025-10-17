@@ -13,7 +13,7 @@ use crate::{
     runtime::serialize_cbor,
     test_utils,
 };
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bitcoin::{
     Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
     absolute::LockTime,
@@ -92,7 +92,7 @@ async fn run_kontor(data_dir: &Path) -> Result<(Child, KontorClient)> {
     Ok((process, client))
 }
 
-fn generate_taproot_address() -> (Address, Keypair) {
+pub fn generate_taproot_address() -> (Address, Keypair) {
     let secp = Secp256k1::new();
     let keypair = Keypair::new(&secp, &mut rand::thread_rng());
     let (x_only_public_key, ..) = keypair.x_only_public_key();
@@ -121,22 +121,26 @@ impl Identity {
 }
 
 pub struct RegTester {
-    identity: Identity,
-    ws_client: WebSocketClient,
-    _bitcoin_data_dir: TempDir,
-    bitcoin_child: Child,
     pub bitcoin_client: BitcoinClient,
-    _kontor_data_dir: TempDir,
-    kontor_child: Child,
-    pub kontor_client: KontorClient,
+    kontor_client: KontorClient,
+    ws_client: WebSocketClient,
+    identity: Identity,
     pub height: i64,
 }
 
 impl RegTester {
-    pub async fn new() -> Result<Self> {
-        let _bitcoin_data_dir = TempDir::new()?;
-        let _kontor_data_dir = TempDir::new()?;
-        let (bitcoin_child, bitcoin_client) = run_bitcoin(_bitcoin_data_dir.path()).await?;
+    pub async fn setup() -> Result<(
+        TempDir,
+        Child,
+        BitcoinClient,
+        TempDir,
+        Child,
+        KontorClient,
+        Identity,
+    )> {
+        let bitcoin_data_dir = TempDir::new()?;
+        let kontor_data_dir = TempDir::new()?;
+        let (bitcoin_child, bitcoin_client) = run_bitcoin(bitcoin_data_dir.path()).await?;
         let (address, keypair) = generate_taproot_address();
         let block_hashes = bitcoin_client
             .generate_to_address(101, &address.to_string())
@@ -152,21 +156,47 @@ impl RegTester {
             vout: 0,
         };
         let tx_out = block.txdata[0].output[0].clone();
-        let (kontor_child, kontor_client) = run_kontor(_kontor_data_dir.path()).await?;
-        let ws_client = WebSocketClient::new().await?;
-        Ok(Self {
-            identity: Identity {
-                name: "self".to_string(),
-                address,
-                keypair,
-                next_funding_utxo: (out_point, tx_out),
-            },
-            ws_client,
-            _bitcoin_data_dir,
+        let identity = Identity {
+            name: "self".to_string(),
+            address,
+            keypair,
+            next_funding_utxo: (out_point, tx_out),
+        };
+        let (kontor_child, kontor_client) = run_kontor(kontor_data_dir.path()).await?;
+        Ok((
+            bitcoin_data_dir,
             bitcoin_child,
             bitcoin_client,
-            _kontor_data_dir,
+            kontor_data_dir,
             kontor_child,
+            kontor_client,
+            identity,
+        ))
+    }
+
+    pub async fn teardown(
+        bitcoin_client: BitcoinClient,
+        mut bitcoin_child: Child,
+        kontor_client: KontorClient,
+        mut kontor_child: Child,
+    ) -> Result<()> {
+        kontor_client.stop().await?;
+        kontor_child.wait().await?;
+        bitcoin_client.stop().await?;
+        bitcoin_child.wait().await?;
+        Ok(())
+    }
+
+    pub async fn new(
+        identity: Identity,
+        bitcoin_client: BitcoinClient,
+        kontor_client: KontorClient,
+    ) -> Result<Self> {
+        let ws_client = WebSocketClient::new().await?;
+        Ok(Self {
+            identity,
+            ws_client,
+            bitcoin_client,
             kontor_client,
             height: 101,
         })
@@ -231,7 +261,10 @@ impl RegTester {
         let id = ContractResultId::builder()
             .txid(reveal_txid.to_string())
             .build();
-        self.ws_client.subscribe(&id).await?;
+        self.ws_client
+            .subscribe(&id)
+            .await
+            .context("Failed to subscribe to contract result")?;
         self.bitcoin_client
             .send_raw_transaction(&reveal_tx_hex)
             .await?;
@@ -253,7 +286,12 @@ impl RegTester {
                 .unwrap()
                 .clone(),
         );
-        if let Response::Result { result, .. } = self.ws_client.next().await? {
+        if let Response::Result { result, .. } = self
+            .ws_client
+            .next()
+            .await
+            .context("Failed to receive response from websocket")?
+        {
             match result {
                 ResultEvent::Ok { value } => Ok(value),
                 ResultEvent::Err { message } => Err(anyhow!("{}", message)),
@@ -320,26 +358,5 @@ impl RegTester {
             keypair,
             next_funding_utxo,
         })
-    }
-
-    pub async fn wait(&self) -> Result<()> {
-        retry_simple(async || {
-            let i = self.kontor_client.index().await?;
-            if i.height != self.height {
-                bail!("Not caught up");
-            }
-            Ok(())
-        })
-        .await?;
-        Ok(())
-    }
-
-    pub async fn stop(&mut self) -> Result<()> {
-        self.wait().await?;
-        self.kontor_client.stop().await?;
-        self.kontor_child.wait().await?;
-        self.bitcoin_client.stop().await?;
-        self.bitcoin_child.wait().await?;
-        Ok(())
     }
 }
