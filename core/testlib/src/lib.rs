@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
+use async_trait::async_trait;
 use bon::Builder;
 use glob::Paths;
 pub use indexer::runtime::wit::kontor::built_in::{
@@ -11,9 +12,8 @@ pub use indexer::runtime::{CheckedArithmetics, numerics as numbers, wit::Signer}
 use indexer::{
     config::Config,
     database::{queries::insert_processed_block, types::BlockRow},
-    runtime::{
-        ComponentCache, Runtime as IndexerRuntime, Storage, fuel::FuelGauge, load_contracts,
-    },
+    reg_tester::generate_taproot_address,
+    runtime::{ComponentCache, Runtime as IndexerRuntime, Storage, load_contracts},
     test_utils::{new_mock_block_hash, new_test_db},
 };
 use libsql::Connection;
@@ -83,6 +83,7 @@ pub struct CallContext {
 pub struct RuntimeConfig<'a> {
     contracts_dir: &'a str,
     call_context: Option<CallContext>,
+    mode: Option<String>,
 }
 
 impl RuntimeConfig<'_> {
@@ -94,12 +95,28 @@ impl RuntimeConfig<'_> {
     }
 }
 
-pub struct Runtime {
-    pub runtime: IndexerRuntime,
-    pub contract_reader: ContractReader,
+#[async_trait]
+pub trait RuntimeImpl {
+    async fn identity(&self) -> Result<Signer>;
+    async fn publish(
+        &self,
+        signer: &Signer,
+        name: &str,
+        contract: &[u8],
+    ) -> Result<ContractAddress>;
+    async fn execute(
+        &mut self,
+        signer: Option<&Signer>,
+        contract_address: &ContractAddress,
+        expr: &str,
+    ) -> Result<String>;
 }
 
-impl Runtime {
+pub struct RuntimeLocal {
+    runtime: IndexerRuntime,
+}
+
+impl RuntimeLocal {
     async fn make_storage(call_context: CallContext, conn: Connection) -> Result<Storage> {
         insert_processed_block(
             &conn,
@@ -116,29 +133,69 @@ impl Runtime {
             .build())
     }
 
-    pub async fn new(config: RuntimeConfig<'_>) -> Result<Self> {
+    pub async fn new(config: &RuntimeConfig<'_>) -> Result<Self> {
         let (_, writer, _test_db_dir) = new_test_db(&Config::new_na()).await?;
         let conn = writer.connection();
-        let storage = Runtime::make_storage(config.get_call_context(), conn).await?;
+        let storage = Self::make_storage(config.get_call_context(), conn).await?;
         let component_cache = ComponentCache::new();
-        let contract_reader = ContractReader::new(config.contracts_dir).await?;
         let runtime = IndexerRuntime::new(storage, component_cache).await?;
-        Ok(Self {
-            runtime,
-            contract_reader,
+        Ok(Self { runtime })
+    }
+}
+
+#[async_trait]
+impl RuntimeImpl for RuntimeLocal {
+    async fn identity(&self) -> Result<Signer> {
+        let (address, ..) = generate_taproot_address();
+        Ok(Signer::XOnlyPubKey(address.to_string()))
+    }
+
+    async fn publish(
+        &self,
+        signer: &Signer,
+        name: &str,
+        contract: &[u8],
+    ) -> Result<ContractAddress> {
+        load_contracts(&self.runtime, signer, &[(name, contract)]).await?;
+        Ok(ContractAddress {
+            name: name.to_string(),
+            height: 0,
+            tx_index: 0,
         })
     }
 
-    pub async fn run<F, Fut>(self, f: F) -> Result<()>
-    where
-        F: FnOnce(Self) -> Fut,
-        Fut: Future<Output = Result<()>>,
-    {
-        f(self).await
+    async fn execute(
+        &mut self,
+        signer: Option<&Signer>,
+        contract_address: &ContractAddress,
+        expr: &str,
+    ) -> Result<String> {
+        let result = self.runtime.execute(signer, contract_address, expr).await;
+        self.runtime.storage.op_index += 1;
+        result
+    }
+}
+
+pub struct Runtime {
+    pub contract_reader: ContractReader,
+    pub runtime: Box<dyn RuntimeImpl>,
+}
+
+impl Runtime {
+    pub async fn new(config: RuntimeConfig<'_>) -> Result<Self> {
+        if config.mode.is_none() {
+            let runtime = RuntimeLocal::new(&config).await?;
+            Ok(Runtime {
+                contract_reader: ContractReader::new(config.contracts_dir).await?,
+                runtime: Box::new(runtime),
+            })
+        } else {
+            todo!()
+        }
     }
 
-    pub async fn identity(&self, name: &str) -> Result<Signer> {
-        Ok(Signer::XOnlyPubKey(name.to_string()))
+    pub async fn identity(&self) -> Result<Signer> {
+        self.runtime.identity().await
     }
 
     pub async fn publish(&self, signer: &Signer, name: &str) -> Result<ContractAddress> {
@@ -158,22 +215,7 @@ impl Runtime {
             name,
             self.contract_reader.dir,
         ))?;
-        load_contracts(&self.runtime, signer, &[(&alias, &contract)]).await?;
-        Ok(ContractAddress {
-            name: alias,
-            height: 0,
-            tx_index: 0,
-        })
-    }
-
-    pub async fn set_call_context(&mut self, context: CallContext) -> Result<()> {
-        self.runtime
-            .set_storage(Runtime::make_storage(context, self.runtime.get_storage_conn()).await?);
-        Ok(())
-    }
-
-    pub async fn set_starting_fuel(&mut self, starting_fuel: u64) {
-        self.runtime.set_starting_fuel(starting_fuel)
+        self.runtime.publish(signer, &alias, &contract).await
     }
 
     pub async fn execute(
@@ -182,15 +224,6 @@ impl Runtime {
         contract_address: &ContractAddress,
         expr: &str,
     ) -> Result<String> {
-        let result = self.runtime.execute(signer, contract_address, expr).await;
-        self.runtime.storage.op_index += 1;
-        result
-    }
-
-    pub fn fuel_gauge(&self) -> FuelGauge {
-        self.runtime
-            .gauge
-            .clone()
-            .expect("Test environment runtime doesn't have fuel gauge")
+        self.runtime.execute(signer, contract_address, expr).await
     }
 }

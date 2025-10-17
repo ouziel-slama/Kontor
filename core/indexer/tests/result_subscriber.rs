@@ -32,7 +32,7 @@ async fn test_subscriber_subscribe_and_receive_event() -> Result<()> {
 
     // Send an event through the mpsc channel
     let event = ResultEvent::Ok {
-        value: Some("success".to_string()),
+        value: "success".to_string(),
     };
     tx.send((id.clone(), event.clone())).await?;
 
@@ -65,7 +65,7 @@ async fn test_subscriber_multiple_subscribers() -> Result<()> {
 
     // Send an event
     let event = ResultEvent::Ok {
-        value: Some("success".to_string()),
+        value: "success".to_string(),
     };
     tx.send((id.clone(), event.clone())).await?;
 
@@ -113,7 +113,7 @@ async fn test_subscriber_dispatch_nonexistent_id() -> Result<()> {
 
     // Send an event for a non-existent subscription
     let event = ResultEvent::Err {
-        message: Some("error".to_string()),
+        message: "error".to_string(),
     };
     tx.send((id.clone(), event)).await?;
 
@@ -150,7 +150,7 @@ async fn test_subscriber_cancellation() -> Result<()> {
 
     // Send an event after cancellation (should not be processed)
     let event = ResultEvent::Ok {
-        value: Some("success".to_string()),
+        value: "success".to_string(),
     };
     let send_result = tx.send((id.clone(), event.clone())).await;
     assert!(send_result.is_err()); // Send succeeds, but no processing

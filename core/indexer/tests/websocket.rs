@@ -50,10 +50,10 @@ async fn test_websocket_server() -> Result<()> {
     ws_client.subscribe(&bar_id).await?;
 
     let event1 = ResultEvent::Ok {
-        value: Some("1".to_string()),
+        value: "1".to_string(),
     };
     let event2 = ResultEvent::Err {
-        message: Some("failure".to_string()),
+        message: "failure".to_string(),
     };
 
     event_tx.send((foo_id.clone(), event1.clone())).await?;
@@ -106,7 +106,9 @@ async fn test_websocket_server() -> Result<()> {
         ws_client.next().await?,
         Response::Result {
             id: test_id.clone(),
-            result: ResultEvent::Err { message: None }
+            result: ResultEvent::Err {
+                message: "Procedure failed. Error messages are ephemeral.".to_string()
+            }
         }
     );
 

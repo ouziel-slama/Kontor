@@ -24,7 +24,7 @@ async fn test_subscribe_and_receive_event() -> Result<()> {
 
     // Dispatch an event
     let event = ResultEvent::Ok {
-        value: Some("success".to_string()),
+        value: "success".to_string(),
     };
     subscriptions.dispatch(&id, event.clone());
 
@@ -55,7 +55,7 @@ async fn test_multiple_subscribers() -> Result<()> {
 
     // Dispatch an event
     let event = ResultEvent::Ok {
-        value: Some("success".to_string()),
+        value: "success".to_string(),
     };
     subscriptions.dispatch(&id, event.clone());
 
@@ -96,7 +96,7 @@ async fn test_dispatch_to_nonexistent_id() -> Result<()> {
 
     // Dispatch to non-existent ID
     let event = ResultEvent::Err {
-        message: Some("error".to_string()),
+        message: "error".to_string(),
     };
     subscriptions.dispatch(&id, event);
     assert!(subscriptions.subscriptions.is_empty());

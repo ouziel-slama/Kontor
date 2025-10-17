@@ -13,8 +13,8 @@ use crate::database::{queries::get_contract_result, types::ContractResultId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ResultEvent {
-    Ok { value: Option<String> },
-    Err { message: Option<String> },
+    Ok { value: String },
+    Err { message: String },
 }
 
 #[derive(Debug, Clone)]
@@ -68,10 +68,12 @@ impl ResultSubscriptions {
         if let Some(row) = get_contract_result(conn, id).await? {
             self.dispatch(
                 id,
-                if row.ok {
-                    ResultEvent::Ok { value: row.value }
+                if let Some(value) = row.value {
+                    ResultEvent::Ok { value }
                 } else {
-                    ResultEvent::Err { message: None }
+                    ResultEvent::Err {
+                        message: "Procedure failed. Error messages are ephemeral.".to_string(),
+                    }
                 },
             );
         }

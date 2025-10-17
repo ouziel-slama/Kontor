@@ -4109,12 +4109,14 @@ name = "testlib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bon",
  "glob",
  "indexer",
  "libsql",
  "macros",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

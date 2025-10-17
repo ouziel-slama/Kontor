@@ -155,8 +155,6 @@ pub struct ContractResultRow {
     #[builder(default = 0)]
     pub contract_id: i64,
     pub height: i64,
-    #[builder(default = false)]
-    pub ok: bool,
     pub value: Option<String>,
 }
 

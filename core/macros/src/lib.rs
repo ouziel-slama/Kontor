@@ -263,12 +263,12 @@ pub fn runtime(attr: TokenStream, item: TokenStream) -> TokenStream {
     let output = quote! {
         #[tokio::test]
         #fn_vis async fn #fn_name #fn_generics(#fn_inputs) -> Result<()> {
-            let mut runtime = Runtime::new(
+            let mut runtime = &mut Runtime::new(
                 RuntimeConfig::builder()
                     .contracts_dir(#contracts_dir)
                     .build()
             ).await?;
-            runtime.run(|mut runtime: Runtime| async move #fn_block).await
+            #fn_block
         }
     };
 

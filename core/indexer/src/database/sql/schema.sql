@@ -59,7 +59,6 @@ CREATE TABLE IF NOT EXISTS contract_results (
   op_index INTEGER NOT NULL,
   contract_id INTEGER NOT NULL,
   height INTEGER NOT NULL,
-  ok BOOLEAN NOT NULL,
   value TEXT,
   UNIQUE (tx_id, input_index, op_index),
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
