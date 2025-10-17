@@ -723,6 +723,21 @@ impl Runtime {
         Ok(table.push(ViewContext { contract_id })?)
     }
 
+    async fn _get_contract_address<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+    ) -> Result<ContractAddress> {
+        Fuel::ContractAddress
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let id = self.stack.peek().await.expect("Stack is empty");
+        Ok(self
+            .storage
+            .contract_address(id)
+            .await?
+            .expect("Failed to get contract address"))
+    }
+
     async fn _drop<T: 'static>(&self, rep: Resource<T>) -> Result<()> {
         self.table.lock().await.delete(rep)?;
         Ok(())
@@ -780,6 +795,13 @@ impl built_in::foreign::HostWithStore for Runtime {
         accessor
             .with(|mut access| access.get().clone())
             ._call(accessor, signer, contract_address, expr)
+            .await
+    }
+
+    async fn get_contract_address<T>(accessor: &Accessor<T, Self>) -> Result<ContractAddress> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._get_contract_address(accessor)
             .await
     }
 }
