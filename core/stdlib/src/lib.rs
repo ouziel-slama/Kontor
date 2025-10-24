@@ -88,6 +88,20 @@ impl Store for bool {
     }
 }
 
+impl<T: Store> Store for Option<T> {
+    fn __set(ctx: &impl WriteContext, path: DotPathBuf, value: Self) {
+        ctx.__delete_matching_paths(&format!(
+            r"^{}.({})(\..*|$)",
+            path,
+            ["none", "some"].join("|")
+        ));
+        match value {
+            Some(inner) => ctx.__set(path.push("some"), inner),
+            None => ctx.__set(path.push("none"), ()),
+        }
+    }
+}
+
 impl Store for () {
     fn __set(ctx: &impl WriteContext, path: DotPathBuf, _: ()) {
         ctx.__set_void(&path);
