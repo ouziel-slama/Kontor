@@ -9,6 +9,7 @@ mod contract;
 mod impls;
 mod import;
 mod interface;
+mod model;
 mod root;
 mod runtime;
 mod store;
@@ -128,10 +129,52 @@ pub fn derive_wrapper(input: TokenStream) -> TokenStream {
     .into()
 }
 
+#[proc_macro_derive(Model)]
+pub fn derive_model(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+
+    let body = match &input.data {
+        Data::Struct(data_struct) => model::generate_struct(data_struct, name, false),
+        Data::Enum(data_enum) => model::generate_enum(data_enum, name, false),
+        Data::Union(_) => Err(Error::new(
+            name.span(),
+            "Wrapper derive is not supported for unions",
+        )),
+    };
+    let mut body = match body {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let body_cont = match &input.data {
+        Data::Struct(data_struct) => model::generate_struct(data_struct, name, true),
+        Data::Enum(data_enum) => model::generate_enum(data_enum, name, true),
+        Data::Union(_) => Err(Error::new(
+            name.span(),
+            "Wrapper derive is not supported for unions",
+        )),
+    };
+    let body_cont = match body_cont {
+        Ok(body) => body,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    body.extend(body_cont);
+
+    let (_impl_generics, _ty_generics, _where_clause) = generics.split_for_impl();
+    quote! {
+        #body
+    }
+    .into()
+}
+
 #[proc_macro_derive(Storage)]
 pub fn derive_storage(input: TokenStream) -> TokenStream {
     let mut tokens = derive_store(input.clone());
-    tokens.extend(derive_wrapper(input));
+    tokens.extend(derive_wrapper(input.clone()));
+    tokens.extend(derive_model(input));
     tokens
 }
 
@@ -163,8 +206,7 @@ pub fn derive_root(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(StorageRoot)]
 pub fn derive_storage_root(input: TokenStream) -> TokenStream {
-    let mut tokens = derive_store(input.clone());
-    tokens.extend(derive_wrapper(input.clone()));
+    let mut tokens = derive_storage(input.clone());
     tokens.extend(derive_root(input));
     tokens
 }
