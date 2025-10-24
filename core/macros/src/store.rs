@@ -63,7 +63,7 @@ pub fn generate_enum_body(data_enum: &DataEnum, type_name: &Ident) -> Result<Tok
     }).collect::<Result<Vec<_>>>()?;
 
     Ok(quote! {
-        ctx.__delete_matching_paths(&format!(r"^{}.({})(\..*|$)", base_path, [#(#variant_names),*].join("|")));
+        ctx.__delete_matching_paths(&base_path, &[#(#variant_names),*]);
         match value {
             #(#arms)*
         }

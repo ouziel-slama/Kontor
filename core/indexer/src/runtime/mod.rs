@@ -1096,11 +1096,16 @@ impl built_in::context::HostProcContextWithStore for Runtime {
     async fn delete_matching_paths<T>(
         accessor: &Accessor<T, Self>,
         self_: Resource<ProcContext>,
-        regexp: String,
+        base_path: String,
+        variants: Vec<String>,
     ) -> Result<u64> {
         accessor
             .with(|mut access| access.get().clone())
-            ._delete_matching_paths(accessor, self_, regexp)
+            ._delete_matching_paths(
+                accessor,
+                self_,
+                format!(r"^{}.({})(\..*|$)", base_path, variants.join("|")),
+            )
             .await
     }
 

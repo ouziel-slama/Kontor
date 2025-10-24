@@ -25,7 +25,7 @@ pub trait WriteContext {
     fn __set_bool(&self, path: &str, value: bool);
     fn __set_void(&self, path: &str);
     fn __set<T: Store>(&self, path: DotPathBuf, value: T);
-    fn __delete_matching_paths(&self, regexp: &str) -> u64;
+    fn __delete_matching_paths(&self, base_path: &str, variants: &[&str]) -> u64;
     fn generate_id(&self) -> String;
 }
 
