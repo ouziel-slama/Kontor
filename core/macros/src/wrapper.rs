@@ -133,18 +133,6 @@ pub fn generate_struct_wrapper(data_struct: &DataStruct, type_name: &Ident) -> R
 
                 if utils::is_map_type(field_ty) {
                     Ok(quote! { })
-                } else if utils::is_option_type(field_ty) {
-                    let inner_ty = get_option_inner_type(field_ty)?;
-                    Ok(quote! {
-                        pub fn #set_field_name(&self, ctx: &impl stdlib::WriteContext, value: Option<#inner_ty>) {
-                            let base_path = self.base_path.push(#field_name_str);
-                            ctx.__delete_matching_paths(&format!(r"^{}.({})(\..*|$)", base_path, ["none", "some"].join("|")));
-                            match value {
-                                Some(inner) => ctx.__set(base_path.push("some"), inner),
-                                None => ctx.__set(base_path.push("none"), ()),
-                            }
-                        }
-                    })
                 } else {
                     Ok(quote! {
                         pub fn #set_field_name(&self, ctx: &impl stdlib::WriteContext, value: #field_ty) {

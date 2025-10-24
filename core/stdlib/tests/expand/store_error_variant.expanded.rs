@@ -1,6 +1,7 @@
 use stdlib::Store;
 enum Error {
     Message(String),
+    Overflow,
 }
 #[automatically_derived]
 impl stdlib::Store for Error {
@@ -9,15 +10,10 @@ impl stdlib::Store for Error {
         base_path: stdlib::DotPathBuf,
         value: Error,
     ) {
-        ctx.__delete_matching_paths(
-            &::alloc::__export::must_use({
-                ::alloc::fmt::format(
-                    format_args!("^{0}.({1})(\\..*|$)", base_path, ["message"].join("|")),
-                )
-            }),
-        );
+        ctx.__delete_matching_paths(&base_path, &["message", "overflow"]);
         match value {
             Error::Message(inner) => ctx.__set(base_path.push("message"), inner),
+            Error::Overflow => ctx.__set(base_path.push("overflow"), ()),
         }
     }
 }

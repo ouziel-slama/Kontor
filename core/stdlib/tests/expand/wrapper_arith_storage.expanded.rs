@@ -27,20 +27,7 @@ impl ArithStorageWrapper {
         }
     }
     pub fn set_last_op(&self, ctx: &impl stdlib::WriteContext, value: Option<Op>) {
-        let base_path = self.base_path.push("last_op");
-        ctx.__delete_matching_paths(
-            &::alloc::__export::must_use({
-                ::alloc::fmt::format(
-                    format_args!(
-                        "^{0}.({1})(\\..*|$)", base_path, ["none", "some"].join("|"),
-                    ),
-                )
-            }),
-        );
-        match value {
-            Some(inner) => ctx.__set(base_path.push("some"), inner),
-            None => ctx.__set(base_path.push("none"), ()),
-        }
+        ctx.__set(self.base_path.push("last_op"), value);
     }
     pub fn load(&self, ctx: &impl stdlib::ReadContext) -> ArithStorage {
         ArithStorage {

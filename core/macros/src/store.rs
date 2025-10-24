@@ -17,14 +17,6 @@ pub fn generate_struct_body(data_struct: &DataStruct, type_name: &Ident) -> Resu
                         type_name.span(),
                         "Store derive does not support Result field types",
                     ));
-                } else if utils::is_option_type(field_ty) {
-                    field_sets.push(quote! {
-                        ctx.__delete_matching_paths(&format!(r"^{}.({})(\..*|$)", base_path.push(#field_name_str), ["none", "some"].join("|")));
-                        match value.#field_name {
-                            Some(inner) => ctx.__set(base_path.push(#field_name_str).push("some"), inner),
-                            None => ctx.__set(base_path.push(#field_name_str).push("none"), ()),
-                        }
-                    })
                 } else {
                     field_sets.push(quote! {
                         ctx.__set(base_path.push(#field_name_str), value.#field_name);
@@ -71,7 +63,7 @@ pub fn generate_enum_body(data_enum: &DataEnum, type_name: &Ident) -> Result<Tok
     }).collect::<Result<Vec<_>>>()?;
 
     Ok(quote! {
-        ctx.__delete_matching_paths(&format!(r"^{}.({})(\..*|$)", base_path, [#(#variant_names),*].join("|")));
+        ctx.__delete_matching_paths(&base_path, &[#(#variant_names),*]);
         match value {
             #(#arms)*
         }
