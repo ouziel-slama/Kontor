@@ -9,7 +9,7 @@ interface context {
         next: func() -> option<string>;
     }
 
-    resource view-context {
+    resource view-storage {
         get-str: func(path: string) -> option<string>;
         get-u64: func(path: string) -> option<u64>;
         get-s64: func(path: string) -> option<s64>;
@@ -19,7 +19,7 @@ interface context {
         extend-path-with-match: func(path: string, variants: list<string>) -> option<string>;
     }
 
-    resource proc-context {
+    resource proc-storage {
         get-str: func(path: string) -> option<string>;
         get-u64: func(path: string) -> option<u64>;
         get-s64: func(path: string) -> option<s64>;
@@ -34,11 +34,19 @@ interface context {
         set-bool: func(path: string, value: bool);
         set-void: func(path: string);
         delete-matching-paths: func(base-path: string, variants: list<string>) -> u64;
+        view-storage: func() -> view-storage;
+    }
 
+    resource view-context {
+        storage: func() -> view-storage;
+    }
+
+    resource proc-context {
         signer: func() -> signer;
         contract-signer: func() -> signer;
         view-context: func() -> view-context;
         generate-id: func() -> string;
+        storage: func() -> proc-storage;
     }
 
     resource fall-context {

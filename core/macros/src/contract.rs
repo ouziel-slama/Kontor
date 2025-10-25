@@ -25,9 +25,10 @@ pub fn generate(config: Config) -> TokenStream {
         });
 
         use kontor::built_in::*;
-        use kontor::built_in::foreign::{ContractAddressWrapper, get_contract_address};
-        use kontor::built_in::numbers::IntegerWrapper;
-        use kontor::built_in::numbers::DecimalWrapper;
+        use kontor::built_in::context::{Signer};
+        use kontor::built_in::foreign::{ContractAddressModel, ContractAddressWriteModel, get_contract_address};
+        use kontor::built_in::numbers::{IntegerModel, IntegerWriteModel};
+        use kontor::built_in::numbers::{DecimalModel, DecimalWriteModel};
 
         fn make_keys_iterator<T: FromString>(keys: context::Keys) -> impl Iterator<Item = T> {
             struct KeysIterator<T: FromString> {
@@ -49,7 +50,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl ReadContext for context::ViewContext {
+        impl ReadContext for context::ViewStorage {
             fn __get_str(&self, path: &str) -> Option<String> {
                 self.get_str(path)
             }
@@ -84,7 +85,42 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl ReadContext for context::ProcContext {
+        impl context::ViewStorage {
+            fn __get_str(&self, path: &str) -> Option<String> {
+                self.get_str(path)
+            }
+
+            fn __get_u64(&self, path: &str) -> Option<u64> {
+                self.get_u64(path)
+            }
+
+            fn __get_s64(&self, path: &str) -> Option<i64> {
+                self.get_s64(path)
+            }
+
+            fn __get_bool(&self, path: &str) -> Option<bool> {
+                self.get_bool(path)
+            }
+
+            fn __get_keys<'a, T: ToString + FromString + Clone + 'a>(&self, path: &'a str) -> impl Iterator<Item = T> + 'a {
+                make_keys_iterator(self.get_keys(path))
+            }
+
+            fn __exists(&self, path: &str) -> bool {
+                self.exists(path)
+            }
+
+            fn __extend_path_with_match(&self, path: &str, variants: &[&str]) -> Option<String> {
+                self.extend_path_with_match(path, &variants.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }
+
+            fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T> {
+                T::__get(self, path)
+            }
+        }
+
+        #[automatically_derived]
+        impl ReadContext for context::ProcStorage {
             fn __get_str(&self, path: &str) -> Option<String> {
                 self.get_str(path)
             }
@@ -119,7 +155,42 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl WriteContext for context::ProcContext {
+        impl context::ProcStorage {
+            fn __get_str(&self, path: &str) -> Option<String> {
+                self.get_str(path)
+            }
+
+            fn __get_u64(&self, path: &str) -> Option<u64> {
+                self.get_u64(path)
+            }
+
+            fn __get_s64(&self, path: &str) -> Option<i64> {
+                self.get_s64(path)
+            }
+
+            fn __get_bool(&self, path: &str) -> Option<bool> {
+                self.get_bool(path)
+            }
+
+            fn __get_keys<'a, T: ToString + FromString + Clone + 'a>(&self, path: &'a str) -> impl Iterator<Item = T> + 'a{
+                make_keys_iterator(self.get_keys(path))
+            }
+
+            fn __exists(&self, path: &str) -> bool {
+                self.exists(path)
+            }
+
+            fn __extend_path_with_match(&self, path: &str, variants: &[&str]) -> Option<String> {
+                self.extend_path_with_match(path, &variants.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }
+
+            fn __get<T: Retrieve>(&self, path: DotPathBuf) -> Option<T> {
+                T::__get(self, path)
+            }
+        }
+
+        #[automatically_derived]
+        impl WriteContext for context::ProcStorage {
             fn __set_str(&self, path: &str, value: &str) {
                 self.set_str(path, value)
             }
@@ -149,12 +220,43 @@ pub fn generate(config: Config) -> TokenStream {
             }
 
             fn generate_id(&self) -> String {
-                self.generate_id()
+                unimplemented!()
             }
         }
 
         #[automatically_derived]
-        impl ReadWriteContext for context::ProcContext {}
+        impl context::ProcStorage {
+            fn __set_str(&self, path: &str, value: &str) {
+                self.set_str(path, value)
+            }
+
+            fn __set_u64(&self, path: &str, value: u64) {
+                self.set_u64(path, value)
+            }
+
+            fn __set_s64(&self, path: &str, value: i64) {
+                self.set_s64(path, value)
+            }
+
+            fn __set_bool(&self, path: &str, value: bool) {
+                self.set_bool(path, value)
+            }
+
+            fn __set_void(&self, path: &str) {
+                self.set_void(path)
+            }
+
+            fn __set<T: stdlib::Store>(&self, path: DotPathBuf, value: T) {
+                T::__set(self, path, value)
+            }
+
+            fn __delete_matching_paths(&self, base_path: &str, variants: &[&str]) -> u64 {
+                self.delete_matching_paths(base_path, &variants.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }
+        }
+
+        #[automatically_derived]
+        impl ReadWriteContext for context::ProcStorage {}
 
         impls!();
 
