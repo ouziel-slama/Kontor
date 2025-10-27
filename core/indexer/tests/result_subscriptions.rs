@@ -1,11 +1,17 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use clap::Parser;
 use indexer::{
     config::Config,
-    database::types::OpResultId,
-    reactor::results::{ResultEvent, ResultEventWrapper, ResultSubscriptions},
-    test_utils::new_test_db,
+    database::{
+        queries::{insert_block, insert_contract},
+        types::{BlockRow, ContractRow, OpResultId},
+    },
+    reactor::results::{ResultEvent, ResultEventFilter, ResultEventWrapper, ResultSubscriptions},
+    test_utils::{new_mock_block_hash, new_test_db},
 };
+use testlib::ContractAddress;
 
 #[tokio::test]
 async fn test_subscribe_and_receive_event() -> Result<()> {
@@ -134,6 +140,156 @@ async fn test_dispatch_to_nonexistent_id() -> Result<()> {
         )
         .await?;
     assert!(subscriptions.one_shot_subscriptions.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_subscriber_recurring() -> Result<()> {
+    let mut subscriptions = ResultSubscriptions::default();
+
+    let (reader, _writer, _dir) = new_test_db(&Config::try_parse()?).await?;
+    let conn = reader.connection().await?;
+
+    insert_block(
+        &conn,
+        BlockRow::builder()
+            .height(1)
+            .hash(new_mock_block_hash(1))
+            .build(),
+    )
+    .await?;
+    let contract_address = ContractAddress {
+        name: "test".to_string(),
+        height: 1,
+        tx_index: 1,
+    };
+    let func_name = "foo";
+    let contract_id = insert_contract(
+        &conn,
+        ContractRow::builder()
+            .name(contract_address.name.clone())
+            .height(contract_address.height)
+            .tx_index(contract_address.tx_index)
+            .bytes(vec![])
+            .build(),
+    )
+    .await?;
+
+    // Start the run task
+    let (sub_id_1, mut receiver1) = subscriptions
+        .subscribe(&conn, ResultEventFilter::All)
+        .await?;
+    let (sub_id_2, mut receiver2) = subscriptions
+        .subscribe(
+            &conn,
+            ResultEventFilter::Contract {
+                contract_address: contract_address.clone(),
+                func_name: None,
+            },
+        )
+        .await?;
+    let (sub_id_3, mut receiver3) = subscriptions
+        .subscribe(
+            &conn,
+            ResultEventFilter::Contract {
+                contract_address: contract_address.clone(),
+                func_name: Some(func_name.to_string()),
+            },
+        )
+        .await?;
+
+    let event = ResultEvent::Ok {
+        value: "".to_string(),
+    };
+    subscriptions
+        .dispatch(
+            ResultEventWrapper::builder()
+                .contract_id(contract_id)
+                .func_name(func_name.to_string())
+                .event(event.clone())
+                .build(),
+        )
+        .await?;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receiver1.recv()).await??,
+        event
+    );
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receiver2.recv()).await??,
+        event
+    );
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receiver3.recv()).await??,
+        event
+    );
+
+    subscriptions
+        .dispatch(
+            ResultEventWrapper::builder()
+                .contract_id(contract_id)
+                .func_name("bar".to_string())
+                .event(event.clone())
+                .build(),
+        )
+        .await?;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receiver1.recv()).await??,
+        event
+    );
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receiver2.recv()).await??,
+        event
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), receiver3.recv())
+            .await
+            .is_err()
+    );
+
+    subscriptions
+        .dispatch(
+            ResultEventWrapper::builder()
+                .contract_id(0)
+                .func_name("bar".to_string())
+                .event(event.clone())
+                .build(),
+        )
+        .await?;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receiver1.recv()).await??,
+        event
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), receiver2.recv())
+            .await
+            .is_err(),
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), receiver3.recv())
+            .await
+            .is_err()
+    );
+
+    assert!(subscriptions.unsubscribe(&conn, sub_id_2).await?);
+    assert!(
+        subscriptions
+            .recurring_subscriptions
+            .1
+            .contains_key(&contract_id)
+    );
+
+    assert!(subscriptions.unsubscribe(&conn, sub_id_3).await?);
+    assert!(
+        !subscriptions
+            .recurring_subscriptions
+            .1
+            .contains_key(&contract_id)
+    );
+
+    assert!(subscriptions.unsubscribe(&conn, sub_id_1).await?);
+    assert!(subscriptions.subscription_ids.is_empty());
+    assert!(subscriptions.recurring_subscriptions.0.is_empty());
 
     Ok(())
 }
