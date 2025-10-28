@@ -174,9 +174,9 @@ fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes() -> Result<()> {
     let (nodes, _secrets) = get_node_addresses(&secp, Network::Bitcoin, &config.taproot_key_path)?;
     let utxos = mock_fetch_utxos_for_addresses(&nodes);
 
-    let mut addresses = Vec::new();
+    let mut instructions = Vec::new();
     for (i, n) in nodes.iter().enumerate() {
-        addresses.push(indexer::api::compose::InstructionInputs {
+        instructions.push(indexer::api::compose::InstructionInputs {
             address: n.address.clone(),
             x_only_public_key: n.internal_key,
             funding_utxos: vec![utxos[i].clone()],
@@ -185,20 +185,20 @@ fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes() -> Result<()> {
     }
 
     let params = ComposeInputs::builder()
-        .instructions(addresses.clone())
+        .instructions(instructions.clone())
         .fee_rate(bitcoin::FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(600)
         .build();
 
     let outputs = compose(params)?;
 
-    assert_eq!(outputs.per_participant.len(), addresses.len());
+    assert_eq!(outputs.per_participant.len(), instructions.len());
     for (i, p) in outputs.per_participant.iter().enumerate() {
         assert_eq!(p.index as usize, i);
-        assert_eq!(p.address, addresses[i].address.to_string());
+        assert_eq!(p.address, instructions[i].address.to_string());
         assert_eq!(
             p.x_only_public_key,
-            addresses[i].x_only_public_key.to_string()
+            instructions[i].x_only_public_key.to_string()
         );
     }
 

@@ -91,7 +91,7 @@ async fn test_compose() -> Result<()> {
 
     let server = TestServer::new(app)?;
 
-    let addresses_vec = vec![InstructionQuery {
+    let instructions_vec = vec![InstructionQuery {
         address: seller_address.to_string(),
         x_only_public_key: internal_key.to_string(),
         funding_utxo_ids: "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8:0"
@@ -100,7 +100,7 @@ async fn test_compose() -> Result<()> {
     }];
 
     let query = ComposeQuery {
-        instructions: addresses_vec,
+        instructions: instructions_vec,
         sat_per_vbyte: 2,
         envelope: None,
         chained_script_data: None,
@@ -230,11 +230,12 @@ async fn test_compose_all_fields() -> Result<()> {
     let mut token_data_bytes = Vec::new();
     ciborium::into_writer(&token_data, &mut token_data_bytes).unwrap();
 
-    let _chained_script_data_base64 = test_utils::base64_serialize(&b"Hello, World!");
+    let mut chained_token_data_bytes = Vec::new();
+    ciborium::into_writer(&b"Hello, World!", &mut chained_token_data_bytes).unwrap();
 
     let server = TestServer::new(app)?;
 
-    let addresses_vec = vec![InstructionQuery {
+    let instructions_vec = vec![InstructionQuery {
         address: seller_address.to_string(),
         x_only_public_key: internal_key.to_string(),
         funding_utxo_ids: "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8:0"
@@ -243,10 +244,10 @@ async fn test_compose_all_fields() -> Result<()> {
     }];
 
     let query = ComposeQuery {
-        instructions: addresses_vec,
+        instructions: instructions_vec,
         sat_per_vbyte: 2,
         envelope: Some(600),
-        chained_script_data: Some(b"Hello, World!".to_vec()),
+        chained_script_data: Some(chained_token_data_bytes),
     };
 
     let response: TestResponse = server.post("/compose").json(&query).await;
@@ -306,7 +307,8 @@ async fn test_compose_all_fields() -> Result<()> {
         .tap_script
         .clone();
 
-    let derived_chained_tap_script = b"Hello, World!".to_vec();
+    let mut derived_chained_tap_script = Vec::new();
+    ciborium::into_writer(&b"Hello, World!", &mut derived_chained_tap_script).unwrap();
 
     let derived_chained_tap_script = Builder::new()
         .push_slice(internal_key.serialize())
@@ -406,18 +408,6 @@ async fn test_compose_missing_params() -> Result<()> {
     )?;
     let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
     let (internal_key, _parity) = keypair.x_only_public_key();
-
-    let token_data = WitnessData::Attach {
-        output_index: 0,
-        token_balance: TokenBalance {
-            value: 1000,
-            name: "Test Token".to_string(),
-        },
-    };
-
-    let _token_data_base64 = test_utils::base64_serialize(&token_data);
-
-    let _chained_script_data_base64 = test_utils::base64_serialize(&b"Hello, World!");
 
     let server = TestServer::new(app)?;
 
@@ -840,7 +830,7 @@ async fn test_compose_insufficient_funds() -> Result<()> {
 
     let server = TestServer::new(app)?;
 
-    let addresses_vec = vec![InstructionQuery {
+    let instructions_vec = vec![InstructionQuery {
         address: seller_address.to_string(),
         x_only_public_key: internal_key.to_string(),
         funding_utxo_ids: "01587d31f4144ab80432d8a48641ff6a0db29dc397ced675823791368e6eac7b:0"
@@ -848,7 +838,7 @@ async fn test_compose_insufficient_funds() -> Result<()> {
         script_data: token_data_bytes,
     }];
     let query = ComposeQuery {
-        instructions: addresses_vec,
+        instructions: instructions_vec,
         sat_per_vbyte: 4,
         envelope: None,
         chained_script_data: None,

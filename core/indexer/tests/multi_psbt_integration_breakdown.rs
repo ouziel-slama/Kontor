@@ -242,7 +242,7 @@ async fn test_portal_coordinated_compose_flow() -> Result<()> {
     let script_data = b"compose-mpsbt-flow-data-0123456789".to_vec();
     let script_datas =
         indexer::api::compose::split_even_chunks(&script_data, all_participants.len())?;
-    let addr_inputs: Vec<InstructionInputs> = all_participants
+    let instruction_inputs: Vec<InstructionInputs> = all_participants
         .iter()
         .enumerate()
         .map(|(i, n)| InstructionInputs {
@@ -254,7 +254,7 @@ async fn test_portal_coordinated_compose_flow() -> Result<()> {
         .collect();
 
     let compose_inputs = ComposeInputs::builder()
-        .instructions(addr_inputs)
+        .instructions(instruction_inputs)
         .fee_rate(FeeRate::from_sat_per_vb(sat_per_vb).unwrap())
         .envelope(envelope_sat)
         .build();

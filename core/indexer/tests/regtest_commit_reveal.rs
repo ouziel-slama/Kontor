@@ -1,49 +1,40 @@
 use anyhow::Result;
 use bitcoin::{
-    FeeRate, Network, TapSighashType,
+    FeeRate, TapSighashType,
     consensus::encode::serialize as serialize_tx,
-    key::{Keypair, Secp256k1},
+    key::Secp256k1,
     taproot::{LeafVersion, TaprootBuilder},
 };
-use clap::Parser;
 use indexer::{
     api::compose::{ComposeInputs, InstructionInputs, compose},
-    bitcoin_client::Client,
-    config::{Config, TestConfig},
-    regtest_utils, test_utils,
+    reg_tester::RegTester,
+    test_utils,
     witness_data::TokenBalance,
 };
 
 #[tokio::test]
-#[ignore]
 async fn test_taproot_transaction_regtest() -> Result<()> {
     // Initialize regtest client
-    let mut config = Config::try_parse()?;
-    config.bitcoin_rpc_url = "http://127.0.0.1:18443".to_string();
-
-    let client = Client::new_from_config(&config)?;
-    let test_config = TestConfig::try_parse()?;
-    let network = Network::Regtest;
-
-    // Set up wallet if needed - this will ensure we have funds
-    regtest_utils::ensure_wallet_setup(&client).await?;
+    let (
+        _bitcoin_data_dir,
+        bitcoin_child,
+        bitcoin_client,
+        _kontor_data_dir,
+        kontor_child,
+        kontor_client,
+        identity,
+    ) = RegTester::setup().await?;
 
     let secp = Secp256k1::new();
 
     // Generate taproot address
-    let (seller_address, seller_child_key, _) = test_utils::generate_taproot_address_from_mnemonic(
-        &secp,
-        network,
-        &test_config.taproot_key_path,
-        0,
-    )?;
+    let seller_address = identity.address;
 
-    let keypair = Keypair::from_secret_key(&secp, &seller_child_key.private_key);
+    let keypair = identity.keypair;
     let (internal_key, _parity) = keypair.x_only_public_key();
 
     // Get a UTXO from the regtest wallet - use a smaller amount (5000 sats)
-    let (out_point, utxo_for_output) =
-        regtest_utils::make_regtest_utxo(&client, &seller_address).await?;
+    let (out_point, utxo_for_output) = identity.next_funding_utxo;
 
     // Create token balance data
     let token_value = 500;
@@ -104,7 +95,7 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
     let attach_tx_hex = hex::encode(serialize_tx(&attach_tx));
     let spend_tx_hex = hex::encode(serialize_tx(&spend_tx));
 
-    let result = client
+    let result = bitcoin_client
         .test_mempool_accept(&[attach_tx_hex, spend_tx_hex])
         .await?;
 
@@ -143,6 +134,8 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
             .serialize(),
         "Control block in witness doesn't match expected control block"
     );
+
+    RegTester::teardown(bitcoin_client, bitcoin_child, kontor_client, kontor_child).await?;
 
     Ok(())
 }

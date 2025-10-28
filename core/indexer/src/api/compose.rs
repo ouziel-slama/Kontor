@@ -19,7 +19,7 @@ use bon::Builder;
 use bitcoin::Txid;
 use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
 use serde::{Deserialize, Serialize};
-use serde_with::{base64::Base64, serde_as};
+use serde_with::serde_as;
 use std::{collections::HashSet, str::FromStr};
 
 use crate::bitcoin_client::Client;
@@ -38,7 +38,6 @@ pub struct InstructionQuery {
     pub address: String,
     pub x_only_public_key: String,
     pub funding_utxo_ids: String,
-    #[serde_as(as = "Base64")]
     pub script_data: Vec<u8>,
 }
 
@@ -48,8 +47,6 @@ pub struct ComposeQuery {
     pub instructions: Vec<InstructionQuery>,
     pub sat_per_vbyte: u64,
     pub envelope: Option<u64>,
-    // optional base64 string → Option<Vec<u8>>
-    #[serde_as(as = "Option<Base64>")]
     pub chained_script_data: Option<Vec<u8>>,
 }
 
@@ -227,7 +224,6 @@ pub struct RevealParticipantQuery {
     pub address: String,
     pub x_only_public_key: String,
     pub commit_vout: u32,
-    #[serde_as(as = "Base64")]
     pub commit_script_data: Vec<u8>,
     pub envelope: Option<u64>,
 }
@@ -238,10 +234,8 @@ pub struct RevealQuery {
     pub commit_txid: String,
     pub sat_per_vbyte: u64,
     pub participants: Vec<RevealParticipantQuery>,
-    #[serde_as(as = "Option<Base64>")]
     pub op_return_data: Option<Vec<u8>>,
     pub envelope: Option<u64>,
-    #[serde_as(as = "Option<Base64>")]
     pub chained_script_data: Option<Vec<u8>>,
 }
 
