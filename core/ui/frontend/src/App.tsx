@@ -165,6 +165,9 @@ interface TestMempoolAcceptResultWrapper {
 }
 
 // --- Helper Functions ---
+const isTaprootAddress = (addr: string): boolean =>
+  /^(bc1p|tb1p|bcrt1p)/i.test(addr);
+
 const convertKebabToSnake = (obj: Record<string, any>): Record<string, any> => {
   return Object.entries(obj).reduce((acc, [key, value]) => {
     const snakeKey = key.replace(/-([a-z])/g, (_, letter) => `_${letter}`);
@@ -248,6 +251,57 @@ async function broadcastTestMempoolAccept(
   return convertedData.result;
 }
 
+// Helper to encode witness stack
+function encodeWitness(witness: Buffer[]): Buffer {
+  const buffers: Buffer[] = [];
+
+  // Encode witness item count
+  buffers.push(Buffer.from([witness.length]));
+
+  // Encode each witness item with its length prefix
+  witness.forEach((item) => {
+    if (item.length < 253) {
+      buffers.push(Buffer.from([item.length]));
+    } else if (item.length <= 0xffff) {
+      const buf = Buffer.allocUnsafe(3);
+      buf.writeUInt8(253, 0);
+      buf.writeUInt16LE(item.length, 1);
+      buffers.push(buf);
+    } else {
+      throw new Error("Witness item too large");
+    }
+    buffers.push(item);
+  });
+
+  return Buffer.concat(buffers);
+}
+
+function finalizeScriptSpend(
+  signedPsbt: bitcoin.Psbt,
+  scriptLeafData: TapLeafScript
+): void {
+  const input = signedPsbt.data.inputs[0];
+
+  if (!input.tapScriptSig || input.tapScriptSig.length === 0) {
+    throw new Error("No taproot script signature found");
+  }
+
+  // Build witness stack for script-path: [signature, script, control_block]
+  const witness: Buffer[] = [
+    input.tapScriptSig[0].signature,
+    Buffer.from(scriptLeafData.script, "hex"),
+    Buffer.from(scriptLeafData.controlBlock, "hex"),
+  ];
+
+  // OVERRIDE the finalScriptWitness
+  signedPsbt.data.inputs[0].finalScriptWitness = encodeWitness(witness);
+
+  // Clear the partial signatures to prevent conflicts
+  delete signedPsbt.data.inputs[0].tapScriptSig;
+  delete signedPsbt.data.inputs[0].tapKeySig;
+  delete signedPsbt.data.inputs[0].tapLeafScript;
+}
+
 async function signPsbtWithXverse(
   psbtHex: string,
   sourceAddress: string,
@@ -289,46 +343,9 @@ async function signPsbtWithXverse(
 
   const signedPsbt = bitcoin.Psbt.fromBase64(res.result.psbt);
 
-  console.log("Input 0 data:", signedPsbt.data.inputs[0]);
-  console.log("tapScriptSig:", signedPsbt.data.inputs[0].tapScriptSig);
-  console.log("tapKeySig:", signedPsbt.data.inputs[0].tapKeySig);
-  console.log(
-    "Pre-existing finalScriptWitness length:",
-    signedPsbt.data.inputs[0].finalScriptWitness?.length
-  );
-
   // FORCE script-path spend by overriding the pre-finalized witness
   if (scriptLeafData) {
-    const input = signedPsbt.data.inputs[0];
-
-    if (!input.tapScriptSig || input.tapScriptSig.length === 0) {
-      throw new Error("No taproot script signature found");
-    }
-
-    // Build witness stack for script-path: [signature, script, control_block]
-    const witness: Buffer[] = [
-      input.tapScriptSig[0].signature,
-      Buffer.from(scriptLeafData.script, "hex"),
-      Buffer.from(scriptLeafData.controlBlock, "hex"),
-    ];
-
-    console.log("Overriding with script-path witness:");
-    console.log("  Signature:", witness[0].toString("hex"));
-    console.log("  Script:", witness[1].toString("hex"));
-    console.log("  Control Block:", witness[2].toString("hex"));
-
-    // OVERRIDE the finalScriptWitness
-    signedPsbt.data.inputs[0].finalScriptWitness = encodeWitness(witness);
-
-    // Clear the partial signatures to prevent conflicts
-    delete signedPsbt.data.inputs[0].tapScriptSig;
-    delete signedPsbt.data.inputs[0].tapKeySig;
-    delete signedPsbt.data.inputs[0].tapLeafScript;
-
-    console.log(
-      "New finalScriptWitness length:",
-      signedPsbt.data.inputs[0].finalScriptWitness.length
-    );
+    finalizeScriptSpend(signedPsbt, scriptLeafData);
   } else {
     signedPsbt.finalizeAllInputs();
   }
@@ -342,31 +359,6 @@ async function signPsbtWithXverse(
   );
 
   return tx.toHex();
-}
-
-// Helper to encode witness stack
-function encodeWitness(witness: Buffer[]): Buffer {
-  const buffers: Buffer[] = [];
-
-  // Encode witness item count
-  buffers.push(Buffer.from([witness.length]));
-
-  // Encode each witness item with its length prefix
-  witness.forEach((item) => {
-    if (item.length < 253) {
-      buffers.push(Buffer.from([item.length]));
-    } else if (item.length <= 0xffff) {
-      const buf = Buffer.allocUnsafe(3);
-      buf.writeUInt8(253, 0);
-      buf.writeUInt16LE(item.length, 1);
-      buffers.push(buf);
-    } else {
-      throw new Error("Witness item too large");
-    }
-    buffers.push(item);
-  });
-
-  return Buffer.concat(buffers);
 }
 
 async function signPsbtWithLeather(
@@ -410,7 +402,12 @@ async function signPsbtWithLeather(
 
   const signedPsbt = bitcoin.Psbt.fromHex((res.result as any).hex);
 
-  signedPsbt.finalizeAllInputs();
+  // FORCE script-path spend by overriding the pre-finalized witness
+  if (scriptLeafData) {
+    finalizeScriptSpend(signedPsbt, scriptLeafData);
+  } else {
+    signedPsbt.finalizeAllInputs();
+  }
   const tx = signedPsbt.extractTransaction();
   return tx.toHex();
 }
@@ -452,37 +449,55 @@ async function signPsbtWithOKX(
 
     const signedPsbt = bitcoin.Psbt.fromHex(signedPsbtHex);
 
-    // Manually create witness for all inputs
-    for (let i = 0; i < signedPsbt.inputCount; i++) {
-      const input = signedPsbt.data.inputs[i];
+    // NOTE: the signing for script-spends is BROKEN with OKX
+    // we can still sign and parse the data but the signature is invalid
+    const input = signedPsbt.data.inputs[0];
 
-      if (input.tapKeySig && !scriptLeafData) {
-        // Key spend: create witness with just the signature
-        signedPsbt.updateInput(i, {
-          finalScriptWitness: Buffer.concat([
-            Buffer.from([input.tapKeySig.length]),
-            input.tapKeySig,
-          ]),
-        });
-      } else if (input.tapScriptSig && scriptLeafData) {
-        // Script spend: create witness with signature + script + control block
-        const scriptSig = input.tapScriptSig[0];
-        signedPsbt.updateInput(i, {
-          finalScriptWitness: Buffer.concat([
-            Buffer.from([scriptSig.signature.length]),
-            scriptSig.signature,
-            Buffer.from([Buffer.from(scriptLeafData.script, "hex").length]),
-            Buffer.from(scriptLeafData.script, "hex"),
-            Buffer.from([
-              Buffer.from(scriptLeafData.controlBlock, "hex").length,
-            ]),
-            Buffer.from(scriptLeafData.controlBlock, "hex"),
-          ]),
-        });
+    if (scriptLeafData) {
+      // OKX doesn't populate tapScriptSig, so we need to extract the signature
+      // from the pre-finalized witness or tapKeySig
+      let signature: Buffer;
+
+      if (input.tapScriptSig && input.tapScriptSig.length > 0) {
+        // Ideal case: tapScriptSig is populated
+        signature = input.tapScriptSig[0].signature;
+      } else if (input.tapKeySig) {
+        // OKX signed with key-path, use that signature for script-path
+        signature = input.tapKeySig;
+      } else if (input.finalScriptWitness) {
+        // Extract signature from the finalized witness
+        // Format: [witness_count, sig_length, signature_bytes...]
+        const witnessBuffer = input.finalScriptWitness;
+        // Skip first byte (witness count) and second byte (signature length)
+        signature = witnessBuffer.slice(2, 66); // 64-byte Schnorr signature
+      } else {
+        throw new Error("No signature found in OKX signed PSBT");
       }
+
+      // Build witness stack for script-path: [signature, script, control_block]
+      const witness: Buffer[] = [
+        signature,
+        Buffer.from(scriptLeafData.script, "hex"),
+        Buffer.from(scriptLeafData.controlBlock, "hex"),
+      ];
+
+      // Override with script-path witness
+      signedPsbt.data.inputs[0].finalScriptWitness = encodeWitness(witness);
+
+      // Clear partial signatures
+      delete signedPsbt.data.inputs[0].tapScriptSig;
+      delete signedPsbt.data.inputs[0].tapKeySig;
+      delete signedPsbt.data.inputs[0].tapLeafScript;
+    } else if (!input.finalScriptWitness) {
+      // Key-path spend without pre-finalization
+      signedPsbt.finalizeAllInputs();
     }
+    // else: already finalized by OKX for key-path, do nothing
 
     const tx = signedPsbt.extractTransaction();
+
+    // NOTE: OKX does not return a valid script-spend sig (tapScriptSig)
+    // therefore the reveal transaction will fail on broadcat
     return tx.toHex();
   } catch (err) {
     throw new Error(`OKX signing failed: ${err}`);
@@ -531,8 +546,12 @@ async function signPsbtWithPhantom(
     const signedPsbtHex = Buffer.from(signedPsbtBytes).toString("hex");
 
     const signedPsbt = bitcoin.Psbt.fromHex(signedPsbtHex);
+    if (scriptLeafData) {
+      finalizeScriptSpend(signedPsbt, scriptLeafData);
+    } else {
+      signedPsbt.finalizeAllInputs();
+    }
 
-    signedPsbt.finalizeAllInputs();
     const tx = signedPsbt.extractTransaction();
     return tx.toHex();
   } catch (err) {
@@ -753,7 +772,8 @@ const Signer: React.FC<{
   signedRevealTx: string;
   onSign: () => void;
   onBroadcast: () => void;
-}> = ({ signedCommitTx, signedRevealTx, onSign, onBroadcast }) => {
+  provider: string;
+}> = ({ signedCommitTx, signedRevealTx, onSign, onBroadcast, provider }) => {
   // Only attempt to decode after both transactions are signed
   let decodedLines: string[] = [];
   try {
@@ -795,6 +815,13 @@ const Signer: React.FC<{
           )}
           <button onClick={onBroadcast}>Test Broadcast Transactions</button>
           <p>Note: Transaction will not be broadcasted to the network.</p>
+          {provider === PROVIDER_ID_OKX && (
+            <p className="error">
+              Heads up: OKX currently signs only key-path for this flow; the
+              reveal transaction will fail to broadcast due to improper
+              script-path signing.
+            </p>
+          )}
         </>
       )}
     </div>
@@ -892,6 +919,12 @@ function WalletComponent() {
                 address: accounts[0],
                 xOnlyPublicKey: publicKey,
               };
+              if (!isTaprootAddress(paymentAddress.address)) {
+                setError(
+                  `Selected address ${paymentAddress.address} is not Taproot. Please switch to a bc1p address.`
+                );
+                return;
+              }
               setAddress(paymentAddress);
               handleFetchUtxos(paymentAddress.address);
             }
@@ -906,6 +939,12 @@ function WalletComponent() {
               address,
               xOnlyPublicKey: publicKey,
             };
+            if (!isTaprootAddress(paymentAddress.address)) {
+              setError(
+                `Selected address ${paymentAddress.address} is not Taproot. Please switch to a bc1p address.`
+              );
+              return;
+            }
             setAddress(paymentAddress);
             handleFetchUtxos(paymentAddress.address);
           }
@@ -1133,6 +1172,7 @@ function WalletComponent() {
           signedRevealTx={signedRevealTx}
           onSign={handleSignTransaction}
           onBroadcast={handleBroadcastTransaction}
+          provider={provider}
         />
       )}
 
