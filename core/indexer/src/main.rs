@@ -58,6 +58,7 @@ async fn main() -> Result<()> {
         )
         .await?,
     );
+    init_rx.await?;
 
     let result_subscriber = ResultSubscriber::default();
     handles.push(result_subscriber.run(cancel_token.clone(), event_rx));
@@ -73,12 +74,9 @@ async fn main() -> Result<()> {
         .await?,
     );
 
-    init_rx.await?;
-
     for handle in handles {
         let _ = handle.await;
     }
-
     info!("Exited");
     Ok(())
 }

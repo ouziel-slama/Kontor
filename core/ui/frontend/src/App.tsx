@@ -164,6 +164,40 @@ interface TestMempoolAcceptResultWrapper {
   result: TestMempoolAcceptResult[];
 }
 
+interface OpMetadata {
+  input_index: number;
+  signer:
+    | { XOnlyPubKey: string }
+    | { MultiSig: { pubkeys: string[]; threshold: number } };
+}
+
+interface ContractAddress {
+  name: string;
+  height: number;
+  tx_index: number;
+}
+
+type Op =
+  | {
+      Publish: {
+        metadata: OpMetadata;
+        name: string;
+        bytes: number[];
+      };
+    }
+  | {
+      Call: {
+        metadata: OpMetadata;
+        contract: ContractAddress;
+        expr: string;
+      };
+    };
+
+interface OpWithResult {
+  op: Op;
+  result: any | null;
+}
+
 // --- Helper Functions ---
 const isTaprootAddress = (addr: string): boolean =>
   /^(bc1p|tb1p|bcrt1p)/i.test(addr);
@@ -249,6 +283,22 @@ async function broadcastTestMempoolAccept(
     result: rawData.result.map((item: any) => convertKebabToSnake(item)),
   };
   return convertedData.result;
+}
+
+async function fetchOps(txHex: string): Promise<OpWithResult[]> {
+  const response = await fetch(`${kontorUrl}/api/transactions/ops`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hex: txHex }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData?.error || "Failed to fetch ops");
+  }
+
+  const data = await response.json();
+  return data.result || [];
 }
 
 // Helper to encode witness stack
@@ -650,35 +700,32 @@ const AddressInfo: React.FC<{
   </div>
 );
 
-// --- Script decoding helpers ---
-const getOpcodeName = (op: number): string => {
-  const entry = Object.entries(bitcoin.opcodes).find(
-    ([, value]) => value === op
-  );
-  return entry ? entry[0] : `OP_${op}`;
-};
-
-const isPrintableAscii = (buf: Uint8Array): boolean =>
-  Array.from(buf).every((b) => b >= 32 && b <= 126);
-
-const toAsciiOrHex = (buf: Uint8Array): string =>
-  isPrintableAscii(buf)
-    ? `"${Buffer.from(buf).toString("utf8")}` + `"`
-    : Buffer.from(buf).toString("hex");
-
-const decompileTapScriptToLines = (scriptBuffer: Buffer): string[] => {
-  try {
-    const chunks = bitcoin.script.decompile(scriptBuffer);
-    if (!chunks) return ["<unable to decompile script>"];
-    return chunks.map((chunk) => {
-      if (Buffer.isBuffer(chunk)) {
-        return `PUSH(${chunk.length}): ${toAsciiOrHex(chunk)}`;
-      }
-      return getOpcodeName(chunk as number);
-    });
-  } catch (_) {
-    return ["<error decoding script>"];
+const OpsResultDisplay: React.FC<{ ops: OpWithResult[] | null }> = ({
+  ops,
+}) => {
+  if (!ops) {
+    return null;
   }
+
+  const content =
+    ops.length === 0
+      ? "No Kontor operations found in the transaction."
+      : JSON.stringify(ops, null, 2);
+
+  return (
+    <div className="transaction-details">
+      <h4>Ops from Reveal Transaction:</h4>
+      <pre
+        style={{
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+          textAlign: "left",
+        }}
+      >
+        {content}
+      </pre>
+    </div>
+  );
 };
 
 const TransactionDetails: React.FC<{ tx: Transaction; title: string }> = ({
@@ -774,21 +821,24 @@ const Signer: React.FC<{
   onBroadcast: () => void;
   provider: string;
 }> = ({ signedCommitTx, signedRevealTx, onSign, onBroadcast, provider }) => {
-  // Only attempt to decode after both transactions are signed
-  let decodedLines: string[] = [];
-  try {
-    if (signedCommitTx && signedRevealTx) {
-      const revealTx = bitcoin.Transaction.fromHex(signedRevealTx);
-      const witness = revealTx.ins?.[0]?.witness ?? [];
-      console.log("Witness length:", witness.length);
-      if (witness.length >= 2) {
-        const scriptBuffer = witness[1];
-        decodedLines = decompileTapScriptToLines(scriptBuffer as Buffer);
+  const [opsResult, setOpsResult] = useState<OpWithResult[] | null>(null);
+
+  useEffect(() => {
+    const getOps = async () => {
+      if (signedRevealTx) {
+        try {
+          const ops = await fetchOps(signedRevealTx);
+          setOpsResult(ops);
+        } catch (e) {
+          console.error("Fetch ops error:", e);
+          setOpsResult([]);
+        }
+      } else {
+        setOpsResult(null);
       }
-    }
-  } catch (e) {
-    console.error("Signer decode error:", e);
-  }
+    };
+    getOps();
+  }, [signedRevealTx]);
 
   return (
     <div className="sign-transaction">
@@ -803,16 +853,7 @@ const Signer: React.FC<{
             <h3>Signed Reveal Transaction:</h3>
             <p className="tx-hex">{signedRevealTx}</p>
           </div>
-          {decodedLines.length > 0 && (
-            <div className="transaction-details">
-              <h4>Decoded Tap Script (from witness[len-2]):</h4>
-              <ul>
-                {decodedLines.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <OpsResultDisplay ops={opsResult} />
           <button onClick={onBroadcast}>Test Broadcast Transactions</button>
           <p>Note: Transaction will not be broadcasted to the network.</p>
           {provider === PROVIDER_ID_OKX && (
