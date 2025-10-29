@@ -1,16 +1,14 @@
-use anyhow::Context;
 use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use wit_component::WitPrinter;
 
 use crate::{
     bitcoin_client::types::TestMempoolAcceptResult,
     database::{
         queries::{
-            get_contract_id_from_address, get_transaction_by_txid, get_transactions_paginated,
-            select_block_by_height_or_hash, select_block_latest,
+            get_transaction_by_txid, get_transactions_paginated, select_block_by_height_or_hash,
+            select_block_latest,
         },
         types::{BlockRow, TransactionListResponse, TransactionQuery, TransactionRow},
     },
@@ -229,16 +227,13 @@ pub struct WitResponse {
 
 pub async fn get_wit(Path(address): Path<String>, State(env): State<Env>) -> Result<WitResponse> {
     let contract_address = extract_contract_address(&address)?;
-    let contract_id =
-        get_contract_id_from_address(&*env.reader.connection().await?, &contract_address)
-            .await?
-            .ok_or(HttpError::NotFound("Contract not found".to_string()))?;
-    let bs = env.runtime.get_component_bytes(contract_id).await?;
-    let decoded = wit_component::decode(&bs).context("Failed to decode component")?;
-    let mut printer = WitPrinter::default();
-    printer
-        .print(decoded.resolve(), decoded.package(), &[])
-        .context("Failed to print component")?;
-    let wit = format!("{}", printer.output);
+    let contract_id = env
+        .runtime
+        .storage
+        .contract_id(&contract_address)
+        .await?
+        .ok_or(HttpError::NotFound("Contract not found".to_string()))?;
+
+    let wit = env.runtime.storage.component_wit(contract_id).await?;
     Ok(WitResponse { wit }.into())
 }

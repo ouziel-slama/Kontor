@@ -21,10 +21,7 @@ use tokio::sync::Mutex;
 pub use types::default_val_for_type;
 pub use wit::Contract;
 
-use std::{
-    io::{Cursor, Read},
-    sync::Arc,
-};
+use std::{io::Cursor, sync::Arc};
 
 use wit::kontor::*;
 
@@ -45,7 +42,6 @@ use wasmtime::{
         },
     },
 };
-use wit_component::ComponentEncoder;
 
 use crate::{
     database::{Reader, types::OpResultId},
@@ -277,27 +273,11 @@ impl Runtime {
         result
     }
 
-    pub async fn get_component_bytes(&self, contract_id: i64) -> Result<Vec<u8>> {
-        let compressed_bytes = self
-            .storage
-            .contract_bytes(contract_id)
-            .await?
-            .ok_or(anyhow!("Contract not found when trying to load component"))?;
-        let mut decompressor = brotli::Decompressor::new(&compressed_bytes[..], 4096);
-        let mut module_bytes = Vec::new();
-        decompressor.read_to_end(&mut module_bytes)?;
-
-        ComponentEncoder::default()
-            .module(&module_bytes)?
-            .validate(true)
-            .encode()
-    }
-
     pub async fn load_component(&self, contract_id: i64) -> Result<Component> {
         Ok(match self.component_cache.get(&contract_id) {
             Some(component) => component,
             None => {
-                let component_bytes = self.get_component_bytes(contract_id).await?;
+                let component_bytes = self.storage.component_bytes(contract_id).await?;
                 let component = Component::from_binary(&self.engine, &component_bytes)?;
                 self.component_cache.put(contract_id, component.clone());
                 component

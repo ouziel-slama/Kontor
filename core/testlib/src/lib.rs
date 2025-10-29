@@ -217,8 +217,14 @@ impl RuntimeImpl for RuntimeLocal {
         })
     }
 
-    async fn wit(&self, _contract_address: &ContractAddress) -> Result<String> {
-        todo!()
+    async fn wit(&self, contract_address: &ContractAddress) -> Result<String> {
+        let contract_id = self
+            .runtime
+            .storage
+            .contract_id(contract_address)
+            .await?
+            .ok_or(anyhow!("Contract not found"))?;
+        self.runtime.storage.component_wit(contract_id).await
     }
 
     async fn execute(
