@@ -283,6 +283,7 @@ impl RuntimeImpl for RuntimeRegtest {
                 },
             )
             .await
+            .map(|r| r.value)
             .context("Failed to publish contract")?;
         Ok(
             wasm_wave::from_str::<wasm_wave::value::Value>(&ContractAddress::wave_type(), &expr)?
@@ -314,6 +315,7 @@ impl RuntimeImpl for RuntimeRegtest {
                     },
                 )
                 .await
+                .map(|r| r.value)
         } else {
             self.reg_tester.view(contract_address, expr).await
         }

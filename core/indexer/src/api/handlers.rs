@@ -2,17 +2,19 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use bitcoin::consensus::encode;
 
 use crate::{
     bitcoin_client::types::TestMempoolAcceptResult,
+    block::filter_map,
     database::{
         queries::{
-            get_transaction_by_txid, get_transactions_paginated, select_block_by_height_or_hash,
-            select_block_latest,
+            get_op_result, get_transaction_by_txid, get_transactions_paginated,
+            select_block_by_height_or_hash, select_block_latest,
         },
-        types::{BlockRow, TransactionListResponse, TransactionQuery, TransactionRow},
+        types::{BlockRow, OpResultId, TransactionListResponse, TransactionQuery, TransactionRow},
     },
-    reactor::results::ResultEvent,
+    reactor::{results::ResultEvent, types::Op},
     runtime::ContractAddress,
 };
 
@@ -178,6 +180,43 @@ pub async fn get_transaction(
         Some(transaction) => Ok(transaction.into()),
         None => Err(HttpError::NotFound(format!("transaction: {}", txid)).into()),
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionHex {
+    pub hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpWithResult {
+    pub op: Op,
+    pub result: Option<ResultEvent>,
+}
+
+pub async fn post_transaction_ops(
+    State(env): State<Env>,
+    Json(TransactionHex { hex }): Json<TransactionHex>,
+) -> Result<Vec<OpWithResult>> {
+    let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
+        .map_err(|e| HttpError::BadRequest(e.to_string()))?;
+    let conn = env.reader.connection().await?;
+    let mut ops = Vec::new();
+    if let Some(tx) = filter_map((0, btx)) {
+        for op in tx.ops {
+            let result = get_op_result(
+                &conn,
+                &OpResultId::builder()
+                    .txid(tx.txid.to_string())
+                    .input_index(op.metadata().input_index)
+                    .op_index(0)
+                    .build(),
+            )
+            .await?
+            .map(Into::<ResultEvent>::into);
+            ops.push(OpWithResult { op, result });
+        }
+    }
+    Ok(ops.into())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
