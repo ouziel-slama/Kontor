@@ -4,16 +4,15 @@ use bitcoin::amount::Amount;
 use bitcoin::consensus::encode::serialize as serialize_tx;
 use bitcoin::key::{Keypair, Secp256k1};
 use bitcoin::script::Instruction;
-use bitcoin::secp256k1::All;
 use bitcoin::transaction::Version;
 use bitcoin::{OutPoint, Sequence, Transaction, TxIn, TxOut, XOnlyPublicKey, absolute::LockTime};
 use bitcoin::{Psbt, TapSighashType, Txid, Witness};
 use futures_util::future::join_all;
 use tracing::info;
 
-use std::path::Path;
 use std::str::FromStr;
 
+use crate::reg_tester::RegTester;
 use crate::test_utils;
 use bitcoin::Network;
 use bitcoin::address::KnownHrp;
@@ -28,6 +27,7 @@ use bitcoin::taproot::{TaprootBuilder, TaprootSpendInfo};
 pub struct NodeInfo {
     pub address: Address,
     pub internal_key: XOnlyPublicKey,
+    pub next_funding_utxo: (OutPoint, TxOut),
 }
 
 #[derive(Clone, Debug)]
@@ -40,103 +40,37 @@ pub struct PortalInfo {
     pub address: Address,
     pub internal_key: XOnlyPublicKey,
     pub keypair: Keypair,
+    pub next_funding_utxo: (OutPoint, TxOut),
 }
 
 // NODE AND PORTAL SETUP HELPERS
-pub fn get_node_addresses(
-    secp: &Secp256k1<All>,
-    network: Network,
-    taproot_key_path: &Path,
+pub async fn get_node_addresses(
+    reg_tester: &mut RegTester,
 ) -> Result<(Vec<NodeInfo>, Vec<NodeSecrets>)> {
     let mut infos = Vec::new();
     let mut secrets = Vec::new();
-    for i in 0..3 {
-        let (address, child_key, _compressed) = test_utils::generate_taproot_address_from_mnemonic(
-            secp,
-            network,
-            taproot_key_path,
-            i as u32,
-        )?;
-        let keypair = Keypair::from_secret_key(secp, &child_key.private_key);
-        let (internal_key, _parity) = keypair.x_only_public_key();
+    for _i in 0..3 {
+        let identity = reg_tester.identity().await?;
         infos.push(NodeInfo {
-            address,
-            internal_key,
+            address: identity.clone().address,
+            internal_key: identity.clone().x_only_public_key(),
+            next_funding_utxo: identity.next_funding_utxo,
         });
-        secrets.push(NodeSecrets { keypair });
+        secrets.push(NodeSecrets {
+            keypair: identity.keypair,
+        });
     }
     Ok((infos, secrets))
 }
 
-pub fn get_portal_info(
-    secp: &Secp256k1<All>,
-    network: Network,
-    taproot_key_path: &Path,
-) -> Result<PortalInfo> {
-    let (address, child_key, _compressed) =
-        test_utils::generate_taproot_address_from_mnemonic(secp, network, taproot_key_path, 4)?;
-    let keypair = Keypair::from_secret_key(secp, &child_key.private_key);
-    let (internal_key, _parity) = keypair.x_only_public_key();
+pub async fn get_portal_info(reg_tester: &mut RegTester) -> Result<PortalInfo> {
+    let identity = reg_tester.identity().await?;
     Ok(PortalInfo {
-        address,
-        internal_key,
-        keypair,
+        address: identity.clone().address,
+        internal_key: identity.clone().x_only_public_key(),
+        keypair: identity.clone().keypair,
+        next_funding_utxo: identity.next_funding_utxo,
     })
-}
-
-pub fn mock_fetch_utxos_for_addresses(signups: &[NodeInfo]) -> Vec<(OutPoint, TxOut)> {
-    signups
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let (txid_str, vout_u32, value_sat): (&str, u32, u64) = match i {
-                0 => (
-                    "dac8f123136bb59926e559e9da97eccc9f46726c3e7daaf2ab3502ef3a47fa46",
-                    0,
-                    500_000,
-                ),
-                1 => (
-                    "465de2192b246635df14ff81c3b6f37fb864f308ad271d4f91a29dcf476640ba",
-                    0,
-                    500_000,
-                ),
-                2 => (
-                    "49e327c2945f88908f67586de66af3bfc2567fe35ec7c5f1769f973f9fe8e47e",
-                    0,
-                    500_000,
-                ),
-                _ => unreachable!(),
-            };
-            (
-                OutPoint {
-                    txid: Txid::from_str(txid_str).unwrap(),
-                    vout: vout_u32,
-                },
-                TxOut {
-                    value: Amount::from_sat(value_sat),
-                    script_pubkey: s.address.script_pubkey(),
-                },
-            )
-        })
-        .collect()
-}
-
-pub fn mock_fetch_portal_utxo(portal: &PortalInfo) -> (OutPoint, TxOut) {
-    let (txid_str, vout_u32, value_sat): (&str, u32, u64) = (
-        "09c741dd08af774cb5d1c26bfdc28eaa4ae42306a6a07d7be01de194979ff8df",
-        0,
-        500_000,
-    );
-    (
-        OutPoint {
-            txid: Txid::from_str(txid_str).unwrap(),
-            vout: vout_u32,
-        },
-        TxOut {
-            value: Amount::from_sat(value_sat),
-            script_pubkey: portal.address.script_pubkey(),
-        },
-    )
 }
 
 // SIZE ESTIMATION HELPERS
@@ -400,7 +334,7 @@ pub fn add_single_node_input_and_output_to_commit_psbt(
     let (tap_script, tap_info, script_addr) = build_tap_script_and_script_address_helper(
         node_info.internal_key,
         b"node-data".to_vec(),
-        Network::Testnet4,
+        Network::Regtest,
     )?;
 
     // Estimate reveal fee the node will need to pay later (1-in script + 1-out to self)
@@ -477,28 +411,26 @@ pub fn add_single_node_input_and_output_to_commit_psbt(
     Ok((node_reveal_fee, node_input_index, node_script_vout))
 }
 
-pub fn add_portal_input_and_output_to_commit_psbt(
+pub async fn add_portal_input_and_output_to_commit_psbt(
     commit_psbt: &mut Psbt,
     min_sat_per_vb: u64,
     dust_limit_sat: u64,
-    secp: &Secp256k1<All>,
-    network: Network,
-    taproot_key_path: &Path,
+    reg_tester: &mut RegTester,
 ) -> Result<(PortalInfo, u64, usize)> {
     // Portal participation: append portal input/output (script reveal) and charge full-delta fee like nodes
     info!("portal appending to COMMIT");
-    let portal_info = get_portal_info(secp, network, taproot_key_path)?;
-    let (portal_outpoint, portal_prevout) = mock_fetch_portal_utxo(&portal_info);
+    let portal_info = get_portal_info(&mut reg_tester.clone()).await?;
     let base_before_portal_vb = tx_vbytes(&commit_psbt.unsigned_tx);
     let portal_input_index = commit_psbt.unsigned_tx.input.len();
     commit_psbt.unsigned_tx.input.push(TxIn {
-        previous_output: portal_outpoint,
+        previous_output: portal_info.next_funding_utxo.0,
         script_sig: bitcoin::script::ScriptBuf::new(),
         sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
         witness: Witness::new(),
     });
     commit_psbt.inputs.push(Default::default());
-    commit_psbt.inputs[portal_input_index].witness_utxo = Some(portal_prevout.clone());
+    commit_psbt.inputs[portal_input_index].witness_utxo =
+        Some(portal_info.next_funding_utxo.1.clone());
     commit_psbt.inputs[portal_input_index].tap_internal_key = Some(portal_info.internal_key);
 
     // Portal tapscript output to reveal its x-only pubkey
@@ -506,7 +438,7 @@ pub fn add_portal_input_and_output_to_commit_psbt(
         build_tap_script_and_script_address_helper(
             portal_info.internal_key,
             b"portal-data".to_vec(),
-            Network::Testnet4,
+            Network::Regtest,
         )?;
     let portal_reveal_vb = estimate_single_input_single_output_reveal_vbytes(
         &portal_tap_script,
@@ -535,7 +467,9 @@ pub fn add_portal_input_and_output_to_commit_psbt(
     let portal_full_delta_vb = after_with_change_portal_vb.saturating_sub(base_before_portal_vb);
     let portal_fee_full_delta = portal_full_delta_vb.saturating_mul(min_sat_per_vb);
 
-    let mut portal_change_value = portal_prevout
+    let mut portal_change_value = portal_info
+        .next_funding_utxo
+        .1
         .value
         .to_sat()
         .saturating_sub(portal_script_value + portal_fee_full_delta);
@@ -553,7 +487,8 @@ pub fn add_portal_input_and_output_to_commit_psbt(
         "portal commit_vb_with_dummy_sig={} vB; portal_delta={} vB; total_fee_paid={} sat (commit_fee={} sat, reveal_fee={} sat, buffer={} sat)",
         tx_vbytes(&temp_portal),
         portal_full_delta_vb,
-        portal_prevout.value.to_sat() - (portal_script_value + portal_change_value),
+        portal_info.next_funding_utxo.1.value.to_sat()
+            - (portal_script_value + portal_change_value),
         portal_fee_full_delta,
         portal_reveal_fee,
         portal_fee_full_delta - portal_full_delta_vb.saturating_mul(min_sat_per_vb)
@@ -660,7 +595,7 @@ pub fn node_sign_commit_and_reveal(
         let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
             node_info.internal_key,
             b"node-data".to_vec(),
-            Network::Testnet4,
+            Network::Regtest,
         )?;
         let prevouts_reveal: Vec<TxOut> = reveal_psbt_local
             .inputs
@@ -765,7 +700,7 @@ pub fn portal_signs_commit_and_reveal(
     let (tap_script, tap_info, _addr) = build_tap_script_and_script_address_helper(
         portal_info.internal_key,
         b"portal-data".to_vec(),
-        Network::Testnet4,
+        Network::Regtest,
     )?;
     let prevouts: Vec<TxOut> = reveal_psbt
         .inputs
