@@ -10,8 +10,12 @@ use indexer::test_utils;
 use indexer::witness_data::TokenBalance;
 
 use testlib::*;
+use tracing::info;
 
-async fn test_taproot_transaction(reg_tester: &mut RegTester) -> Result<()> {
+mod commit_reveal_random_keypair;
+
+async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result<()> {
+    info!("test_commit_reveal_chained_reveal");
     let secp = Secp256k1::new();
 
     let identity = reg_tester.identity().await?;
@@ -144,6 +148,7 @@ async fn test_taproot_transaction(reg_tester: &mut RegTester) -> Result<()> {
 async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(
     reg_tester: &mut RegTester,
 ) -> Result<()> {
+    info!("test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes");
     let (nodes, _secrets) =
         indexer::multi_psbt_test_utils::get_node_addresses(&mut reg_tester.clone()).await?;
 
@@ -234,7 +239,8 @@ async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(
 
 #[runtime(contracts_dir = "../../contracts", mode = "regtest")]
 async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes_regtest() -> Result<()> {
-    test_taproot_transaction(&mut reg_tester.clone()).await?;
+    test_commit_reveal_chained_reveal(&mut reg_tester.clone()).await?;
     test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(&mut reg_tester.clone()).await?;
+    commit_reveal_random_keypair::test_commit_reveal_ordinals(&mut reg_tester.clone()).await?;
     Ok(())
 }
