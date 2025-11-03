@@ -12,7 +12,17 @@ use indexer::witness_data::TokenBalance;
 use testlib::*;
 use tracing::info;
 
+use crate::commit_reveal::test_commit_reveal;
+use crate::commit_reveal_random_keypair::test_commit_reveal_ordinals;
+use crate::compose_commit_unit::{
+    test_compose_commit_psbt_inputs_have_metadata,
+    test_compose_commit_unique_vout_mapping_even_with_identical_chunks,
+};
+
+mod commit_reveal;
 mod commit_reveal_random_keypair;
+mod compose_api;
+mod compose_commit_unit;
 
 async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result<()> {
     info!("test_commit_reveal_chained_reveal");
@@ -239,8 +249,19 @@ async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(
 
 #[runtime(contracts_dir = "../../contracts", mode = "regtest")]
 async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes_regtest() -> Result<()> {
+    println!("test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes_regtest");
+    println!("test_commit_reveal_chained_reveal");
     test_commit_reveal_chained_reveal(&mut reg_tester.clone()).await?;
+    println!("test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes");
     test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(&mut reg_tester.clone()).await?;
-    commit_reveal_random_keypair::test_commit_reveal_ordinals(&mut reg_tester.clone()).await?;
+    println!("test_commit_reveal_ordinals");
+    test_commit_reveal_ordinals(&mut reg_tester.clone()).await?;
+    println!("test_commit_reveal");
+    test_commit_reveal(&mut reg_tester.clone()).await?;
+    println!("test_compose_commit_unique_vout_mapping_even_with_identical_chunks");
+    test_compose_commit_unique_vout_mapping_even_with_identical_chunks(&mut reg_tester.clone())
+        .await?;
+    println!("test_compose_commit_psbt_inputs_have_metadata");
+    test_compose_commit_psbt_inputs_have_metadata(&mut reg_tester.clone()).await?;
     Ok(())
 }

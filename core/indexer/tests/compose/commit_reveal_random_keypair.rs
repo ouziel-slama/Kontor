@@ -70,11 +70,6 @@ pub async fn test_commit_reveal_ordinals(reg_tester: &mut RegTester) -> Result<(
 
     let commit_address = Address::p2tr_tweaked(output_key, KnownHrp::Regtest);
 
-    println!(
-        "seller_utxo_for_output.value: {}",
-        seller_utxo_for_output.value
-    );
-
     let mut commit_tx = Transaction {
         version: Version(2),
         lock_time: LockTime::ZERO,

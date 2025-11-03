@@ -334,6 +334,89 @@ impl RegTesterInner {
         })
     }
 
+    pub async fn fund_address(
+        &mut self,
+        address: &Address,
+        count: u32,
+    ) -> Result<Vec<(OutPoint, TxOut)>> {
+        if count == 0 {
+            return Ok(vec![]);
+        }
+
+        let total_output_value = Amount::from_sat(4_999_999_000);
+        let value_per_output = total_output_value.to_sat() / count as u64;
+        let remainder = total_output_value.to_sat() % count as u64;
+
+        let mut outputs = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let mut value = value_per_output;
+            if i == 0 {
+                value += remainder;
+            }
+            outputs.push(TxOut {
+                value: Amount::from_sat(value),
+                script_pubkey: address.script_pubkey(),
+            });
+        }
+
+        let mut tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: self.identity.next_funding_utxo.0,
+                ..Default::default()
+            }],
+            output: outputs,
+        };
+        let secp = Secp256k1::new();
+        test_utils::sign_key_spend(
+            &secp,
+            &mut tx,
+            std::slice::from_ref(&self.identity.next_funding_utxo.1),
+            &self.identity.keypair,
+            0,
+            None,
+        )?;
+
+        let raw_tx = hex::encode(serialize_tx(&tx));
+        self.mempool_accept(std::slice::from_ref(&raw_tx)).await?;
+        let txid_str = self.bitcoin_client.send_raw_transaction(&raw_tx).await?;
+        let txid = Txid::from_str(&txid_str)?;
+        self.bitcoin_client
+            .generate_to_address(1, &self.identity.address.to_string())
+            .await?;
+        self.height += 1;
+        let block_hash = self
+            .bitcoin_client
+            .get_block_hash((self.height - 100) as u64)
+            .await?;
+        let block = self.bitcoin_client.get_block(&block_hash).await?;
+        self.identity.next_funding_utxo = (
+            OutPoint {
+                txid: block.txdata[0].compute_txid(),
+                vout: 0,
+            },
+            block.txdata[0].output[0].clone(),
+        );
+
+        let next_funding_utxos = tx
+            .output
+            .into_iter()
+            .enumerate()
+            .map(|(i, tx_out)| {
+                (
+                    OutPoint {
+                        txid,
+                        vout: i as u32,
+                    },
+                    tx_out,
+                )
+            })
+            .collect();
+
+        Ok(next_funding_utxos)
+    }
+
     pub async fn view(&self, contract_address: &ContractAddress, expr: &str) -> Result<String> {
         let result = self.kontor_client.view(contract_address, expr).await?;
         match result {
@@ -451,6 +534,14 @@ impl RegTester {
 
     pub async fn identity(&mut self) -> Result<Identity> {
         self.inner.lock().await.identity().await
+    }
+
+    pub async fn fund_address(
+        &mut self,
+        address: &Address,
+        count: u32,
+    ) -> Result<Vec<(OutPoint, TxOut)>> {
+        self.inner.lock().await.fund_address(address, count).await
     }
 
     pub async fn view(&self, contract_address: &ContractAddress, expr: &str) -> Result<String> {
