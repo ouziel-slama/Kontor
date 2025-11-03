@@ -75,13 +75,6 @@ cargo run
 
 ## Test
 
-To run tests, **in addition to the environment variables above**, your `.envrc` should also include the following:
-```bash
-export SEGWIT_BUYER_KEY_PATH="$DATA_DIR/segwit_buyer.key"
-export SEGWIT_SELLER_KEY_PATH="$DATA_DIR/segwit_seller.key"
-export TAPROOT_KEY_PATH="$DATA_DIR/taproot.key"
-```
-`../` for when files and directories are in the root workspace folder instead of the `kontor` crate folder.
 
 ```bash
 cargo test

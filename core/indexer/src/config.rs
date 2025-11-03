@@ -126,27 +126,6 @@ pub struct TestConfig {
         help = "Password for Bitcoin RPC authentication"
     )]
     pub bitcoin_rpc_password: String,
-
-    #[clap(
-        long,
-        env = "SEGWIT_SELLER_KEY_PATH",
-        help = "Full path to the seller's key file"
-    )]
-    pub seller_key_path: PathBuf,
-
-    #[clap(
-        long,
-        env = "SEGWIT_BUYER_KEY_PATH",
-        help = "Full path to the buyer's key file"
-    )]
-    pub buyer_key_path: PathBuf,
-
-    #[clap(
-        long,
-        env = "TAPROOT_KEY_PATH",
-        help = "Full path to the taproot key file"
-    )]
-    pub taproot_key_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,7 +2,10 @@ use anyhow::Result;
 use bitcoin::TxOut;
 use bitcoin::consensus::encode::serialize as serialize_tx;
 use bitcoin::key::Secp256k1;
-use indexer::{logging, multi_psbt_test_utils::{NodeInfo, get_node_addresses, get_portal_info, tx_vbytes}};
+use indexer::{
+    logging,
+    multi_psbt_test_utils::{NodeInfo, get_node_addresses, get_portal_info, tx_vbytes},
+};
 use rand::Rng;
 use testlib::RegTester;
 use tracing::info;

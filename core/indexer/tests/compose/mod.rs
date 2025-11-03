@@ -338,7 +338,7 @@ async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(
 }
 
 #[runtime(contracts_dir = "../../contracts", mode = "regtest")]
-async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes_regtest() -> Result<()> {
+async fn test_compose_regtest() -> Result<()> {
     test_commit_reveal_chained_reveal(&mut reg_tester.clone()).await?;
     test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(&mut reg_tester.clone()).await?;
 
@@ -424,7 +424,7 @@ async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes_regtest() -
 }
 
 #[runtime(contracts_dir = "../../contracts", mode = "regtest")]
-async fn test_multi_psbt_tx_validation(reg_tester: &mut RegTester) -> Result<()> {
+async fn test_compose_regtest_continued(reg_tester: &mut RegTester) -> Result<()> {
     info!("multi_psbt_tx_validation");
     test_pre_sign_node_refuses_on_underfunded_script_output(&mut reg_tester.clone()).await?;
     test_pre_sign_node_refuses_on_reveal_output_remap(&mut reg_tester.clone()).await?;
