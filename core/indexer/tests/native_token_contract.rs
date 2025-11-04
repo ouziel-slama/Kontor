@@ -4,7 +4,7 @@ import!(
     name = "token",
     height = 0,
     tx_index = 0,
-    path = "../contracts/token/wit",
+    path = "../contracts/native-token/wit",
 );
 
 async fn run_test_native_token_contract(runtime: &mut Runtime) -> Result<()> {
