@@ -1,71 +1,27 @@
 use anyhow::Result;
-use bip39::Mnemonic;
 use bitcoin::absolute::LockTime;
 use bitcoin::address::Address;
 use bitcoin::hashes::{Hash, sha256};
-use bitcoin::key::{PublicKey as BitcoinPublicKey, TapTweak, TweakedKeypair};
+use bitcoin::key::{TapTweak, TweakedKeypair};
 use bitcoin::opcodes::all::{OP_CHECKSIG, OP_EQUALVERIFY, OP_RETURN, OP_SHA256};
 use bitcoin::psbt::{Input, Output, PsbtSighashType};
 use bitcoin::script::{Builder, PushBytesBuf};
-use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::{All, Keypair};
+use bitcoin::secp256k1::{Message, SecretKey};
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootSpendInfo};
 use bitcoin::transaction::Version;
 use bitcoin::{
     Amount, EcdsaSighashType, OutPoint, Psbt, ScriptBuf, Sequence, TapLeafHash, TapSighashType,
-    Transaction, TxIn, TxOut, Txid, Witness, XOnlyPublicKey, secp256k1,
+    Transaction, TxIn, TxOut, Witness, XOnlyPublicKey, secp256k1,
 };
 use bitcoin::{
-    Network, PrivateKey,
-    bip32::{DerivationPath, Xpriv},
+    Network,
     key::{CompressedPublicKey, Secp256k1},
 };
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
-use std::str::FromStr;
 
 use crate::op_return::OpReturnData;
-
-pub fn generate_address_from_mnemonic_p2wpkh(
-    secp: &Secp256k1<bitcoin::secp256k1::All>,
-    path: &Path,
-) -> Result<(Address, Xpriv, CompressedPublicKey), anyhow::Error> {
-    // Read mnemonic from secret file
-    let mnemonic = fs::read_to_string(path)
-        .expect("Failed to read mnemonic file")
-        .trim()
-        .to_string();
-
-    // Parse the mnemonic
-    let mnemonic = Mnemonic::from_str(&mnemonic).expect("Invalid mnemonic phrase");
-
-    // Generate seed from mnemonic
-    let seed = mnemonic.to_seed("");
-
-    // Create master key
-    let master_key =
-        Xpriv::new_master(Network::Bitcoin, &seed).expect("Failed to create master key");
-
-    // Derive first child key using a proper derivation path
-    let path = DerivationPath::from_str("m/84'/0'/0'/0/0").expect("Invalid derivation path");
-    let child_key = master_key
-        .derive_priv(secp, &path)
-        .expect("Failed to derive child key");
-
-    // Get the private key
-    let private_key = PrivateKey::new(child_key.private_key, Network::Bitcoin);
-
-    // Get the public key
-    let public_key = BitcoinPublicKey::from_private_key(secp, &private_key);
-    let compressed_pubkey = bitcoin::CompressedPublicKey(public_key.inner);
-
-    // Create a P2WPKH address
-    let address = Address::p2wpkh(&compressed_pubkey, Network::Bitcoin);
-
-    Ok((address, child_key, compressed_pubkey))
-}
 
 pub enum PublicKey<'a> {
     Segwit(&'a CompressedPublicKey),
@@ -94,6 +50,8 @@ pub fn build_signed_taproot_attach_tx(
     keypair: &Keypair,
     seller_address: &Address,
     script_spendable_address: &Address,
+    seller_out_point: OutPoint,
+    seller_utxo_for_output: TxOut,
 ) -> Result<Transaction> {
     let mut op_return_script = ScriptBuf::new();
     op_return_script.push_opcode(OP_RETURN);
@@ -109,13 +67,8 @@ pub fn build_signed_taproot_attach_tx(
         version: Version(2),
         lock_time: LockTime::ZERO,
         input: vec![TxIn {
-            previous_output: OutPoint {
-                txid: Txid::from_str(
-                    "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8",
-                )?,
-                vout: 0,
-            }, // The output we are spending
-            script_sig: ScriptBuf::default(), // For a p2tr script_sig is empty
+            previous_output: seller_out_point, // The output we are spending
+            script_sig: ScriptBuf::default(),  // For a p2tr script_sig is empty
             sequence: Sequence::MAX,
             witness: Witness::default(), // Filled in after signing
         }],
@@ -129,7 +82,9 @@ pub fn build_signed_taproot_attach_tx(
                 script_pubkey: op_return_script,
             },
             TxOut {
-                value: Amount::from_sat(7700), // 9000 - 1000 - 300 fee
+                value: seller_utxo_for_output.value
+                    - Amount::from_sat(1000)
+                    - Amount::from_sat(300), // seller utxo amount - 1000 - 300 fee
                 script_pubkey: seller_address.script_pubkey(),
             },
         ],
@@ -139,7 +94,7 @@ pub fn build_signed_taproot_attach_tx(
     // Sign the transaction
     let sighash_type = TapSighashType::Default;
     let prevouts = vec![TxOut {
-        value: Amount::from_sat(9000), // existing utxo with 9000 sats
+        value: seller_utxo_for_output.value, // existing seller utxo
         script_pubkey: seller_address.script_pubkey(),
     }];
     let prevouts = Prevouts::All(&prevouts);
@@ -267,19 +222,19 @@ pub fn build_seller_psbt_and_sig_taproot(
     Ok((seller_psbt, signature, control_block))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_signed_buyer_psbt_taproot(
     secp: &Secp256k1<secp256k1::All>,
-    buyer_child_key: &Xpriv,
+    buyer_keypair: &Keypair,
+    buyer_internal_key: XOnlyPublicKey,
     buyer_address: &Address,
+    buyer_out_point: OutPoint,
+    buyer_utxo_for_output: TxOut,
     seller_address: &Address,
     attach_tx: &Transaction,
     script_spendable_address: &Address,
     seller_psbt: &Psbt,
 ) -> Result<Psbt> {
-    // Create buyer's keypair
-    let buyer_keypair = Keypair::from_secret_key(secp, &buyer_child_key.private_key);
-    let (buyer_internal_key, _) = buyer_keypair.x_only_public_key();
-
     // Create buyer's PSBT that combines with seller's PSBT
     let mut buyer_psbt = Psbt {
         unsigned_tx: Transaction {
@@ -298,12 +253,7 @@ pub fn build_signed_buyer_psbt_taproot(
                 },
                 // Buyer's UTXO input
                 TxIn {
-                    previous_output: OutPoint {
-                        txid: Txid::from_str(
-                            "ffb32fce7a4ce109ed2b4b02de910ea1a08b9017d88f1da7f49b3d2f79638cc3",
-                        )?,
-                        vout: 0,
-                    },
+                    previous_output: buyer_out_point,
                     script_sig: ScriptBuf::default(),
                     sequence: Sequence::MAX,
                     witness: Witness::default(),
@@ -341,7 +291,9 @@ pub fn build_signed_buyer_psbt_taproot(
                 },
                 // Buyer's change
                 TxOut {
-                    value: Amount::from_sat(8854), // 10000 - 600 - 546
+                    value: buyer_utxo_for_output.value
+                        - Amount::from_sat(600)
+                        - Amount::from_sat(546), // buyer utxo amount - 600 - 546
                     script_pubkey: buyer_address.script_pubkey(),
                 },
             ],
@@ -353,7 +305,7 @@ pub fn build_signed_buyer_psbt_taproot(
             Input {
                 witness_utxo: Some(TxOut {
                     script_pubkey: buyer_address.script_pubkey(),
-                    value: Amount::from_sat(10000),
+                    value: buyer_utxo_for_output.value,
                 }),
                 tap_internal_key: Some(buyer_internal_key),
                 ..Default::default()
@@ -383,7 +335,7 @@ pub fn build_signed_buyer_psbt_taproot(
                 script_pubkey: script_spendable_address.script_pubkey(),
             },
             TxOut {
-                value: Amount::from_sat(10000), // The value of the second input (buyer's UTXO)
+                value: buyer_utxo_for_output.value, // The value of the second input (buyer's UTXO)
                 script_pubkey: buyer_address.script_pubkey(),
             },
         ];
@@ -426,15 +378,11 @@ pub fn build_signed_attach_tx_segwit(
     secp: &Secp256k1<All>,
     seller_address: &Address,
     seller_compressed_pubkey: &CompressedPublicKey,
-    seller_child_key: &Xpriv,
+    secret_key: &SecretKey,
     witness_script: &ScriptBuf,
+    seller_out_point: OutPoint,
+    seller_utxo_for_output: &TxOut,
 ) -> Result<Transaction> {
-    // Use a known UTXO as input for create_tx
-    let input_txid =
-        Txid::from_str("ce18ea0cdbd14cb35eccdd0a1d551509d83516c7b3534c83b2a0adb552809caf")?;
-    let input_vout = 0;
-    let input_amount = Amount::from_sat(10000);
-
     let script_address: Address = Address::p2wsh(witness_script, Network::Bitcoin);
 
     let mut op_return_script = ScriptBuf::new();
@@ -451,10 +399,7 @@ pub fn build_signed_attach_tx_segwit(
         version: Version(2),
         lock_time: LockTime::ZERO,
         input: vec![TxIn {
-            previous_output: OutPoint {
-                txid: input_txid,
-                vout: input_vout,
-            },
+            previous_output: seller_out_point,
             ..Default::default()
         }],
         output: vec![
@@ -463,7 +408,9 @@ pub fn build_signed_attach_tx_segwit(
                 script_pubkey: script_address.script_pubkey(),
             },
             TxOut {
-                value: Amount::from_sat(8700),
+                value: seller_utxo_for_output.value
+                    - Amount::from_sat(1000)
+                    - Amount::from_sat(300), // seller utxo amount - 1000 - 300 fee
                 script_pubkey: seller_address.script_pubkey(),
             },
             TxOut {
@@ -479,13 +426,13 @@ pub fn build_signed_attach_tx_segwit(
         .p2wpkh_signature_hash(
             0,
             &seller_address.script_pubkey(),
-            input_amount,
+            seller_utxo_for_output.value,
             EcdsaSighashType::All,
         )
         .expect("Failed to compute sighash");
 
     let msg = secp256k1::Message::from(sighash);
-    let sig = secp.sign_ecdsa(&msg, &seller_child_key.private_key);
+    let sig = secp.sign_ecdsa(&msg, secret_key);
     let sig = bitcoin::ecdsa::Signature::sighash_all(sig);
 
     // Create witness data for P2WPKH
@@ -500,7 +447,7 @@ pub fn build_signed_attach_tx_segwit(
 pub fn build_seller_psbt_and_sig_segwit(
     secp: &Secp256k1<All>,
     seller_address: &Address,
-    seller_child_key: &Xpriv,
+    secret_key: &SecretKey,
     attach_tx: &Transaction,
     witness_script: &ScriptBuf,
 ) -> Result<(Psbt, bitcoin::ecdsa::Signature)> {
@@ -525,7 +472,7 @@ pub fn build_seller_psbt_and_sig_segwit(
             witness_script: Some(witness_script.clone()),
             witness_utxo: Some(TxOut {
                 script_pubkey: attach_tx.output[0].script_pubkey.clone(),
-                value: Amount::from_sat(1000), // Use the actual output amount from create_tx
+                value: Amount::from_sat(1000), // Use the actual output amount from attach_tx
             }),
             sighash_type: Some(PsbtSighashType::from(
                 EcdsaSighashType::SinglePlusAnyoneCanPay,
@@ -543,7 +490,7 @@ pub fn build_seller_psbt_and_sig_segwit(
     let mut sighash_cache = SighashCache::new(&seller_psbt.unsigned_tx);
     let (msg, sighash_type) = seller_psbt.sighash_ecdsa(0, &mut sighash_cache)?;
 
-    let sig = secp.sign_ecdsa(&msg, &seller_child_key.private_key);
+    let sig = secp.sign_ecdsa(&msg, secret_key);
     let sig = bitcoin::ecdsa::Signature {
         signature: sig,
         sighash_type,
@@ -552,14 +499,17 @@ pub fn build_seller_psbt_and_sig_segwit(
     Ok((seller_psbt, sig))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_signed_buyer_psbt_segwit(
     secp: &Secp256k1<All>,
     buyer_address: &Address,
-    buyer_child_key: &Xpriv,
+    buyer_secret_key: &SecretKey,
     attach_tx: &Transaction,
     buyer_compressed_pubkey: &CompressedPublicKey,
     seller_address: &Address,
     seller_psbt: &Psbt,
+    buyer_out_point: OutPoint,
+    buyer_utxo_for_output: TxOut,
 ) -> Result<Psbt> {
     let mut buyer_op_return_script = ScriptBuf::new();
     buyer_op_return_script.push_opcode(bitcoin::opcodes::all::OP_RETURN);
@@ -589,12 +539,7 @@ pub fn build_signed_buyer_psbt_segwit(
                 },
                 // Buyer's UTXO input
                 TxIn {
-                    previous_output: OutPoint {
-                        txid: Txid::from_str(
-                            "ca346e6fd745c138eee30f1dbe93ab269231cfb46e5ac945d028cbcc9dd2dea2",
-                        )?,
-                        vout: 0,
-                    },
+                    previous_output: buyer_out_point,
                     ..Default::default()
                 },
             ],
@@ -611,7 +556,9 @@ pub fn build_signed_buyer_psbt_segwit(
                 },
                 // Buyer's change
                 TxOut {
-                    value: Amount::from_sat(9100), // 10000 - 600 - 300 fee
+                    value: buyer_utxo_for_output.value
+                        - Amount::from_sat(600)
+                        - Amount::from_sat(546), // buyer utxo amount - 600 - 546
                     script_pubkey: buyer_address.script_pubkey(),
                 },
             ],
@@ -623,7 +570,7 @@ pub fn build_signed_buyer_psbt_segwit(
             Input {
                 witness_utxo: Some(TxOut {
                     script_pubkey: buyer_address.script_pubkey(),
-                    value: Amount::from_sat(10000),
+                    value: buyer_utxo_for_output.value,
                 }),
                 sighash_type: Some(PsbtSighashType::from(EcdsaSighashType::All)),
                 ..Default::default()
@@ -640,7 +587,7 @@ pub fn build_signed_buyer_psbt_segwit(
     let mut sighash_cache = SighashCache::new(&buyer_psbt.unsigned_tx);
     let (msg, sighash_type) = buyer_psbt.sighash_ecdsa(1, &mut sighash_cache)?;
 
-    let sig = secp.sign_ecdsa(&msg, &buyer_child_key.private_key);
+    let sig = secp.sign_ecdsa(&msg, buyer_secret_key);
     let sig = bitcoin::ecdsa::Signature {
         signature: sig,
         sighash_type,

@@ -3,13 +3,15 @@ use std::{path::Path, str::FromStr, sync::Arc};
 use crate::{
     api::{
         client::Client as KontorClient,
-        compose::InstructionQuery,
+        compose::{ComposeOutputs, ComposeQuery, InstructionQuery},
         handlers::{OpWithResult, TransactionHex},
         ws::Response,
         ws_client::WebSocketClient,
     },
     bitcoin_client::{
-        self, Client as BitcoinClient, client::RegtestRpc, types::TestMempoolAcceptResult,
+        self, Client as BitcoinClient,
+        client::RegtestRpc,
+        types::{GetMempoolInfoResult, TestMempoolAcceptResult},
     },
     config::{Config, RegtestConfig},
     database::types::OpResultId,
@@ -20,10 +22,11 @@ use crate::{
 };
 use anyhow::{Context, Result, anyhow, bail};
 use bitcoin::{
-    Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, CompressedPublicKey, Network, OutPoint, Transaction, TxIn, TxOut,
+    Txid, XOnlyPublicKey,
     absolute::LockTime,
     consensus::serialize as serialize_tx,
-    key::{Keypair, Secp256k1, rand},
+    key::{Keypair, PrivateKey, Secp256k1, rand},
     taproot::TaprootBuilder,
     transaction::Version,
 };
@@ -133,6 +136,24 @@ impl Identity {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct P2wpkhIdentity {
+    pub address: Address,
+    pub compressed_public_key: CompressedPublicKey,
+    pub private_key: PrivateKey,
+    pub keypair: Keypair,
+    pub next_funding_utxo: (OutPoint, TxOut),
+}
+
+fn generate_random_ecdsa_key(network: Network) -> (PrivateKey, CompressedPublicKey) {
+    let secp = Secp256k1::new();
+    let secret_key = bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng());
+    let private_key = PrivateKey::new(secret_key, network);
+    let public_key = bitcoin::key::PublicKey::from_private_key(&secp, &private_key);
+    let compressed_pubkey = CompressedPublicKey(public_key.inner);
+    (private_key, compressed_pubkey)
+}
+
 pub struct RegTesterInner {
     pub bitcoin_client: BitcoinClient,
     kontor_client: KontorClient,
@@ -177,7 +198,13 @@ impl RegTesterInner {
         &self,
         raw_txs: &[String],
     ) -> Result<Vec<TestMempoolAcceptResult>> {
-        let result = self.bitcoin_client.test_mempool_accept(raw_txs).await?;
+        self.bitcoin_client
+            .test_mempool_accept(raw_txs)
+            .await
+            .map_err(|e| anyhow!("Failed to accept transactions: {}", e))
+    }
+    pub async fn mempool_info(&self) -> Result<GetMempoolInfoResult> {
+        let result = self.bitcoin_client.get_mempool_info().await?;
         Ok(result)
     }
 
@@ -187,15 +214,17 @@ impl RegTesterInner {
         inst: Inst,
     ) -> Result<InstructionResult> {
         let script_data = serialize_cbor(&inst)?;
-        let mut compose_res = self
-            .kontor_client
-            .compose(InstructionQuery {
+
+        let query = ComposeQuery::builder()
+            .instructions(vec![InstructionQuery {
                 address: ident.address.to_string(),
                 x_only_public_key: ident.x_only_public_key().to_string(),
                 funding_utxo_ids: outpoint_to_utxo_id(&ident.next_funding_utxo.0),
                 script_data,
-            })
-            .await?;
+            }])
+            .sat_per_vbyte(2)
+            .build();
+        let mut compose_res = self.kontor_client.compose(query).await?;
         let secp = Secp256k1::new();
         test_utils::sign_key_spend(
             &secp,
@@ -286,7 +315,7 @@ impl RegTesterInner {
                 ..Default::default()
             }],
             output: vec![TxOut {
-                value: Amount::from_sat(4_999_999_000),
+                value: self.identity.next_funding_utxo.1.value - Amount::from_sat(1000),
                 script_pubkey: address.script_pubkey(),
             }],
         };
@@ -332,6 +361,108 @@ impl RegTesterInner {
             keypair,
             next_funding_utxo,
         })
+    }
+
+    pub async fn identity_p2wpkh(&mut self) -> Result<P2wpkhIdentity> {
+        let network = Network::Regtest;
+        let secp = Secp256k1::new();
+        let (private_key, compressed_public_key) = generate_random_ecdsa_key(network);
+        let address = Address::p2wpkh(&compressed_public_key, network);
+        let keypair = Keypair::new(&secp, &mut rand::thread_rng());
+        let mut funded = self.fund_address(&address, 1).await?;
+        let next_funding_utxo = funded
+            .pop()
+            .ok_or_else(|| anyhow!("failed to fund p2wpkh identity"))?;
+        Ok(P2wpkhIdentity {
+            address,
+            compressed_public_key,
+            private_key,
+            keypair,
+            next_funding_utxo,
+        })
+    }
+
+    pub async fn fund_address(
+        &mut self,
+        address: &Address,
+        count: u32,
+    ) -> Result<Vec<(OutPoint, TxOut)>> {
+        if count == 0 {
+            return Ok(vec![]);
+        }
+
+        let total_output_value = self.identity.next_funding_utxo.1.value - Amount::from_sat(1000);
+        let value_per_output = total_output_value.to_sat() / count as u64;
+        let remainder = total_output_value.to_sat() % count as u64;
+
+        let mut outputs = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let mut value = value_per_output;
+            if i == 0 {
+                value += remainder;
+            }
+            outputs.push(TxOut {
+                value: Amount::from_sat(value),
+                script_pubkey: address.script_pubkey(),
+            });
+        }
+
+        let mut tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: self.identity.next_funding_utxo.0,
+                ..Default::default()
+            }],
+            output: outputs,
+        };
+        let secp = Secp256k1::new();
+        test_utils::sign_key_spend(
+            &secp,
+            &mut tx,
+            std::slice::from_ref(&self.identity.next_funding_utxo.1),
+            &self.identity.keypair,
+            0,
+            None,
+        )?;
+
+        let raw_tx = hex::encode(serialize_tx(&tx));
+        self.mempool_accept(std::slice::from_ref(&raw_tx)).await?;
+        let txid_str = self.bitcoin_client.send_raw_transaction(&raw_tx).await?;
+        let txid = Txid::from_str(&txid_str)?;
+        self.bitcoin_client
+            .generate_to_address(1, &self.identity.address.to_string())
+            .await?;
+        self.height += 1;
+        let block_hash = self
+            .bitcoin_client
+            .get_block_hash((self.height - 100) as u64)
+            .await?;
+        let block = self.bitcoin_client.get_block(&block_hash).await?;
+        self.identity.next_funding_utxo = (
+            OutPoint {
+                txid: block.txdata[0].compute_txid(),
+                vout: 0,
+            },
+            block.txdata[0].output[0].clone(),
+        );
+
+        let next_funding_utxos = tx
+            .output
+            .into_iter()
+            .enumerate()
+            .map(|(i, tx_out)| {
+                (
+                    OutPoint {
+                        txid,
+                        vout: i as u32,
+                    },
+                    tx_out,
+                )
+            })
+            .collect();
+
+        Ok(next_funding_utxos)
     }
 
     pub async fn view(&self, contract_address: &ContractAddress, expr: &str) -> Result<String> {
@@ -441,6 +572,13 @@ impl RegTester {
             .await
     }
 
+    pub async fn compose(&self, query: ComposeQuery) -> Result<ComposeOutputs> {
+        self.inner.lock().await.kontor_client.compose(query).await
+    }
+
+    pub async fn mempool_info(&self) -> Result<GetMempoolInfoResult> {
+        self.inner.lock().await.mempool_info().await
+    }
     pub async fn instruction(
         &mut self,
         ident: &mut Identity,
@@ -451,6 +589,18 @@ impl RegTester {
 
     pub async fn identity(&mut self) -> Result<Identity> {
         self.inner.lock().await.identity().await
+    }
+
+    pub async fn identity_p2wpkh(&mut self) -> Result<P2wpkhIdentity> {
+        self.inner.lock().await.identity_p2wpkh().await
+    }
+
+    pub async fn fund_address(
+        &mut self,
+        address: &Address,
+        count: u32,
+    ) -> Result<Vec<(OutPoint, TxOut)>> {
+        self.inner.lock().await.fund_address(address, count).await
     }
 
     pub async fn view(&self, contract_address: &ContractAddress, expr: &str) -> Result<String> {

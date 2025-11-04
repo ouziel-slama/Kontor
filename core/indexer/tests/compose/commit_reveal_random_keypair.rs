@@ -1,25 +1,19 @@
-use std::str::FromStr;
-
 use anyhow::Result;
 use bitcoin::Amount;
-use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::Sequence;
 use bitcoin::TapSighashType;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
-use bitcoin::Txid;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::absolute::LockTime;
-use bitcoin::key::rand;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::opcodes::all::OP_ENDIF;
 use bitcoin::opcodes::all::OP_IF;
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::Keypair;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
 use bitcoin::{
@@ -28,28 +22,28 @@ use bitcoin::{
     consensus::encode::serialize as serialize_tx,
     key::Secp256k1,
 };
-use clap::Parser;
-use indexer::config::TestConfig;
+
 use indexer::op_return::OpReturnData;
 use indexer::test_utils;
 use indexer::witness_data::TokenBalance;
-use indexer::{bitcoin_client::Client, config::Config};
+use testlib::RegTester;
+use tracing::info;
 
-#[tokio::test]
-async fn test_commit_reveal_ordinals() -> Result<()> {
-    let client = Client::new_from_config(&Config::try_parse()?)?;
-    let config = TestConfig::try_parse()?;
+pub async fn test_commit_reveal_ordinals(reg_tester: &mut RegTester) -> Result<()> {
+    info!("test_commit_reveal_ordinals random keypair");
+    let identity = reg_tester.identity().await?;
+    let seller_address = identity.address;
+    let seller_keypair = identity.keypair;
+    let (seller_out_point, seller_utxo_for_output) = identity.next_funding_utxo;
+
     let secp = Secp256k1::new();
 
-    let random_keypair = Keypair::new(&secp, &mut rand::thread_rng());
-    let (random_xonly_pubkey, _parity) = random_keypair.x_only_public_key();
+    // let random_keypair = Keypair::new(&secp, &mut rand::thread_rng());
+    // let (random_xonly_pubkey, _parity) = random_keypair.x_only_public_key();
+    let random_address = reg_tester.identity().await?;
 
-    let (sender_address, sender_child_key, _) = test_utils::generate_taproot_address_from_mnemonic(
-        &secp,
-        Network::Bitcoin,
-        &config.taproot_key_path,
-        0,
-    )?;
+    let random_keypair = random_address.keypair;
+    let (random_xonly_pubkey, _parity) = random_keypair.x_only_public_key();
 
     let token_value = 1000;
     let token_balance = TokenBalance {
@@ -74,20 +68,13 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
 
     let output_key = taproot_spend_info.output_key();
 
-    let commit_address = Address::p2tr_tweaked(output_key, KnownHrp::Mainnet);
-
-    let sender_keypair = Keypair::from_secret_key(&secp, &sender_child_key.private_key);
+    let commit_address = Address::p2tr_tweaked(output_key, KnownHrp::Regtest);
 
     let mut commit_tx = Transaction {
         version: Version(2),
         lock_time: LockTime::ZERO,
         input: vec![TxIn {
-            previous_output: OutPoint {
-                txid: Txid::from_str(
-                    "dd3d962f95741f2f5c3b87d6395c325baa75c4f3f04c7652e258f6005d70f3e8",
-                )?,
-                vout: 0,
-            },
+            previous_output: seller_out_point,
             script_sig: ScriptBuf::default(),
             sequence: Sequence::MAX,
             witness: Witness::default(),
@@ -100,8 +87,10 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
             },
             // Change back to sender
             TxOut {
-                value: Amount::from_sat(3500), // 9000 - 5000 - 500 fee
-                script_pubkey: sender_address.script_pubkey(),
+                value: seller_utxo_for_output.value
+                    - Amount::from_sat(5000)
+                    - Amount::from_sat(500), // full seller utxo amount - inscription output amount (5000) - 500 fee
+                script_pubkey: seller_address.script_pubkey(),
             },
         ],
     };
@@ -121,8 +110,8 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
         }],
         output: vec![
             TxOut {
-                value: Amount::from_sat(4500), // 5000 - 500 fee
-                script_pubkey: sender_address.script_pubkey(),
+                value: Amount::from_sat(4500), // 5000 from commit input - 500 fee
+                script_pubkey: seller_address.script_pubkey(),
             },
             TxOut {
                 value: Amount::from_sat(0),
@@ -146,10 +135,10 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
         &secp,
         &mut commit_tx,
         &[TxOut {
-            value: Amount::from_sat(9000), // seller's utxo value
-            script_pubkey: sender_address.script_pubkey(),
+            value: seller_utxo_for_output.value,
+            script_pubkey: seller_address.script_pubkey(),
         }],
-        &sender_keypair,
+        &seller_keypair,
         0,
         Some(TapSighashType::All),
     )?;
@@ -168,10 +157,9 @@ async fn test_commit_reveal_ordinals() -> Result<()> {
     let raw_commit_tx_hex = hex::encode(serialize_tx(&commit_tx));
     let raw_reveal_tx_hex = hex::encode(serialize_tx(&reveal_tx));
 
-    let result = client
-        .test_mempool_accept(&[raw_commit_tx_hex, raw_reveal_tx_hex])
+    let result = reg_tester
+        .mempool_accept_result(&[raw_commit_tx_hex, raw_reveal_tx_hex])
         .await?;
-
     // Assert both transactions are allowed
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
     assert!(result[0].allowed, "Commit transaction was rejected");

@@ -76,3 +76,7 @@ serial_test = { workspace = true }
 
 [build-dependencies]
 glob = { workspace = true }
+
+[[test]]
+name = "compose"
+path = "tests/compose/mod.rs"

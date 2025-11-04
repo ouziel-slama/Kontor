@@ -1,28 +1,29 @@
 use anyhow::Result;
-use bitcoin::{
-    FeeRate, TapSighashType,
-    consensus::encode::serialize as serialize_tx,
-    key::Secp256k1,
-    taproot::{LeafVersion, TaprootBuilder},
-};
-use indexer::{
-    api::compose::{ComposeInputs, InstructionInputs, compose},
-    test_utils,
-    witness_data::TokenBalance,
-};
+use bitcoin::FeeRate;
+use bitcoin::TapSighashType;
+use bitcoin::consensus::encode::serialize as serialize_tx;
+use bitcoin::key::Secp256k1;
+use bitcoin::taproot::LeafVersion;
+use bitcoin::taproot::TaprootBuilder;
+use indexer::api::compose::compose;
+use indexer::api::compose::{ComposeInputs, InstructionInputs};
+use indexer::test_utils;
+use indexer::witness_data::TokenBalance;
+use testlib::RegTester;
+use tracing::info;
 
-use testlib::*;
-
-#[runtime(contracts_dir = "../../contracts", mode = "regtest")]
-async fn test_taproot_transaction_regtest() -> Result<()> {
+pub async fn test_commit_reveal(reg_tester: &mut RegTester) -> Result<()> {
+    info!("test_commit_reveal");
     let identity = reg_tester.identity().await?;
     let seller_address = identity.address;
     let keypair = identity.keypair;
     let (internal_key, _parity) = keypair.x_only_public_key();
-    let (out_point, utxo_for_output) = identity.next_funding_utxo; // Create token balance data
-    let token_value = 500;
+    let (out_point, utxo_for_output) = identity.next_funding_utxo;
+
     let secp = Secp256k1::new();
 
+    // Create token balance data
+    let token_value = 1000;
     let token_balance = TokenBalance {
         value: token_value,
         name: "token_name".to_string(),
@@ -38,7 +39,7 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
             funding_utxos: vec![(out_point, utxo_for_output.clone())],
             script_data: serialized_token_balance,
         }])
-        .fee_rate(FeeRate::from_sat_per_vb(1).unwrap()) // Lower fee rate for regtest
+        .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
         .build();
 
@@ -60,7 +61,7 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
 
     let spend_tx_prevouts = vec![attach_tx.output[0].clone()];
 
-    // Sign the script_spend input for the spend transaction
+    // sign the script_spend input for the spend transaction
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(0, tap_script.clone())
         .expect("Failed to add leaf")
@@ -85,21 +86,14 @@ async fn test_taproot_transaction_regtest() -> Result<()> {
         .await?;
 
     assert_eq!(result.len(), 2, "Expected exactly two transaction results");
-    assert!(
-        result[0].allowed,
-        "Attach transaction was rejected: {}",
-        result[0].reject_reason.as_ref().unwrap_or(&"".to_string())
-    );
-    assert!(
-        result[1].allowed,
-        "Spend transaction was rejected: {}",
-        result[1].reject_reason.as_ref().unwrap_or(&"".to_string())
-    );
+    assert!(result[0].allowed, "Attach transaction was rejected");
+    assert!(result[1].allowed, "Spend transaction was rejected");
 
-    // Verify witness structure
     let witness = spend_tx.input[0].witness.clone();
+    // 1. Check the total number of witness elements first
     assert_eq!(witness.len(), 3, "Witness should have exactly 3 elements");
 
+    // 2. Check each element individually
     let signature = witness.to_vec()[0].clone();
     assert!(!signature.is_empty(), "Signature should not be empty");
 
