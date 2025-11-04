@@ -1,5 +1,5 @@
 use crate::api::Env;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use bitcoin::Network;
 use clap::Parser;
 use indexer::config::RegtestConfig;
@@ -8,9 +8,11 @@ use indexer::reactor::results::ResultSubscriber;
 use indexer::runtime::Runtime;
 use indexer::{api, block, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -46,6 +48,8 @@ async fn main() -> Result<()> {
         Some(event_tx),
     ));
     init_rx.await?;
+    info!("Reactor initialized successfully");
+
     let (init_tx, init_rx) = oneshot::channel();
     handles.push(
         bitcoin_follower::run(
@@ -58,7 +62,21 @@ async fn main() -> Result<()> {
         )
         .await?,
     );
-    init_rx.await?;
+
+    info!("Waiting for Bitcoin follower to initialize (ZMQ connection at {})...", config.zmq_address);
+    match timeout(Duration::from_secs(30), init_rx).await {
+        Ok(Ok(_)) => {
+            info!("Bitcoin follower initialized successfully");
+        }
+        Ok(Err(e)) => {
+            error!("Bitcoin follower initialization failed: {}", e);
+            bail!("Bitcoin follower initialization failed");
+        }
+        Err(_) => {
+            error!("Timed out waiting for ZMQ connection to {} (check bitcoind is reachable with ZMQ enabled)", config.zmq_address);
+            bail!("Bitcoin follower failed to connect to ZMQ within 30 seconds");
+        }
+    }
 
     let result_subscriber = ResultSubscriber::default();
     handles.push(result_subscriber.run(cancel_token.clone(), event_rx));
