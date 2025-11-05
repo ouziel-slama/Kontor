@@ -1,5 +1,5 @@
 use crate::api::Env;
-use anyhow::{Result, bail};
+use anyhow::Result;
 use bitcoin::Network;
 use clap::Parser;
 use indexer::config::RegtestConfig;
@@ -8,11 +8,9 @@ use indexer::reactor::results::ResultSubscriber;
 use indexer::runtime::Runtime;
 use indexer::{api, block, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
-use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -48,9 +46,7 @@ async fn main() -> Result<()> {
         Some(event_tx),
     ));
     init_rx.await?;
-    info!("Reactor initialized successfully");
-
-    let (init_tx, mut init_rx) = oneshot::channel();
+    let (init_tx, init_rx) = oneshot::channel();
     handles.push(
         bitcoin_follower::run(
             config.zmq_address.clone(),
@@ -62,38 +58,7 @@ async fn main() -> Result<()> {
         )
         .await?,
     );
-
-    info!(
-        "Waiting for Bitcoin follower to initialize (ZMQ connection at {})...",
-        config.zmq_address
-    );
-
-    let mut log_interval = interval(Duration::from_secs(10));
-    log_interval.tick().await; // Skip first immediate tick
-
-    loop {
-        tokio::select! {
-            result = &mut init_rx => {
-                match result {
-                    Ok(_) => {
-                        info!("Bitcoin follower initialized successfully");
-                        break;
-                    }
-                    Err(e) => {
-                        error!("Bitcoin follower initialization failed: {}", e);
-                        cancel_token.cancel();
-                        for handle in handles {
-                            let _ = handle.await;
-                        }
-                        bail!("Bitcoin follower initialization failed");
-                    }
-                }
-            }
-            _ = log_interval.tick() => {
-                info!("Still waiting for ZMQ connection to {} (check bitcoind is reachable with ZMQ enabled)...", config.zmq_address);
-            }
-        }
-    }
+    init_rx.await?;
 
     let result_subscriber = ResultSubscriber::default();
     handles.push(result_subscriber.run(cancel_token.clone(), event_rx));

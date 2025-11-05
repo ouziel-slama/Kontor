@@ -101,14 +101,7 @@ impl<I: BlockchainInfo, F: BlockFetcher, M: MempoolFetcher> Reconciler<I, F, M> 
                 events
             }
             ZmqEvent::Disconnected(e) => {
-                if self.state.zmq_connected {
-                    error!("ZMQ disconnected: {}", e);
-                } else {
-                    error!(
-                        "ZMQ connection failed: {} (check bitcoind is running with ZMQ enabled)",
-                        e
-                    );
-                }
+                error!("ZMQ disconnected: {}", e);
                 self.state.zmq_connected = false;
                 if self.state.mode == Mode::Zmq {
                     self.state.mode = Mode::Rpc;
