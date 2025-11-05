@@ -50,10 +50,10 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Builder stage - builds actual code
 FROM builder-base AS builder
 
-# Build sqlean extensions for musl/Alpine
+# Copy vendored sqlean source to build extensions for musl/Alpine
 WORKDIR /tmp
-RUN git clone --depth 1 --branch 0.28.0 https://github.com/nalgeon/sqlean.git && \
-    cd sqlean && \
+COPY core/indexer/sqlean-0.28.0 sqlean
+RUN cd sqlean && \
     make download-sqlite && \
     make download-external && \
     make prepare-dist && \

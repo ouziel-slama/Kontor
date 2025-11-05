@@ -10,7 +10,7 @@ use indexer::{api, block, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::timeout;
+use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -67,20 +67,31 @@ async fn main() -> Result<()> {
         "Waiting for Bitcoin follower to initialize (ZMQ connection at {})...",
         config.zmq_address
     );
-    match timeout(Duration::from_secs(30), init_rx).await {
-        Ok(Ok(_)) => {
-            info!("Bitcoin follower initialized successfully");
-        }
-        Ok(Err(e)) => {
-            error!("Bitcoin follower initialization failed: {}", e);
-            bail!("Bitcoin follower initialization failed");
-        }
-        Err(_) => {
-            error!(
-                "Timed out waiting for ZMQ connection to {} (check bitcoind is reachable with ZMQ enabled)",
-                config.zmq_address
-            );
-            bail!("Bitcoin follower failed to connect to ZMQ within 30 seconds");
+
+    let mut log_interval = interval(Duration::from_secs(10));
+    log_interval.tick().await; // Skip first immediate tick
+
+    loop {
+        tokio::select! {
+            result = init_rx => {
+                match result {
+                    Ok(_) => {
+                        info!("Bitcoin follower initialized successfully");
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Bitcoin follower initialization failed: {}", e);
+                        cancel_token.cancel();
+                        for handle in handles {
+                            let _ = handle.await;
+                        }
+                        bail!("Bitcoin follower initialization failed");
+                    }
+                }
+            }
+            _ = log_interval.tick() => {
+                info!("Still waiting for ZMQ connection to {} (check bitcoind is reachable with ZMQ enabled)...", config.zmq_address);
+            }
         }
     }
 

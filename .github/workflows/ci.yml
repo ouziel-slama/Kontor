@@ -3,6 +3,8 @@ name: Rust CI
 on:
   push:
     branches: ["**"]
+  pull_request:
+    branches: ["**"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -151,6 +153,9 @@ jobs:
   docker-build:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
