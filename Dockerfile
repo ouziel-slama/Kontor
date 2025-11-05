@@ -60,14 +60,41 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Builder stage - builds actual code
 FROM builder-base AS builder
 
+# Download and build sqlean extensions for musl/Alpine
+WORKDIR /tmp
+RUN wget -q https://github.com/nalgeon/sqlean/archive/refs/tags/0.28.0.tar.gz && \
+    tar xzf 0.28.0.tar.gz && \
+    cd sqlean-0.28.0 && \
+    make download-sqlite && \
+    make download-external && \
+    make prepare-dist && \
+    mkdir -p /build/sqlean-musl && \
+    echo "Building crypto extension for musl..." && \
+    gcc -O3 -Isrc -DSQLEAN_VERSION='"0.28.0"' -z now -z relro -Wall -Wsign-compare -Wno-unknown-pragmas -fPIC -shared \
+       src/sqlite3-crypto.c src/crypto/*.c \
+       -o dist/crypto.so && \
+    echo "Building regexp extension for musl..." && \
+    gcc -O3 -Isrc -DSQLEAN_VERSION='"0.28.0"' -z now -z relro -Wall -Wsign-compare -Wno-unknown-pragmas -fPIC -shared \
+       -include src/regexp/constants.h src/sqlite3-regexp.c src/regexp/*.c src/regexp/pcre2/*.c \
+       -o dist/regexp.so && \
+    cp dist/crypto.so dist/regexp.so /build/sqlean-musl/ && \
+    cd /tmp && rm -rf sqlean-0.28.0 0.28.0.tar.gz
+
 WORKDIR /build
 
 # Copy cached dependencies from cacher stage
 COPY --from=cacher /build/core/target /build/core/target
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
 
-# Copy source code (including pre-built sqlean binaries)
+# Copy source code
 COPY . .
+
+# Replace the glibc sqlean extensions with musl versions
+RUN rm -rf core/indexer/sqlean-0.28.0/linux-* && \
+    mkdir -p core/indexer/sqlean-0.28.0/linux-x64 && \
+    mkdir -p core/indexer/sqlean-0.28.0/linux-arm64 && \
+    cp /build/sqlean-musl/*.so core/indexer/sqlean-0.28.0/linux-x64/ && \
+    cp /build/sqlean-musl/*.so core/indexer/sqlean-0.28.0/linux-arm64/
 
 # Build only the indexer (dependencies already built)
 WORKDIR /build/core
