@@ -25,8 +25,7 @@ use super::{
     Env,
     error::ErrorResponse,
     handlers::{
-        get_block, get_block_latest, post_compose_commit, post_compose_reveal,
-        post_transaction_ops,
+        get_block, get_block_latest, post_compose_commit, post_compose_reveal, post_transaction_ops,
     },
     ws,
 };
