@@ -63,13 +63,23 @@ pub fn filter_map((tx_index, tx): (usize, bitcoin::Transaction)) -> Option<Trans
                             signer: Signer::XOnlyPubKey(signer.to_string()),
                         };
                         return Some(match inst {
-                            Inst::Publish { name, bytes } => Op::Publish {
+                            Inst::Publish {
+                                gas_limit,
+                                name,
+                                bytes,
+                            } => Op::Publish {
                                 metadata,
+                                gas_limit,
                                 name,
                                 bytes,
                             },
-                            Inst::Call { contract, expr } => Op::Call {
+                            Inst::Call {
+                                gas_limit,
+                                contract,
+                                expr,
+                            } => Op::Call {
                                 metadata,
+                                gas_limit,
                                 contract,
                                 expr,
                             },

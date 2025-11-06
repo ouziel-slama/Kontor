@@ -1,8 +1,9 @@
+use anyhow::bail;
 use bitcoin::consensus::encode::deserialize_hex;
 use indexer::{
     database::types::OpResultId,
     reactor::{
-        results::{ResultEvent, ResultEventMetadata},
+        results::ResultEvent,
         types::{Inst, Op, OpMetadata},
     },
     reg_tester::InstructionResult,
@@ -18,6 +19,7 @@ async fn test_get_ops_from_api_regtest() -> Result<()> {
         .instruction(
             &mut ident,
             Inst::Publish {
+                gas_limit: 10_000,
                 name: name.to_string(),
                 bytes: bytes.clone(),
             },
@@ -35,29 +37,30 @@ async fn test_get_ops_from_api_regtest() -> Result<()> {
                 input_index: 0,
                 signer: Signer::XOnlyPubKey(ident.x_only_public_key().to_string())
             },
+            gas_limit: 10_000,
             name: name.to_string(),
             bytes
         }
     );
-    assert_eq!(
-        ops[0].result,
-        Some(ResultEvent::Ok {
-            metadata: ResultEventMetadata::builder()
-                .contract_address(ContractAddress {
-                    name: "token".to_string(),
-                    height: reg_tester.height().await,
-                    tx_index: 2
-                })
-                .func_name("init".to_string())
-                .op_result_id(
-                    OpResultId::builder()
-                        .txid(tx.compute_txid().to_string())
-                        .build()
-                )
-                .build(),
-            value: "{name: \"token\", height: 103, tx-index: 2}".to_string()
-        })
-    );
+    let result = ops[0].result.as_ref();
+    assert!(result.is_some());
+    if let Some(ResultEvent::Ok { metadata, value }) = result {
+        assert_eq!(metadata.contract_address.name, "token");
+        assert_eq!(metadata.contract_address.height, reg_tester.height().await);
+        assert_eq!(metadata.contract_address.tx_index, 2);
+        assert_eq!(
+            metadata.op_result_id,
+            Some(
+                OpResultId::builder()
+                    .txid(tx.compute_txid().to_string())
+                    .build()
+            )
+        );
+        assert_eq!(value, "{name: \"token\", height: 103, tx-index: 2}");
+        assert!(metadata.gas > 0);
+    } else {
+        bail!("Unexpected result event: {:?}", result);
+    }
 
     Ok(())
 }

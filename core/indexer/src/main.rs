@@ -1,3 +1,5 @@
+use std::panic;
+
 use crate::api::Env;
 use anyhow::Result;
 use bitcoin::Network;
@@ -10,7 +12,7 @@ use indexer::{api, block, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,6 +28,11 @@ async fn main() -> Result<()> {
     info!("{:#?}", config);
     let bitcoin = bitcoin_client::Client::new_from_config(&config)?;
     let cancel_token = CancellationToken::new();
+    let panic_token = cancel_token.clone();
+    panic::set_hook(Box::new(move |info| {
+        error!("Panic occurred: {:?}", info);
+        panic_token.cancel();
+    }));
     let mut handles = vec![];
     handles.push(stopper::run(cancel_token.clone())?);
     let filename = "state.db";

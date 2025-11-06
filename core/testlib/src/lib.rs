@@ -273,6 +273,7 @@ impl RuntimeImpl for RuntimeRegtest {
             .instruction(
                 identity,
                 Inst::Publish {
+                    gas_limit: 10_000,
                     name: name.to_string(),
                     bytes: contract.to_vec(),
                 },
@@ -305,6 +306,7 @@ impl RuntimeImpl for RuntimeRegtest {
                 .instruction(
                     identity,
                     Inst::Call {
+                        gas_limit: 10_000,
                         contract: contract_address.clone(),
                         expr: expr.to_string(),
                     },

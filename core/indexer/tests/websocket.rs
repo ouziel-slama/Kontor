@@ -119,6 +119,7 @@ async fn test_websocket_server() -> Result<()> {
             .contract_id(contract_id)
             .height(1)
             .tx_index(1)
+            .gas(0)
             .build(),
     )
     .await?;

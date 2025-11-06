@@ -147,5 +147,17 @@ async fn test_numerics_defaults() -> Result<()> {
     assert_eq!(x, Decimal::from(0));
     let x = Integer::default();
     assert_eq!(x, Integer::from(0));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_decimals_scientific() -> Result<()> {
+    let x = Decimal::from("1e-9");
+    assert_eq!(x, Decimal::from("0.000000001"));
+    let x = Decimal::from("1e-3");
+    assert_eq!(x, Decimal::from("0.001"));
+    let x = Decimal::from("100_000");
+    assert_eq!(x, Decimal::from("100000"));
     Ok(())
 }

@@ -12,11 +12,13 @@ pub struct OpMetadata {
 pub enum Op {
     Publish {
         metadata: OpMetadata,
+        gas_limit: u64,
         name: String,
         bytes: Vec<u8>,
     },
     Call {
         metadata: OpMetadata,
+        gas_limit: u64,
         contract: ContractAddress,
         expr: String,
     },
@@ -39,6 +41,8 @@ impl Op {
 pub enum Inst {
     #[serde(rename = "p")]
     Publish {
+        #[serde(rename = "g")]
+        gas_limit: u64,
         #[serde(rename = "n")]
         name: String,
         #[serde(rename = "b")]
@@ -46,6 +50,8 @@ pub enum Inst {
     },
     #[serde(rename = "c")]
     Call {
+        #[serde(rename = "g")]
+        gas_limit: u64,
         #[serde(rename = "c")]
         contract: ContractAddress,
         #[serde(rename = "e")]
