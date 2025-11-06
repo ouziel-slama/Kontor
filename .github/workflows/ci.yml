@@ -1,4 +1,4 @@
-name: Rust CI
+name: CI
 
 on:
   push:
@@ -20,7 +20,7 @@ env:
 
 jobs:
   quality-checks:
-    name: Code Quality Checks
+    name: Lint & Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +68,7 @@ jobs:
         working-directory: ./core
 
   test:
-    name: Build & Test
+    name: Build & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     environment: mainnet
     strategy:
@@ -151,7 +151,7 @@ jobs:
         run: cargo test --workspace
 
   docker-cache-deps:
-    name: Cache Docker Dependencies (${{ matrix.arch }})
+    name: Docker - Cache Dependencies (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 600
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
@@ -207,7 +207,7 @@ jobs:
             type=registry,ref=kontorprotocol/kontor:buildcache-${{ github.ref == 'refs/heads/main' && 'main' || steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }},mode=max
 
   docker-build:
-    name: Build & Push Docker Image (${{ matrix.arch }})
+    name: Docker - Build Image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 600
     needs: docker-cache-deps
@@ -293,7 +293,7 @@ jobs:
           retention-days: 1
 
   docker-manifest:
-    name: Create Multi-Arch Manifest
+    name: Docker - Publish Multi-Arch Image
     runs-on: ubuntu-latest
     timeout-minutes: 600
     needs: docker-build
