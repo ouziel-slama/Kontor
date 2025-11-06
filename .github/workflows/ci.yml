@@ -45,15 +45,21 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install wasm32-unknown-unknown
         run: rustup target add wasm32-unknown-unknown
-      - name: Check formatting (contracts)
+      - name: Check formatting (test-contracts)
         run: cargo fmt --all -- --check
-        working-directory: ./contracts
+        working-directory: ./test-contracts
+      - name: Check formatting (native-contracts)
+        run: cargo fmt --all -- --check
+        working-directory: ./native-contracts
       - name: Check formatting (core)
         run: cargo fmt --all -- --check
         working-directory: ./core
-      - name: Run clippy (contracts)
+      - name: Run clippy (test-contracts)
         run: cargo clippy --workspace --tests -- -D warnings
-        working-directory: ./contracts
+        working-directory: ./test-contracts
+      - name: Run clippy (native-contracts)
+        run: cargo clippy --workspace --tests -- -D warnings
+        working-directory: ./native-contracts
       - name: Install wasm-opt
         run: cargo install wasm-opt
       - name: Run clippy (core)
@@ -61,9 +67,12 @@ jobs:
         working-directory: ./core
       - name: Install cargo-audit
         run: cargo install cargo-audit
-      - name: Audit contracts
+      - name: Audit (test-contracts)
         run: cargo audit
-        working-directory: ./contracts
+        working-directory: ./test-contracts
+      - name: Audit (native-contracts)
+        run: cargo audit
+        working-directory: ./native-contracts
       - name: Audit core
         run: cargo audit
         working-directory: ./core
