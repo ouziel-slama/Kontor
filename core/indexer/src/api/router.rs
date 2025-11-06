@@ -25,8 +25,7 @@ use super::{
     Env,
     error::ErrorResponse,
     handlers::{
-        get_block, get_block_latest, post_compose_commit, post_compose_reveal,
-        post_transaction_ops, test_mempool_accept,
+        get_block, get_block_latest, post_compose_commit, post_compose_reveal, post_transaction_ops,
     },
     ws,
 };
@@ -108,7 +107,6 @@ pub fn new(context: Env) -> Router {
                         .route("/{txid}", get(get_transaction))
                         .route("/ops", post(post_transaction_ops)),
                 )
-                .route("/test_mempool_accept", get(test_mempool_accept))
                 .route("/stop", get(stop))
                 .nest(
                     "/compose",

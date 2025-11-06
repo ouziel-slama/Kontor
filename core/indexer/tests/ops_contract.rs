@@ -10,7 +10,7 @@ use indexer::{
 };
 use testlib::*;
 
-#[runtime(contracts_dir = "../../contracts", mode = "regtest")]
+#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
 async fn test_get_ops_from_api_regtest() -> Result<()> {
     let name = "token";
     let bytes = runtime.contract_reader.read(name).await?.unwrap();
@@ -56,7 +56,7 @@ async fn test_get_ops_from_api_regtest() -> Result<()> {
                     .build()
             )
         );
-        assert_eq!(value, "{name: \"token\", height: 103, tx-index: 2}");
+        assert_eq!(value, "");
         assert!(metadata.gas > 0);
     } else {
         bail!("Unexpected result event: {:?}", result);
