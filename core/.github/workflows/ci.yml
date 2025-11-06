@@ -2,7 +2,7 @@ name: Rust CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: ["**"]
 
@@ -161,7 +161,7 @@ jobs:
         run: cargo test --workspace
 
   docker-build:
-    name: Build & Push Docker Image
+    name: Build & Push Docker Image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 600
     if: github.event_name == 'pull_request'

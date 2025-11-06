@@ -2,7 +2,7 @@ name: Rust CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: ["**"]
 
@@ -151,7 +151,7 @@ jobs:
         run: cargo test --workspace
 
   docker-cache-deps:
-    name: Cache Docker Dependencies
+    name: Cache Docker Dependencies (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 600
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
@@ -207,7 +207,7 @@ jobs:
             type=registry,ref=kontorprotocol/kontor:buildcache-${{ github.ref == 'refs/heads/main' && 'main' || steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }},mode=max
 
   docker-build:
-    name: Build & Push Docker Image
+    name: Build & Push Docker Image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 600
     needs: docker-cache-deps
