@@ -10,8 +10,9 @@ use crate::{
         queries::{
             delete_contract_state, delete_matching_paths, exists_contract_state,
             get_contract_address_from_id, get_contract_bytes_by_id, get_contract_id_from_address,
-            get_latest_contract_state_value, insert_contract, insert_contract_result,
-            insert_contract_state, matching_path, path_prefix_filter_contract_state,
+            get_contract_result, get_latest_contract_state_value, insert_contract,
+            insert_contract_result, insert_contract_state, matching_path,
+            path_prefix_filter_contract_state,
         },
         types::{ContractResultRow, ContractRow, ContractStateRow},
     },
@@ -133,11 +134,27 @@ impl Storage {
         .await?)
     }
 
+    pub async fn get_contract_result(
+        &self,
+        result_index: i64,
+    ) -> Result<Option<ContractResultRow>> {
+        Ok(get_contract_result(
+            &self.conn,
+            self.height,
+            self.tx_index,
+            self.input_index,
+            self.op_index,
+            result_index,
+        )
+        .await?)
+    }
+
     pub async fn insert_contract_result(
         &self,
         result_index: i64,
         contract_id: i64,
         func_name: String,
+        gas: i64,
         value: Option<String>,
     ) -> Result<i64> {
         Ok(insert_contract_result(
@@ -150,6 +167,7 @@ impl Storage {
                 .op_index(self.op_index)
                 .result_index(result_index)
                 .func_name(func_name)
+                .gas(gas)
                 .maybe_value(value)
                 .build(),
         )

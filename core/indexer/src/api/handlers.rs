@@ -257,6 +257,7 @@ pub async fn post_view(
     let metadata = ResultEventMetadata::builder()
         .contract_address(contract_address)
         .func_name(func_name.to_string())
+        .gas(0)
         .build();
     Ok(match result {
         Ok(value) => ResultEvent::Ok {

@@ -52,8 +52,9 @@ CREATE TABLE IF NOT EXISTS contract_results (
   input_index INTEGER NOT NULL,
   op_index INTEGER NOT NULL,
   result_index INTEGER NOT NULL,
+  gas INTEGER NOT NULL,
   size INTEGER NOT NULL,
   value TEXT,
-  UNIQUE (height, tx_index, input_index, result_index)
+  UNIQUE (height, tx_index, input_index, op_index, result_index)
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
 );

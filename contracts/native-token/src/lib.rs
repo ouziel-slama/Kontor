@@ -4,7 +4,6 @@ contract!(name = "token");
 
 #[derive(Clone, Default, StorageRoot)]
 struct TokenStorage {
-    pub admin: Option<String>,
     pub ledger: Map<String, Decimal>,
     pub total_supply: Decimal,
 }

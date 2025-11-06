@@ -10,7 +10,7 @@ use indexer::{
         queries::{
             contract_has_state, delete_contract_state, delete_matching_paths,
             exists_contract_state, get_contract_bytes_by_address, get_contract_bytes_by_id,
-            get_contract_id_from_address, get_latest_contract_state,
+            get_contract_id_from_address, get_contract_result, get_latest_contract_state,
             get_latest_contract_state_value, get_op_result, get_transaction_by_txid,
             get_transactions_at_height, insert_block, insert_contract, insert_contract_result,
             insert_contract_state, insert_processed_block, insert_transaction, matching_path,
@@ -559,12 +559,23 @@ async fn test_contract_result_operations() -> Result<()> {
         .tx_index(tx1.tx_index)
         .height(height)
         .value("".to_string())
+        .gas(100)
         .build();
 
     insert_contract_result(&conn, result.clone()).await?;
 
-    let row = get_op_result(&conn, &OpResultId::builder().txid(txid.to_string()).build()).await?;
+    let row = get_contract_result(
+        &conn,
+        result.height,
+        result.tx_index,
+        result.input_index,
+        result.op_index,
+        result.result_index,
+    )
+    .await?;
+    assert_eq!(Some(result.clone()), row);
 
+    let row = get_op_result(&conn, &OpResultId::builder().txid(txid.to_string()).build()).await?;
     assert_eq!(Some(result), row);
 
     Ok(())

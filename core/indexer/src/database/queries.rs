@@ -648,6 +648,7 @@ pub async fn get_op_result(
                 c.input_index,
                 c.op_index,
                 c.result_index,
+                c.gas,
                 c.value
             FROM contract_results c
             JOIN transactions t ON c.height = t.height AND c.tx_index = t.tx_index
@@ -666,6 +667,46 @@ pub async fn get_op_result(
     Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
 }
 
+pub async fn get_contract_result(
+    conn: &Connection,
+    height: i64,
+    tx_index: i64,
+    input_index: i64,
+    op_index: i64,
+    result_index: i64,
+) -> Result<Option<ContractResultRow>, Error> {
+    let mut rows = conn
+        .query(
+            r#"
+            SELECT
+                contract_id,
+                func_name,
+                height,
+                tx_index,
+                input_index,
+                op_index,
+                result_index,
+                gas,
+                value
+            FROM contract_results
+            WHERE height = :height
+              AND tx_index = :tx_index
+              AND input_index = :input_index
+              AND op_index = :op_index
+              AND result_index = :result_index
+            "#,
+            named_params! {
+                ":height": height,
+                ":tx_index": tx_index,
+                ":input_index": input_index,
+                ":op_index": op_index,
+                ":result_index": result_index,
+            },
+        )
+        .await?;
+    Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
+}
+
 pub async fn insert_contract_result(
     conn: &Connection,
     row: ContractResultRow,
@@ -681,8 +722,9 @@ pub async fn insert_contract_result(
                 input_index,
                 op_index,
                 result_index,
+                gas,
                 value
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
         params![
             row.contract_id,
@@ -693,6 +735,7 @@ pub async fn insert_contract_result(
             row.input_index,
             row.op_index,
             row.result_index,
+            row.gas,
             row.value
         ],
     )

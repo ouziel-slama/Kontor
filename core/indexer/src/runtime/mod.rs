@@ -33,7 +33,7 @@ pub use wit::kontor::built_in::numbers::{
     Decimal, Integer, Ordering as NumericOrdering, Sign as NumericSign,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use wasmtime::{
     AsContext, AsContextMut, Engine, Store,
     component::{
@@ -92,7 +92,10 @@ pub struct Runtime {
     pub result_id_counter: Counter,
     pub stack: Stack<i64>,
     pub gauge: Option<FuelGauge>,
-    pub starting_fuel: u64,
+    pub gas_limit: Option<u64>,
+    pub gas_limit_for_non_procs: u64,
+    pub gas_to_fuel_multiplier: u64,
+    pub gas_to_token_multiplier: Decimal,
     pub txid: Txid,
     pub events: Queue<ResultEvent>,
 }
@@ -118,7 +121,10 @@ impl Runtime {
             result_id_counter: Counter::new(),
             stack: Stack::new(),
             gauge: Some(FuelGauge::new()),
-            starting_fuel: 1000000,
+            gas_limit: None,
+            gas_limit_for_non_procs: 100_000,
+            gas_to_fuel_multiplier: 1_000,
+            gas_to_token_multiplier: Decimal::from("1e-9"),
             txid: new_mock_transaction(0).txid,
             events: Queue::new(),
         })
@@ -162,13 +168,26 @@ impl Runtime {
         self.storage = storage;
     }
 
-    pub fn set_starting_fuel(&mut self, starting_fuel: u64) {
-        self.starting_fuel = starting_fuel
+    pub fn fuel_limit(&self) -> Option<u64> {
+        self.gas_limit.map(|l| l * self.gas_to_fuel_multiplier)
+    }
+
+    pub fn fuel_limit_for_non_procs(&self) -> u64 {
+        self.gas_limit_for_non_procs * self.gas_to_fuel_multiplier
+    }
+
+    pub fn set_gas_limit(&mut self, gas_limit: u64) {
+        self.gas_limit = Some(gas_limit);
+    }
+
+    pub fn gas_consumed(&self, starting_fuel: u64, ending_fuel: u64) -> u64 {
+        (starting_fuel - ending_fuel).div_ceil(self.gas_to_fuel_multiplier)
     }
 
     pub async fn publish_native_contracts(&mut self) -> Result<()> {
         self.set_context(0, 0, 0, 0, new_mock_transaction(0).txid)
             .await;
+        self.set_gas_limit(self.gas_limit_for_non_procs);
         self.publish(&Signer::Core, "token", TOKEN).await?;
         Ok(())
     }
@@ -197,11 +216,18 @@ impl Runtime {
         self.execute(Some(signer), &address, "init()").await?;
         let value = wasm_wave::to_string(&wasm_wave::value::Value::from(address.clone()))
             .expect("Failed to convert address to string");
+        let row = self
+            .storage
+            .get_contract_result(self.result_id_counter.get().await as i64 - 1)
+            .await
+            .expect("Failed to get publish init contract result")
+            .expect("Publish init contract result not in database");
         self.storage
             .insert_contract_result(
                 self.result_id_counter.get().await as i64 - 1,
                 id,
                 "init".to_string(),
+                row.gas,
                 Some(value.clone()),
             )
             .await
@@ -211,6 +237,7 @@ impl Runtime {
                 metadata: ResultEventMetadata::builder()
                     .contract_address(address)
                     .func_name("init".to_string())
+                    .gas(row.gas as u64)
                     .op_result_id(
                         OpResultId::builder()
                             .txid(self.txid.to_string())
@@ -259,81 +286,59 @@ impl Runtime {
         contract_address: &ContractAddress,
         expr: &str,
     ) -> Result<String> {
+        tracing::info!("Executing contract {} with expr {}", contract_address, expr);
+        let (
+            mut store,
+            contract_id,
+            func_name,
+            is_fallback,
+            params,
+            mut results,
+            func,
+            is_proc,
+            starting_fuel,
+        ) = self
+            .prepare_call(contract_address, signer, expr, self.fuel_limit())
+            .await?;
         OptionFuture::from(
             self.gauge
                 .as_ref()
-                .map(|g| g.set_starting_fuel(self.starting_fuel)),
+                .map(|g| g.set_starting_fuel(starting_fuel)),
         )
         .await;
-
-        let (mut store, contract_id, func_name, is_fallback, params, mut results, func, is_proc) =
-            self.prepare_call(contract_address, signer, expr, self.starting_fuel)
-                .await?;
         // How we will escrow and consume gas
         // let x = Box::pin({
         //     let mut runtime = self.clone();
         //     async move { token::api::balance(&mut runtime, "").await }
         // })
         // .await;
-        let result = tokio::spawn(async move {
-            let call_result = func.call_async(&mut store, &params, &mut results).await;
-            (call_result, results, store)
+        let (result, results, mut store) = tokio::spawn(async move {
+            (
+                func.call_async(&mut store, &params, &mut results).await,
+                results,
+                store,
+            )
         })
         .await
-        .context("Failed to join execution");
-        let result = self
-            .handle_call(
-                is_fallback,
-                is_proc,
-                contract_id,
-                &func_name,
-                result,
-                |remaining_fuel| {
-                    let gauge = self.gauge.clone();
-                    async move {
-                        OptionFuture::from(
-                            gauge.as_ref().map(|g| g.set_ending_fuel(remaining_fuel)),
-                        )
-                        .await;
-                        Ok(())
-                    }
-                },
-            )
-            .await;
-        if expr.starts_with("transfer(")
-            && let Some(gauge) = self.gauge.as_ref()
-        {
-            tracing::info!(
-                "Transfer: {}, {}, {}, {}",
-                gauge.starting_fuel().await,
-                gauge.ending_fuel().await,
-                gauge.starting_fuel().await - gauge.ending_fuel().await,
-                gauge.total_host_fuel().await
-            );
-        }
+        .expect("Failed to join execution");
+        let mut result = self.handle_call(is_fallback, result, results).await;
+        OptionFuture::from(
+            self.gauge
+                .as_ref()
+                .map(|g| g.set_ending_fuel(store.get_fuel().unwrap())),
+        )
+        .await;
         if is_proc {
-            let metadata = ResultEventMetadata::builder()
-                .contract_address(contract_address.clone())
-                .func_name(func_name)
-                .op_result_id(
-                    OpResultId::builder()
-                        .txid(self.txid.to_string())
-                        .input_index(self.storage.input_index)
-                        .op_index(self.storage.op_index)
-                        .build(),
+            result = self
+                .handle_procedure(
+                    contract_id,
+                    contract_address,
+                    &func_name,
+                    true,
+                    starting_fuel,
+                    &mut store,
+                    result,
                 )
-                .build();
-            self.events
-                .push(match &result {
-                    Ok(value) => ResultEvent::Ok {
-                        metadata,
-                        value: value.clone(),
-                    },
-                    Err(e) => ResultEvent::Err {
-                        metadata,
-                        message: format!("{:?}", e),
-                    },
-                })
                 .await;
         }
         result
@@ -368,7 +373,7 @@ impl Runtime {
         contract_address: &ContractAddress,
         signer: Option<&Signer>,
         expr: &str,
-        fuel: u64,
+        fuel: Option<u64>,
     ) -> Result<(
         Store<Runtime>,
         i64,
@@ -378,6 +383,7 @@ impl Runtime {
         Vec<Val>,
         Func,
         bool,
+        u64,
     )> {
         let contract_id = self
             .storage
@@ -386,7 +392,8 @@ impl Runtime {
             .ok_or(anyhow!("Contract not found: {}", contract_address))?;
         let component = self.load_component(contract_id).await?;
         let linker = self.make_linker()?;
-        let mut store = self.make_store(fuel)?;
+        let fuel_limit = fuel.unwrap_or(self.fuel_limit_for_non_procs());
+        let mut store = self.make_store(fuel_limit)?;
         let instance = linker.instantiate_async(&mut store, &component).await?;
         let fallback_name = "fallback";
         let fallback_expr = format!(
@@ -442,6 +449,15 @@ impl Runtime {
                         ),
                     )
                 }
+                (t, _) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => params
+                    .insert(
+                        0,
+                        wasmtime::component::Val::Resource(
+                            table
+                                .push(ViewContext { contract_id })?
+                                .try_into_resource_any(&mut store)?,
+                        ),
+                    ),
                 (t, Some(signer))
                     if t.eq(&wasmtime::component::ResourceType::host::<ProcContext>()) =>
                 {
@@ -458,15 +474,7 @@ impl Runtime {
                         ),
                     )
                 }
-                (t, _) if t.eq(&wasmtime::component::ResourceType::host::<ViewContext>()) => params
-                    .insert(
-                        0,
-                        wasmtime::component::Val::Resource(
-                            table
-                                .push(ViewContext { contract_id })?
-                                .try_into_resource_any(&mut store)?,
-                        ),
-                    ),
+
                 (t, signer) if t.eq(&wasmtime::component::ResourceType::host::<FallContext>()) => {
                     is_proc = signer.is_some();
                     params.insert(
@@ -491,6 +499,10 @@ impl Runtime {
             }
         }
 
+        if is_proc && fuel.is_none() {
+            return Err(anyhow!("Missing fuel for procedure"));
+        }
+
         let results = func
             .results(&store)
             .iter()
@@ -509,26 +521,20 @@ impl Runtime {
             results,
             func,
             is_proc,
+            fuel_limit,
         ))
     }
 
-    async fn extract_wave_expr<F, Fut>(
+    async fn handle_call(
         &self,
         is_fallback: bool,
-        write_result: bool,
-        contract_id: i64,
-        func_name: &str,
-        result: Result<(Result<()>, Vec<Val>, Store<Runtime>)>,
-        fuel_callback: F,
-    ) -> Result<String>
-    where
-        F: FnOnce(u64) -> Fut,
-        Fut: Future<Output = Result<()>>,
-    {
-        let (call_result, mut results, mut store) = result?;
+        result: Result<()>,
+        mut results: Vec<Val>,
+    ) -> Result<String> {
+        self.stack.pop().await;
 
-        let mut result = if let Err(e) = call_result {
-            Err(e)
+        let result = if let Err(e) = result {
+            Err(anyhow!(format!("{}", e.root_cause())))
         } else if results.is_empty() {
             Ok("".to_string())
         } else if results.len() != 1 {
@@ -548,68 +554,14 @@ impl Runtime {
             }
         };
 
-        if write_result {
-            let value = result.as_ref().map(|s| s.clone()).ok();
-            if let Err(e) = Fuel::Result(value.as_ref().map_or(1, |v| v.len() as u64))
-                .consume_with_store(self.gauge.as_ref(), &mut store)
-                .await
-            {
-                result = Err(e);
-            } else {
-                self.storage
-                    .insert_contract_result(
-                        self.result_id_counter.get().await as i64,
-                        contract_id,
-                        func_name.to_string(),
-                        value,
-                    )
-                    .await
-                    .expect("Failed to insert contract result");
-                self.result_id_counter.increment().await;
-            }
-        }
-
-        let remaining_fuel = store.get_fuel()?;
-        fuel_callback(remaining_fuel).await?;
-
-        result
-    }
-
-    async fn handle_call<F, Fut>(
-        &self,
-        is_fallback: bool,
-        write_result: bool,
-        contract_id: i64,
-        func_name: &str,
-        result: Result<(Result<()>, Vec<Val>, Store<Runtime>)>,
-        fuel_callback: F,
-    ) -> Result<String>
-    where
-        F: FnOnce(u64) -> Fut,
-        Fut: Future<Output = Result<()>>,
-    {
-        self.stack.pop().await;
-
-        let result = self
-            .extract_wave_expr(
-                is_fallback,
-                write_result,
-                contract_id,
-                func_name,
-                result,
-                fuel_callback,
-            )
-            .await;
-
         if result.is_err() {
             self.storage
                 .rollback()
                 .await
                 .expect("Failed to rollback storage after failure to extract expression");
-        }
-        let expr = result?;
-
-        if expr.starts_with("err(") {
+        } else if let Ok(expr) = &result
+            && expr.starts_with("err(")
+        {
             self.storage
                 .rollback()
                 .await
@@ -621,60 +573,126 @@ impl Runtime {
                 .expect("Failed to commit storage after successful call");
         }
 
-        Ok(expr)
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn handle_procedure(
+        &self,
+        contract_id: i64,
+        contract_address: &ContractAddress,
+        func_name: &str,
+        is_op_result: bool,
+        starting_fuel: u64,
+        store: &mut Store<Runtime>,
+        mut result: Result<String>,
+    ) -> Result<String> {
+        if let Ok(value) = &result
+            && let Err(e) = Fuel::Result(value.len() as u64)
+                .consume_with_store(self.gauge.as_ref(), store)
+                .await
+        {
+            result = Err(e);
+        }
+        let gas = self.gas_consumed(
+            starting_fuel,
+            store.get_fuel().expect("Fuel should be available"),
+        );
+        self.storage
+            .insert_contract_result(
+                self.result_id_counter.get().await as i64,
+                contract_id,
+                func_name.to_string(),
+                gas as i64,
+                result.as_ref().map(|v| v.clone()).ok(),
+            )
+            .await
+            .expect("Failed to insert contract result");
+        self.result_id_counter.increment().await;
+        let metadata = ResultEventMetadata::builder()
+            .contract_address(contract_address.clone())
+            .func_name(func_name.to_string())
+            .maybe_op_result_id(if is_op_result {
+                Some(
+                    OpResultId::builder()
+                        .txid(self.txid.to_string())
+                        .input_index(self.storage.input_index)
+                        .op_index(self.storage.op_index)
+                        .build(),
+                )
+            } else {
+                None
+            })
+            .gas(gas)
+            .build();
+        self.events
+            .push(match &result {
+                Ok(value) => ResultEvent::Ok {
+                    metadata,
+                    value: value.clone(),
+                },
+                Err(e) => ResultEvent::Err {
+                    metadata,
+                    message: format!("{:?}", e),
+                },
+            })
+            .await;
+        result
     }
 
     async fn _call<T>(
         &self,
         accessor: &Accessor<T, Self>,
         signer: Option<Resource<Signer>>,
-        contract_address: ContractAddress,
-        expr: String,
+        contract_address: &ContractAddress,
+        expr: &str,
     ) -> Result<String> {
-        let fuel = accessor.with(|access| access.as_context().get_fuel())?;
+        let starting_fuel = accessor.with(|access| access.as_context().get_fuel())?;
 
         let signer =
             OptionFuture::from(signer.map(async |s| self.table.lock().await.get(&s).cloned()))
                 .await
-                .transpose()?;
+                .transpose()
+                .expect("Failed to lock table and get signer");
 
-        let (mut store, contract_id, func_name, is_fallback, params, mut results, func, is_proc) =
-            self.prepare_call(&contract_address, signer.as_ref(), &expr, fuel)
-                .await?;
-        let result = tokio::spawn(async move {
-            let call_result = func.call_async(&mut store, &params, &mut results).await;
-            (call_result, results, store)
+        let (
+            mut store,
+            contract_id,
+            func_name,
+            is_fallback,
+            params,
+            mut results,
+            func,
+            is_proc,
+            _fuel,
+        ) = self
+            .prepare_call(contract_address, signer.as_ref(), expr, Some(starting_fuel))
+            .await?;
+        let (result, results, mut store) = tokio::spawn(async move {
+            (
+                func.call_async(&mut store, &params, &mut results).await,
+                results,
+                store,
+            )
         })
         .await
-        .context("Failed to join call");
-        let result = self
-            .handle_call(
-                is_fallback,
-                is_proc,
-                contract_id,
-                &func_name,
-                result,
-                |remaining_fuel| async move {
-                    accessor.with(|mut access| access.as_context_mut().set_fuel(remaining_fuel))
-                },
-            )
-            .await;
+        .expect("Failed to join call");
+        let mut result = self.handle_call(is_fallback, result, results).await;
+        let fuel = store.get_fuel().unwrap();
+        accessor
+            .with(|mut access| access.as_context_mut().set_fuel(fuel))
+            .expect("Failed to set remaining fuel on parent store");
         if is_proc {
-            let metadata = ResultEventMetadata::builder()
-                .contract_address(contract_address.clone())
-                .func_name(func_name)
-                .build();
-            self.events
-                .push(match &result {
-                    Ok(value) => ResultEvent::Ok {
-                        metadata,
-                        value: value.clone(),
-                    },
-                    Err(e) => ResultEvent::Err {
-                        metadata,
-                        message: format!("{:?}", e),
-                    },
-                })
+            result = self
+                .handle_procedure(
+                    contract_id,
+                    contract_address,
+                    &func_name,
+                    false,
+                    starting_fuel,
+                    &mut store,
+                    result,
+                )
                 .await;
         }
         result
@@ -1059,7 +1077,7 @@ impl built_in::foreign::HostWithStore for Runtime {
     ) -> Result<String> {
         accessor
             .with(|mut access| access.get().clone())
-            ._call(accessor, signer, contract_address, expr)
+            ._call(accessor, signer, &contract_address, &expr)
             .await
     }
 

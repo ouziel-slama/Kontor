@@ -25,6 +25,8 @@ pub struct ResultEventMetadata {
     pub contract_address: ContractAddress,
     #[builder(default = String::new())]
     pub func_name: String,
+    #[builder(default = 0)]
+    pub gas: u64,
     pub op_result_id: Option<OpResultId>,
 }
 
@@ -58,6 +60,7 @@ impl ResultEvent {
                 )
                 .func_name(row.func_name)
                 .op_result_id(id.clone())
+                .gas(row.gas as u64)
                 .build();
             Some(if let Some(value) = row.value {
                 ResultEvent::Ok { metadata, value }

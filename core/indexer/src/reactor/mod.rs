@@ -38,7 +38,7 @@ use crate::{
 struct Reactor {
     reader: database::Reader,
     writer: database::Writer,
-    cancel_token: CancellationToken, // currently not used due to relaxed error handling
+    cancel_token: CancellationToken,
     ctrl: CtrlChannel,
     bitcoin_event_rx: Option<Receiver<Event>>,
     init_tx: Option<oneshot::Sender<bool>>,
@@ -239,16 +239,20 @@ impl Reactor {
                 match op {
                     Op::Publish {
                         metadata,
+                        gas_limit,
                         name,
                         bytes,
                     } => {
+                        self.runtime.set_gas_limit(gas_limit);
                         let _ = self.runtime.publish(&metadata.signer, &name, &bytes).await;
                     }
                     Op::Call {
                         metadata,
+                        gas_limit,
                         contract,
                         expr,
                     } => {
+                        self.runtime.set_gas_limit(gas_limit);
                         let _ = self
                             .runtime
                             .execute(Some(&metadata.signer), &contract, &expr)

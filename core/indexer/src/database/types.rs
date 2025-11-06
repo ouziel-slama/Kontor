@@ -154,6 +154,7 @@ pub struct ContractResultRow {
     pub contract_id: i64,
     #[builder(default = "".to_string())]
     pub func_name: String,
+    pub gas: i64,
     pub value: Option<String>,
 }
 
