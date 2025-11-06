@@ -204,15 +204,14 @@ jobs:
             sudo usermod -aG docker $USER
           fi
 
+          # Make docker socket accessible (group membership won't take effect until new login)
+          echo "Making Docker socket accessible..."
+          sudo chmod 666 /var/run/docker.sock
+
           # Wait for Docker to be ready
           for i in {1..30}; do
             if docker info >/dev/null 2>&1; then
-              echo "Docker is ready"
-              exit 0
-            fi
-            # Try with sudo if permission denied
-            if sudo docker info >/dev/null 2>&1; then
-              echo "Docker is ready (requires sudo for now)"
+              echo "Docker is ready and accessible"
               exit 0
             fi
             echo "Waiting for Docker to start... ($i/30)"
@@ -311,15 +310,14 @@ jobs:
             sudo usermod -aG docker $USER
           fi
 
+          # Make docker socket accessible (group membership won't take effect until new login)
+          echo "Making Docker socket accessible..."
+          sudo chmod 666 /var/run/docker.sock
+
           # Wait for Docker to be ready
           for i in {1..30}; do
             if docker info >/dev/null 2>&1; then
-              echo "Docker is ready"
-              exit 0
-            fi
-            # Try with sudo if permission denied
-            if sudo docker info >/dev/null 2>&1; then
-              echo "Docker is ready (requires sudo for now)"
+              echo "Docker is ready and accessible"
               exit 0
             fi
             echo "Waiting for Docker to start... ($i/30)"
