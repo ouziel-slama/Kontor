@@ -17,6 +17,12 @@ env:
   TESTNET_BITCOIN_RPC_USER: ${{ vars.TESTNET_BITCOIN_RPC_USER }}
   TESTNET_BITCOIN_RPC_PASSWORD: ${{ vars.TESTNET_BITCOIN_RPC_PASSWORD }}
   DATA_DIR: ${{ github.workspace }}/core/test-data
+  TAPROOT_KEY_CONTENT: ${{ secrets.TAPROOT_KEY_CONTENT }}
+  SEGWIT_SELLER_KEY_CONTENT: ${{ secrets.SEGWIT_SELLER_KEY_CONTENT }}
+  SEGWIT_BUYER_KEY_CONTENT: ${{ secrets.SEGWIT_BUYER_KEY_CONTENT }}
+  TAPROOT_KEY_PATH: ${{ github.workspace }}/core/keys/taproot_key.txt
+  SEGWIT_SELLER_KEY_PATH: ${{ github.workspace }}/core/keys/seller_key.txt
+  SEGWIT_BUYER_KEY_PATH: ${{ github.workspace }}/core/keys/buyer_key.txt
 
 jobs:
   quality-checks:
@@ -144,70 +150,20 @@ jobs:
           elif [ "$RUNNER_OS" != "Windows" ]; then
             mkcert -install
           fi
+          mkdir -p "$(dirname "$TAPROOT_KEY_PATH")"
+          echo "$TAPROOT_KEY_CONTENT" > "$TAPROOT_KEY_PATH"
+          echo "$SEGWIT_SELLER_KEY_CONTENT" > "$SEGWIT_SELLER_KEY_PATH"
+          echo "$SEGWIT_BUYER_KEY_CONTENT" > "$SEGWIT_BUYER_KEY_PATH"
         working-directory: ./core
         shell: bash
       - name: Run core integration tests
         working-directory: ./core
         run: cargo test --workspace
 
-  docker-cache-deps:
-    name: Cache Docker Dependencies
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 600
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            platform: linux/amd64
-            arch: amd64
-          - runner: ubuntu-24.04-arm64
-            platform: linux/arm64
-            arch: arm64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Sanitize branch name for cache tag
-        id: sanitize
-        run: |
-          BRANCH_NAME="${{ github.ref_name }}"
-          SANITIZED_NAME="${BRANCH_NAME//\//-}"
-          echo "branch_cache_tag=${SANITIZED_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Build and cache dependencies only
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          push: true
-          target: cacher
-          tags: kontorprotocol/kontor:buildcache-${{ github.ref == 'refs/heads/main' && 'main' || steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }}-cacher
-          cache-from: |
-            type=gha
-            type=registry,ref=kontorprotocol/kontor:buildcache-${{ steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }}
-            type=registry,ref=kontorprotocol/kontor:buildcache-main-${{ matrix.arch }}
-            type=registry,ref=kontorprotocol/kontor:buildcache-${{ matrix.arch }}
-          cache-to: |
-            type=gha,mode=max
-            type=inline
-            type=registry,ref=kontorprotocol/kontor:buildcache-${{ github.ref == 'refs/heads/main' && 'main' || steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }},mode=max
-
   docker-build:
     name: Build & Push Docker Image
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 600
-    needs: docker-cache-deps
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
@@ -239,18 +195,10 @@ jobs:
           images: kontorprotocol/kontor
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix=sha-
+            type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
           flavor: |
             suffix=-${{ matrix.arch }},onlatest=true
-
-      - name: Sanitize branch name for cache tag
-        id: sanitize
-        run: |
-          BRANCH_NAME="${{ github.ref_name }}"
-          SANITIZED_NAME="${BRANCH_NAME//\//-}"
-          echo "branch_cache_tag=${SANITIZED_NAME}" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         id: build
@@ -263,13 +211,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
             type=gha
-            type=registry,ref=kontorprotocol/kontor:buildcache-${{ steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }}
-            type=registry,ref=kontorprotocol/kontor:buildcache-main-${{ matrix.arch }}
             type=registry,ref=kontorprotocol/kontor:buildcache-${{ matrix.arch }}
           cache-to: |
             type=gha,mode=max
             type=inline
-            type=registry,ref=kontorprotocol/kontor:buildcache-${{ steps.sanitize.outputs.branch_cache_tag }}-${{ matrix.arch }},mode=max
+            type=registry,ref=kontorprotocol/kontor:buildcache-${{ matrix.arch }},mode=max
           outputs: type=image,name=kontorprotocol/kontor,push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
@@ -320,8 +266,7 @@ jobs:
           images: kontorprotocol/kontor
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix=sha-
+            type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Create manifest list and push
