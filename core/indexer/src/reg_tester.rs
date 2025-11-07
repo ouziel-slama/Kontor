@@ -577,14 +577,23 @@ impl RegTester {
         self.inner.lock().await.mempool_accept_result(raw_txs).await
     }
 
-    pub async fn transaction_ops(&self, tx_hex: &str) -> Result<Vec<OpWithResult>> {
+    pub async fn transaction_hex_inspect(&self, tx_hex: &str) -> Result<Vec<OpWithResult>> {
         self.inner
             .lock()
             .await
             .kontor_client
-            .transaction_ops(TransactionHex {
+            .transaction_hex_inspect(TransactionHex {
                 hex: tx_hex.to_string(),
             })
+            .await
+    }
+
+    pub async fn transaction_inspect(&self, txid: &Txid) -> Result<Vec<OpWithResult>> {
+        self.inner
+            .lock()
+            .await
+            .kontor_client
+            .transaction_inspect(txid)
             .await
     }
 

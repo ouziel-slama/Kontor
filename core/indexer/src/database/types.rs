@@ -54,6 +54,27 @@ pub struct TransactionRow {
     pub tx_index: i64,
 }
 
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct ContractListRow {
+    pub id: i64,
+    pub name: String,
+    pub height: i64,
+    pub tx_index: i64,
+    pub size: i64,
+}
+
+impl From<ContractRow> for ContractListRow {
+    fn from(row: ContractRow) -> Self {
+        ContractListRow {
+            id: row.id,
+            name: row.name,
+            height: row.height,
+            tx_index: row.tx_index,
+            size: row.bytes.len() as i64,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ContractRow {
     #[builder(default = 0)]

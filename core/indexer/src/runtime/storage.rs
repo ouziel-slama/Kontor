@@ -2,6 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use bon::Builder;
 use futures_util::Stream;
 use libsql::Connection;
+use regex::bytes::RegexBuilder;
 use std::io::Read;
 use wit_component::{ComponentEncoder, WitPrinter};
 
@@ -118,7 +119,13 @@ impl Storage {
         printer
             .print(decoded.resolve(), decoded.package(), &[])
             .context("Failed to print component")?;
-        Ok(format!("{}", printer.output))
+        let wit = format!("{}", printer.output);
+        let re = RegexBuilder::new(r"\n^.*borrow<core-context>.*$")
+            .multi_line(true)
+            .build()?;
+        let wit =
+            String::from_utf8_lossy(&re.replace_all(wit.as_bytes(), "".as_bytes())).into_owned();
+        Ok(wit)
     }
 
     pub async fn insert_contract(&self, name: &str, bytes: &[u8]) -> Result<i64> {

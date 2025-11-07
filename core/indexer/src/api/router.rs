@@ -18,15 +18,14 @@ use tower_http::{
 use tracing::{Level, Span, error, field, info, span};
 
 use crate::api::handlers::{
-    get_index, get_transaction, get_transactions, get_wit, post_compose, post_view, stop,
+    get_contract, get_contracts, get_index, get_transaction, get_transaction_inspect,
+    get_transactions, post_compose, post_contract, post_transaction_hex_inspect, stop,
 };
 
 use super::{
     Env,
     error::ErrorResponse,
-    handlers::{
-        get_block, get_block_latest, post_compose_commit, post_compose_reveal, post_transaction_ops,
-    },
+    handlers::{get_block, get_block_latest, post_compose_commit, post_compose_reveal},
     ws,
 };
 
@@ -89,15 +88,17 @@ pub fn new(context: Env) -> Router {
     let x_request_id = HeaderName::from_static("x-request-id");
 
     Router::new()
+        .route("/ws", any(ws::handler))
         .nest(
             "/api",
             Router::new()
                 .route("/", get(get_index))
+                .route("/stop", get(stop))
                 .nest(
                     "/blocks",
                     Router::new()
-                        .route("/{height|hash}", get(get_block))
                         .route("/latest", get(get_block_latest))
+                        .route("/{height|hash}", get(get_block))
                         .route("/{height}/transactions", get(get_transactions)),
                 )
                 .nest(
@@ -105,20 +106,23 @@ pub fn new(context: Env) -> Router {
                     Router::new()
                         .route("/", get(get_transactions))
                         .route("/{txid}", get(get_transaction))
-                        .route("/ops", post(post_transaction_ops)),
+                        .route("/{txid}/inspect", get(get_transaction_inspect))
+                        .route("/inspect", post(post_transaction_hex_inspect))
+                        .nest(
+                            "/compose",
+                            Router::new()
+                                .route("/", post(post_compose))
+                                .route("/commit", post(post_compose_commit))
+                                .route("/reveal", post(post_compose_reveal)),
+                        ),
                 )
-                .route("/stop", get(stop))
                 .nest(
-                    "/compose",
+                    "/contracts",
                     Router::new()
-                        .route("/", post(post_compose))
-                        .route("/commit", post(post_compose_commit))
-                        .route("/reveal", post(post_compose_reveal)),
-                )
-                .route("/view/{address}", post(post_view))
-                .route("/wit/{address}", get(get_wit)),
+                        .route("/", get(get_contracts))
+                        .route("/{address}", get(get_contract).post(post_contract)),
+                ),
         )
-        .route("/ws", any(ws::handler))
         .layer(
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::new(

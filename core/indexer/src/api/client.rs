@@ -6,7 +6,7 @@ use crate::{
     api::{
         compose::{ComposeOutputs, ComposeQuery},
         error::ErrorResponse,
-        handlers::{Info, OpWithResult, TransactionHex, ViewExpr, WitResponse},
+        handlers::{ContractResponse, Info, OpWithResult, TransactionHex, ViewExpr},
         result::ResultResponse,
     },
     config::Config,
@@ -67,7 +67,7 @@ impl Client {
     pub async fn compose(&self, query: ComposeQuery) -> Result<ComposeOutputs> {
         Self::handle_response(
             self.client
-                .post(format!("{}/compose", &self.url))
+                .post(format!("{}/transactions/compose", &self.url))
                 .json(&query)
                 .send()
                 .await?,
@@ -75,10 +75,13 @@ impl Client {
         .await
     }
 
-    pub async fn transaction_ops(&self, tx_hex: TransactionHex) -> Result<Vec<OpWithResult>> {
+    pub async fn transaction_hex_inspect(
+        &self,
+        tx_hex: TransactionHex,
+    ) -> Result<Vec<OpWithResult>> {
         Self::handle_response(
             self.client
-                .post(format!("{}/transactions/ops", &self.url))
+                .post(format!("{}/transactions/inspect", &self.url))
                 .json(&tx_hex)
                 .send()
                 .await?,
@@ -86,11 +89,14 @@ impl Client {
         .await
     }
 
-    fn contract_address_string(contract_address: &ContractAddress) -> String {
-        format!(
-            "{}_{}_{}",
-            contract_address.name, contract_address.height, contract_address.tx_index
+    pub async fn transaction_inspect(&self, txid: &bitcoin::Txid) -> Result<Vec<OpWithResult>> {
+        Self::handle_response(
+            self.client
+                .get(format!("{}/transactions/{}/inspect", &self.url, txid))
+                .send()
+                .await?,
         )
+        .await
     }
 
     pub async fn view(
@@ -103,11 +109,7 @@ impl Client {
         };
         Self::handle_response(
             self.client
-                .post(format!(
-                    "{}/view/{}",
-                    &self.url,
-                    Self::contract_address_string(contract_address)
-                ))
+                .post(format!("{}/contracts/{}", &self.url, contract_address))
                 .json(&view_expr)
                 .send()
                 .await?,
@@ -115,14 +117,10 @@ impl Client {
         .await
     }
 
-    pub async fn wit(&self, contract_address: &ContractAddress) -> Result<WitResponse> {
+    pub async fn wit(&self, contract_address: &ContractAddress) -> Result<ContractResponse> {
         Self::handle_response(
             self.client
-                .get(format!(
-                    "{}/wit/{}",
-                    &self.url,
-                    Self::contract_address_string(contract_address)
-                ))
+                .get(format!("{}/contracts/{}", &self.url, contract_address))
                 .send()
                 .await?,
         )
