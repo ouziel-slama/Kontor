@@ -28,7 +28,7 @@ async fn test_get_ops_from_api_regtest() -> Result<()> {
 
     let tx = deserialize_hex::<bitcoin::Transaction>(&reveal_tx_hex)?;
 
-    let ops = reg_tester.transaction_ops(&reveal_tx_hex).await?;
+    let ops = reg_tester.transaction_hex_inspect(&reveal_tx_hex).await?;
     assert_eq!(ops.len(), 1);
     assert_eq!(
         ops[0].op,
@@ -61,6 +61,11 @@ async fn test_get_ops_from_api_regtest() -> Result<()> {
     } else {
         bail!("Unexpected result event: {:?}", result);
     }
+
+    assert_eq!(
+        ops,
+        reg_tester.transaction_inspect(&tx.compute_txid()).await?
+    );
 
     Ok(())
 }

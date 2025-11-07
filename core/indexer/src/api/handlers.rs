@@ -1,18 +1,24 @@
+use std::str::FromStr;
+
 use anyhow::anyhow;
 use axum::{
     Json,
     extract::{Path, Query, State},
 };
 use bitcoin::consensus::encode;
+use libsql::Connection;
 
 use crate::{
     block::filter_map,
     database::{
         queries::{
-            get_checkpoint_latest, get_transaction_by_txid, get_transactions_paginated,
+            self, get_checkpoint_latest, get_transaction_by_txid, get_transactions_paginated,
             select_block_by_height_or_hash, select_block_latest,
         },
-        types::{BlockRow, OpResultId, TransactionListResponse, TransactionQuery, TransactionRow},
+        types::{
+            BlockRow, ContractListRow, OpResultId, TransactionListResponse, TransactionQuery,
+            TransactionRow,
+        },
     },
     reactor::{
         results::{ResultEvent, ResultEventMetadata},
@@ -174,19 +180,13 @@ pub struct TransactionHex {
     pub hex: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct OpWithResult {
     pub op: Op,
     pub result: Option<ResultEvent>,
 }
 
-pub async fn post_transaction_ops(
-    State(env): State<Env>,
-    Json(TransactionHex { hex }): Json<TransactionHex>,
-) -> Result<Vec<OpWithResult>> {
-    let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
-        .map_err(|e| HttpError::BadRequest(e.to_string()))?;
-    let conn = env.reader.connection().await?;
+async fn inspect(conn: &Connection, btx: bitcoin::Transaction) -> Result<Vec<OpWithResult>> {
     let mut ops = Vec::new();
     if let Some(tx) = filter_map((0, btx)) {
         for op in tx.ops {
@@ -195,11 +195,32 @@ pub async fn post_transaction_ops(
                 .input_index(op.metadata().input_index)
                 .op_index(0)
                 .build();
-            let result = ResultEvent::get_by_op_result_id(&conn, &id).await?;
+            let result = ResultEvent::get_by_op_result_id(conn, &id).await?;
             ops.push(OpWithResult { op, result });
         }
     }
     Ok(ops.into())
+}
+
+pub async fn post_transaction_hex_inspect(
+    State(env): State<Env>,
+    Json(TransactionHex { hex }): Json<TransactionHex>,
+) -> Result<Vec<OpWithResult>> {
+    let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
+        .map_err(|e| HttpError::BadRequest(e.to_string()))?;
+    let conn = env.reader.connection().await?;
+    inspect(&conn, btx).await
+}
+
+pub async fn get_transaction_inspect(
+    State(env): State<Env>,
+    Path(txid): Path<String>,
+) -> Result<Vec<OpWithResult>> {
+    let txid = bitcoin::Txid::from_str(&txid)
+        .map_err(|e| HttpError::BadRequest(format!("Invalid txid: {}", e)))?;
+    let btx = env.bitcoin.get_raw_transaction(&txid).await?;
+    let conn = env.reader.connection().await?;
+    inspect(&conn, btx).await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,7 +247,7 @@ fn extract_contract_address(s: &str) -> anyhow::Result<ContractAddress> {
     }
 }
 
-pub async fn post_view(
+pub async fn post_contract(
     Path(address): Path<String>,
     State(mut env): State<Env>,
     Json(ViewExpr { expr }): Json<ViewExpr>,
@@ -255,12 +276,20 @@ pub async fn post_view(
     .into())
 }
 
+pub async fn get_contracts(State(env): State<Env>) -> Result<Vec<ContractListRow>> {
+    let conn = env.reader.connection().await?;
+    Ok(queries::get_contracts(&conn).await?.into())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WitResponse {
+pub struct ContractResponse {
     pub wit: String,
 }
 
-pub async fn get_wit(Path(address): Path<String>, State(env): State<Env>) -> Result<WitResponse> {
+pub async fn get_contract(
+    Path(address): Path<String>,
+    State(env): State<Env>,
+) -> Result<ContractResponse> {
     let contract_address = extract_contract_address(&address)?;
     let contract_id = env
         .runtime
@@ -270,5 +299,5 @@ pub async fn get_wit(Path(address): Path<String>, State(env): State<Env>) -> Res
         .ok_or(HttpError::NotFound("Contract not found".to_string()))?;
 
     let wit = env.runtime.storage.component_wit(contract_id).await?;
-    Ok(WitResponse { wit }.into())
+    Ok(ContractResponse { wit }.into())
 }

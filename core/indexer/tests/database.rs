@@ -10,15 +10,16 @@ use indexer::{
         queries::{
             contract_has_state, delete_contract_state, delete_matching_paths,
             exists_contract_state, get_contract_bytes_by_address, get_contract_bytes_by_id,
-            get_contract_id_from_address, get_contract_result, get_latest_contract_state,
-            get_latest_contract_state_value, get_op_result, get_transaction_by_txid,
-            get_transactions_at_height, insert_block, insert_contract, insert_contract_result,
-            insert_contract_state, insert_processed_block, insert_transaction, matching_path,
-            path_prefix_filter_contract_state, select_block_at_height,
-            select_block_by_height_or_hash, select_block_latest,
+            get_contract_id_from_address, get_contract_result, get_contracts,
+            get_latest_contract_state, get_latest_contract_state_value, get_op_result,
+            get_transaction_by_txid, get_transactions_at_height, insert_block, insert_contract,
+            insert_contract_result, insert_contract_state, insert_processed_block,
+            insert_transaction, matching_path, path_prefix_filter_contract_state,
+            select_block_at_height, select_block_by_height_or_hash, select_block_latest,
         },
         types::{
-            BlockRow, ContractResultRow, ContractRow, ContractStateRow, OpResultId, TransactionRow,
+            BlockRow, ContractListRow, ContractResultRow, ContractRow, ContractStateRow,
+            OpResultId, TransactionRow,
         },
     },
     logging,
@@ -454,6 +455,9 @@ async fn test_contracts() -> Result<()> {
         .unwrap();
     let bytes = get_contract_bytes_by_id(&conn, id).await?.unwrap();
     assert_eq!(bytes, row.bytes);
+    let rows = get_contracts(&conn).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], ContractListRow { id, ..row.into() });
     Ok(())
 }
 

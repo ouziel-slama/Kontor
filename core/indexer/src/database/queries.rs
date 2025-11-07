@@ -5,7 +5,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     database::types::{
-        CheckpointRow, ContractResultRow, ContractRow, OpResultId, PaginationMeta,
+        CheckpointRow, ContractListRow, ContractResultRow, ContractRow, OpResultId, PaginationMeta,
         TransactionCursor, TransactionRow,
     },
     runtime::ContractAddress,
@@ -403,6 +403,20 @@ pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<i64,
     .await?;
 
     Ok(conn.last_insert_rowid())
+}
+
+pub async fn get_contracts(conn: &Connection) -> Result<Vec<ContractListRow>, Error> {
+    let mut rows = conn
+        .query(
+            "SELECT id, name, height, tx_index, size FROM contracts ORDER BY id DESC",
+            params![],
+        )
+        .await?;
+    let mut results = Vec::new();
+    while let Some(row) = rows.next().await? {
+        results.push(from_row(&row)?);
+    }
+    Ok(results)
 }
 
 pub async fn get_contract_bytes_by_address(

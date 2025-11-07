@@ -19,7 +19,7 @@ use crate::{
     runtime::ContractAddress,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ResultEventMetadata {
     #[builder(default = ContractAddress { name: String::new(), height: 0, tx_index: 0 })]
     pub contract_address: ContractAddress,
@@ -30,7 +30,7 @@ pub struct ResultEventMetadata {
     pub op_result_id: Option<OpResultId>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum ResultEvent {
     Ok {
         metadata: ResultEventMetadata,
