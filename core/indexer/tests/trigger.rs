@@ -4,8 +4,8 @@ use clap::Parser;
 use indexer::{
     config::Config,
     database::{
-        queries::{insert_block, insert_contract_state},
-        types::{BlockRow, CheckpointRow, ContractStateRow},
+        queries::{get_checkpoint_by_id, insert_block, insert_contract_state},
+        types::{BlockRow, ContractStateRow},
     },
     test_utils::new_test_db,
 };
@@ -37,7 +37,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state1.clone()).await?;
 
     // Verify the first checkpoint
-    let checkpoint1 = get_checkpoint_by_id(&conn, 1).await?;
+    let checkpoint1 = get_checkpoint_by_id(&conn, 1).await?.unwrap();
     assert_eq!(checkpoint1.height, 10);
     let expected_hash1 = calculate_row_hash(&contract_state1)?;
     assert_eq!(
@@ -57,7 +57,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state2.clone()).await?;
 
     // Verify the checkpoint was updated
-    let checkpoint2 = get_checkpoint_by_id(&conn, 1).await?;
+    let checkpoint2 = get_checkpoint_by_id(&conn, 1).await?.unwrap();
     assert_eq!(checkpoint2.height, 20);
     let expected_hash2 = calculate_combined_hash(&contract_state2, &checkpoint1.hash)?;
     assert_eq!(
@@ -78,7 +78,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state3.clone()).await?;
 
     // Verify a new checkpoint was created
-    let checkpoint3 = get_checkpoint_by_id(&conn, 2).await?;
+    let checkpoint3 = get_checkpoint_by_id(&conn, 2).await?.unwrap();
     assert_eq!(checkpoint3.height, 60);
     let expected_hash3 = calculate_combined_hash(&contract_state3, &checkpoint2.hash)?;
     assert_eq!(
@@ -99,7 +99,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state4.clone()).await?;
 
     // Verify the second checkpoint was updated
-    let checkpoint4 = get_checkpoint_by_id(&conn, 2).await?;
+    let checkpoint4 = get_checkpoint_by_id(&conn, 2).await?.unwrap();
     assert_eq!(checkpoint4.height, 75);
     let expected_hash4 = calculate_combined_hash(&contract_state4, &checkpoint3.hash)?;
     assert_eq!(
@@ -120,7 +120,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state5.clone()).await?;
 
     // Verify a third checkpoint was created
-    let checkpoint5 = get_checkpoint_by_id(&conn, 3).await?;
+    let checkpoint5 = get_checkpoint_by_id(&conn, 3).await?.unwrap();
     assert_eq!(checkpoint5.height, 120);
     let expected_hash5 = calculate_combined_hash(&contract_state5, &checkpoint4.hash)?;
     assert_eq!(
@@ -140,7 +140,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state6.clone()).await?;
 
     // Verify a fourth checkpoint was created
-    let checkpoint6 = get_checkpoint_by_id(&conn, 4).await?;
+    let checkpoint6 = get_checkpoint_by_id(&conn, 4).await?.unwrap();
     assert_eq!(checkpoint6.height, 190);
     let expected_hash6 = calculate_combined_hash(&contract_state6, &checkpoint5.hash)?;
     assert_eq!(
@@ -161,7 +161,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
     insert_contract_state(&conn, contract_state7.clone()).await?;
 
     // Verify the fourth checkpoint was updated
-    let checkpoint7 = get_checkpoint_by_id(&conn, 4).await?;
+    let checkpoint7 = get_checkpoint_by_id(&conn, 4).await?.unwrap();
     assert_eq!(checkpoint7.height, 199);
     let expected_hash7 = calculate_combined_hash(&contract_state7, &checkpoint6.hash)?;
     assert_eq!(
@@ -172,23 +172,6 @@ async fn test_checkpoint_trigger() -> Result<()> {
     assert_eq!(checkpoint_count7, 4);
 
     Ok(())
-}
-
-async fn get_checkpoint_by_id(conn: &libsql::Connection, id: i64) -> Result<CheckpointRow> {
-    let stmt = conn
-        .prepare("SELECT id, height, hash FROM checkpoints WHERE id = ?")
-        .await?;
-    let mut rows = stmt.query(params![id]).await?;
-
-    if let Some(row) = rows.next().await? {
-        Ok(CheckpointRow {
-            id: row.get(0)?,
-            height: row.get(1)?,
-            hash: row.get(2)?,
-        })
-    } else {
-        anyhow::bail!("No checkpoint found with id {}", id)
-    }
 }
 
 async fn count_checkpoints(conn: &libsql::Connection) -> Result<i64> {

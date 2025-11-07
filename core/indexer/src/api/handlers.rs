@@ -9,8 +9,8 @@ use crate::{
     block::filter_map,
     database::{
         queries::{
-            get_transaction_by_txid, get_transactions_paginated, select_block_by_height_or_hash,
-            select_block_latest,
+            get_checkpoint_latest, get_transaction_by_txid, get_transactions_paginated,
+            select_block_by_height_or_hash, select_block_latest,
         },
         types::{BlockRow, OpResultId, TransactionListResponse, TransactionQuery, TransactionRow},
     },
@@ -37,31 +37,30 @@ use serde::{Deserialize, Serialize};
 pub struct Info {
     pub available: bool,
     pub height: i64,
+    pub checkpoint: Option<String>,
 }
 
-pub async fn get_index(State(env): State<Env>) -> Result<Info> {
-    let height = select_block_latest(&*env.reader.connection().await?)
+async fn get_info(env: &Env) -> anyhow::Result<Info> {
+    let conn = env.reader.connection().await?;
+    let height = select_block_latest(&conn)
         .await?
         .map(|b| b.height)
         .unwrap_or((env.config.starting_block_height - 1) as i64);
+    let checkpoint = get_checkpoint_latest(&conn).await?.map(|c| c.hash);
     Ok(Info {
         available: true,
         height,
-    }
-    .into())
+        checkpoint,
+    })
+}
+
+pub async fn get_index(State(env): State<Env>) -> Result<Info> {
+    Ok(get_info(&env).await?.into())
 }
 
 pub async fn stop(State(env): State<Env>) -> Result<Info> {
     env.cancel_token.cancel();
-    let height = select_block_latest(&*env.reader.connection().await?)
-        .await?
-        .map(|b| b.height)
-        .unwrap_or_default();
-    Ok(Info {
-        available: false,
-        height,
-    }
-    .into())
+    Ok(get_info(&env).await?.into())
 }
 
 pub async fn get_block(State(env): State<Env>, Path(identifier): Path<String>) -> Result<BlockRow> {

@@ -20,11 +20,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::time::{Duration, sleep};
 
+use crate::bitcoin_follower::blockchain_info::BlockchainInfo;
 use crate::block::Transaction;
-use crate::{
-    bitcoin_follower::{info, rpc},
-    block::Block,
-};
+use crate::{bitcoin_follower::rpc, block::Block};
 
 use crate::config::Config;
 use crate::database::{Reader, Writer, queries, types::BlockRow};
@@ -123,7 +121,6 @@ pub fn sign_script_spend(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn sign_script_spend_with_sighash(
     secp: &Secp256k1<All>,
     taproot_spend_info: &TaprootSpendInfo,
@@ -495,7 +492,7 @@ impl rpc::BlockFetcher for MockBlockchain {
     }
 }
 
-impl info::BlockchainInfo for MockBlockchain {
+impl BlockchainInfo for MockBlockchain {
     async fn get_blockchain_height(&self) -> Result<u64, Error> {
         self.get_blockchain_height().await
     }

@@ -14,13 +14,13 @@ use tracing::{error, info};
 
 use crate::{
     bitcoin_client::client::BitcoinRpc,
-    bitcoin_follower::{ctrl::StartMessage, events::ZmqEvent},
+    bitcoin_follower::{blockchain_info::Info, ctrl::StartMessage, events::ZmqEvent},
     block::TransactionFilterMap,
 };
 
+pub mod blockchain_info;
 pub mod ctrl;
 pub mod events;
-pub mod info;
 pub mod messages;
 pub mod reconciler;
 pub mod rpc;
@@ -74,7 +74,7 @@ pub async fn run<C: BitcoinRpc>(
     ctrl_rx: Receiver<StartMessage>,
     init_tx: Option<oneshot::Sender<bool>>,
 ) -> Result<JoinHandle<()>> {
-    let info = info::Info::new(cancel_token.clone(), bitcoin.clone());
+    let info = Info::new(cancel_token.clone(), bitcoin.clone());
 
     let (rpc_tx, rpc_rx) = mpsc::channel(10);
     let fetcher = rpc::Fetcher::new(bitcoin.clone(), f, rpc_tx);

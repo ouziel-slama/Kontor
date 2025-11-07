@@ -543,7 +543,6 @@ impl Runtime {
         result
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn handle_procedure(
         &self,
         contract_id: i64,
