@@ -5,8 +5,8 @@ use thiserror::Error as ThisError;
 
 use crate::{
     database::types::{
-        ContractResultRow, ContractRow, OpResultId, PaginationMeta, TransactionCursor,
-        TransactionRow,
+        CheckpointRow, ContractResultRow, ContractRow, OpResultId, PaginationMeta,
+        TransactionCursor, TransactionRow,
     },
     runtime::ContractAddress,
 };
@@ -375,7 +375,23 @@ pub async fn contract_has_state(conn: &Connection, contract_id: i64) -> Result<b
 
 pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<i64, Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO contracts (name, height, tx_index, size, bytes) VALUES (?, ?, ?, ?, ?)",
+        r#"
+            INSERT OR REPLACE INTO contracts (
+                id,
+                name,
+                height,
+                tx_index,
+                size,
+                bytes
+            ) SELECT
+                COALESCE(MAX(id), 1) + 1,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?
+            FROM contracts
+            "#,
         params![
             row.name.clone(),
             row.height,
@@ -742,4 +758,29 @@ pub async fn insert_contract_result(
     .await?;
 
     Ok(conn.last_insert_rowid())
+}
+
+pub async fn get_checkpoint_by_id(
+    conn: &libsql::Connection,
+    id: i64,
+) -> Result<Option<CheckpointRow>, Error> {
+    let mut row = conn
+        .query(
+            "SELECT id, height, hash FROM checkpoints WHERE id = ?",
+            params![id],
+        )
+        .await?;
+    Ok(row.next().await?.map(|r| from_row(&r)).transpose()?)
+}
+
+pub async fn get_checkpoint_latest(
+    conn: &libsql::Connection,
+) -> Result<Option<CheckpointRow>, Error> {
+    let mut row = conn
+        .query(
+            "SELECT id, height, hash FROM checkpoints ORDER BY id DESC LIMIT 1",
+            params![],
+        )
+        .await?;
+    Ok(row.next().await?.map(|r| from_row(&r)).transpose()?)
 }

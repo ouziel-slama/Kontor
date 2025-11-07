@@ -222,7 +222,6 @@ pub fn build_seller_psbt_and_sig_taproot(
     Ok((seller_psbt, signature, control_block))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_signed_buyer_psbt_taproot(
     secp: &Secp256k1<secp256k1::All>,
     buyer_keypair: &Keypair,
@@ -499,7 +498,6 @@ pub fn build_seller_psbt_and_sig_segwit(
     Ok((seller_psbt, sig))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_signed_buyer_psbt_segwit(
     secp: &Secp256k1<All>,
     buyer_address: &Address,

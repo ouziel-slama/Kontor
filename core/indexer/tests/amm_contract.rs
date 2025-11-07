@@ -1,10 +1,12 @@
 use testlib::*;
+use tracing::info;
 
 interface!(name = "amm", path = "../test-contracts/amm/wit",);
 
 interface!(name = "token", path = "../test-contracts/token/wit");
 
 async fn run_test_amm_swaps(runtime: &mut Runtime) -> Result<()> {
+    info!("test_amm_swaps");
     let admin = runtime.identity().await?;
     let minter = runtime.identity().await?;
 
@@ -101,6 +103,7 @@ async fn run_test_amm_swaps(runtime: &mut Runtime) -> Result<()> {
 }
 
 async fn run_test_amm_swap_fee(runtime: &mut Runtime) -> Result<()> {
+    info!("test_amm_swap_fee");
     let admin = runtime.identity().await?;
     let minter = runtime.identity().await?;
     let amm = runtime.publish(&admin, "amm").await?;
@@ -181,6 +184,7 @@ async fn run_test_amm_swap_fee(runtime: &mut Runtime) -> Result<()> {
 }
 
 async fn run_test_amm_swap_low_slippage(runtime: &mut Runtime) -> Result<()> {
+    info!("test_amm_swap_low_slippage");
     let admin = runtime.identity().await?;
     let minter = runtime.identity().await?;
     let amm = runtime.publish(&admin, "amm").await?;
@@ -264,6 +268,7 @@ async fn run_test_amm_swap_low_slippage(runtime: &mut Runtime) -> Result<()> {
 }
 
 async fn run_test_amm_deposit_withdraw(runtime: &mut Runtime) -> Result<()> {
+    info!("test_amm_deposit_withdraw");
     let admin = runtime.identity().await?;
     let minter = runtime.identity().await?;
     let holder = runtime.identity().await?;
@@ -373,6 +378,7 @@ async fn run_test_amm_deposit_withdraw(runtime: &mut Runtime) -> Result<()> {
 }
 
 async fn run_test_amm_limits(runtime: &mut Runtime) -> Result<()> {
+    info!("test_amm_limits");
     let admin = runtime.identity().await?;
     let minter = runtime.identity().await?;
 
@@ -490,6 +496,7 @@ async fn run_test_amm_limits(runtime: &mut Runtime) -> Result<()> {
 }
 
 async fn run_test_amm_pools(runtime: &mut Runtime) -> Result<()> {
+    info!("test_amm_pools");
     let admin = runtime.identity().await?;
     let minter = runtime.identity().await?;
 
@@ -642,18 +649,8 @@ async fn test_amm_swaps() -> Result<()> {
     run_test_amm_swaps(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_amm_swaps_regtest() -> Result<()> {
-    run_test_amm_swaps(runtime).await
-}
-
 #[runtime(contracts_dir = "../../test-contracts")]
 async fn test_amm_swap_fee() -> Result<()> {
-    run_test_amm_swap_fee(runtime).await
-}
-
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_amm_swap_fee_regtest() -> Result<()> {
     run_test_amm_swap_fee(runtime).await
 }
 
@@ -662,28 +659,13 @@ async fn test_amm_swap_low_slippage() -> Result<()> {
     run_test_amm_swap_low_slippage(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_amm_swap_low_slippage_regtest() -> Result<()> {
-    run_test_amm_swap_low_slippage(runtime).await
-}
-
 #[runtime(contracts_dir = "../../test-contracts")]
 async fn test_amm_deposit_withdraw() -> Result<()> {
     run_test_amm_deposit_withdraw(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_amm_deposit_withdraw_regtest() -> Result<()> {
-    run_test_amm_deposit_withdraw(runtime).await
-}
-
 #[runtime(contracts_dir = "../../test-contracts")]
 async fn test_amm_limits() -> Result<()> {
-    run_test_amm_limits(runtime).await
-}
-
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_amm_limits_regtest() -> Result<()> {
     run_test_amm_limits(runtime).await
 }
 
@@ -693,6 +675,13 @@ async fn test_amm_pools() -> Result<()> {
 }
 
 #[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_amm_pools_regtest() -> Result<()> {
-    run_test_amm_pools(runtime).await
+async fn test_amm_contract_regtest() -> Result<()> {
+    logging::setup();
+    run_test_amm_swaps(runtime).await?;
+    run_test_amm_swap_fee(runtime).await?;
+    run_test_amm_swap_low_slippage(runtime).await?;
+    run_test_amm_deposit_withdraw(runtime).await?;
+    run_test_amm_limits(runtime).await?;
+    run_test_amm_pools(runtime).await?;
+    Ok(())
 }

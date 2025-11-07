@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     bitcoin_follower::ctrl::StartMessage,
-    bitcoin_follower::{info::BlockchainInfo, rpc::BlockFetcher, rpc::MempoolFetcher},
+    bitcoin_follower::{blockchain_info::BlockchainInfo, rpc::BlockFetcher, rpc::MempoolFetcher},
     block::Block,
 };
 
