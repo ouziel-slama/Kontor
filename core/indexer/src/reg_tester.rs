@@ -570,6 +570,10 @@ impl RegTester {
         })
     }
 
+    pub async fn bitcoin_client(&self) -> BitcoinClient {
+        self.inner.lock().await.bitcoin_client.clone()
+    }
+
     pub async fn mempool_accept_result(
         &self,
         raw_txs: &[String],
