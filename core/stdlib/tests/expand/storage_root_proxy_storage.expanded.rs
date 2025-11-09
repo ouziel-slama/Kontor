@@ -5,7 +5,7 @@ struct ProxyStorage {
 #[automatically_derived]
 impl stdlib::Store<crate::context::ProcStorage> for ProxyStorage {
     fn __set(
-        ctx: &crate::context::ProcStorage,
+        ctx: &std::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
         value: ProxyStorage,
     ) {
@@ -27,11 +27,7 @@ impl ProxyStorageModel {
         }
     }
     pub fn contract_address(&self) -> ContractAddress {
-        ContractAddressModel::new(
-                self.ctx.clone(),
-                self.base_path.push("contract_address"),
-            )
-            .load()
+        self.ctx.__get(self.base_path.push("contract_address")).unwrap()
     }
     pub fn load(&self) -> ProxyStorage {
         ProxyStorage {
@@ -60,11 +56,7 @@ impl ProxyStorageWriteModel {
         }
     }
     pub fn contract_address(&self) -> ContractAddress {
-        ContractAddressWriteModel::new(
-                self.ctx.clone(),
-                self.base_path.push("contract_address"),
-            )
-            .load()
+        self.ctx.__get(self.base_path.push("contract_address")).unwrap()
     }
     pub fn set_contract_address(&self, value: ContractAddress) {
         self.ctx.__set(self.base_path.push("contract_address"), value);
@@ -83,7 +75,7 @@ impl std::ops::Deref for ProxyStorageWriteModel {
 }
 impl ProxyStorage {
     pub fn init(self, ctx: &crate::ProcContext) {
-        ctx.storage().__set(stdlib::DotPathBuf::new(), self)
+        std::rc::Rc::new(ctx.storage()).__set(stdlib::DotPathBuf::new(), self)
     }
 }
 impl crate::ProcContext {

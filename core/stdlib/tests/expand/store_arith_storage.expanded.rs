@@ -4,7 +4,7 @@ pub struct ArithStorage {
 #[automatically_derived]
 impl stdlib::Store<crate::context::ProcStorage> for ArithStorage {
     fn __set(
-        ctx: &crate::context::ProcStorage,
+        ctx: &std::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
         value: ArithStorage,
     ) {

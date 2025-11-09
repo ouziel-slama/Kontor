@@ -42,11 +42,7 @@ pub fn generate_struct(
                         (quote! { Option<#v_ty> }, quote! { self.ctx.__get(base_path) })
                     } else {
                         let v_model_ty = get_model_ident(write, &v_ty, field.span())?;
-                        if utils::is_built_in_type(&v_ty) {
-                            (quote! { Option<#v_ty> }, quote! { self.ctx.__exists(&base_path).then(|| #v_model_ty::new(self.ctx.clone(), base_path).load()) })
-                        } else {
-                            (quote! { Option<#v_model_ty> }, quote! { self.ctx.__exists(&base_path).then(|| #v_model_ty::new(self.ctx.clone(), base_path)) })
-                        }
+                        (quote! { Option<#v_model_ty> }, quote! { self.ctx.__exists(&base_path).then(|| #v_model_ty::new(self.ctx.clone(), base_path)) })
                     };
 
                     let setter = if write {
@@ -107,11 +103,7 @@ pub fn generate_struct(
                         })
                     } else {
                         let inner_model_ty = get_model_ident(write, &inner_ty, field.span())?;
-                        let (load, ret_ty)= if utils::is_built_in_type(&inner_ty) {
-                            (quote! { .load() }, quote! { #inner_ty })
-                        } else {
-                            (quote! {}, quote! { #inner_model_ty })
-                        };
+                        let (load, ret_ty) = (quote! {}, quote! { #inner_model_ty });
                         Ok(quote! {
                             pub fn #field_name(&self) -> Option<#ret_ty> {
                                 let base_path = #base_path;
@@ -131,17 +123,9 @@ pub fn generate_struct(
                     })
                 } else {
                     let field_model_ty = get_model_ident(write, field_ty, field.span())?;
-                    Ok(if utils::is_built_in_type(field_ty) {
-                        quote! {
-                            pub fn #field_name(&self) -> #field_ty {
-                                #field_model_ty::new(self.ctx.clone(), self.base_path.push(#field_name_str)).load()
-                            }
-                        }
-                    } else {
-                        quote! {
-                            pub fn #field_name(&self) -> #field_model_ty {
-                                #field_model_ty::new(self.ctx.clone(), self.base_path.push(#field_name_str))
-                            }
+                    Ok(quote! {
+                        pub fn #field_name(&self) -> #field_model_ty {
+                            #field_model_ty::new(self.ctx.clone(), self.base_path.push(#field_name_str))
                         }
                     })
                 }
@@ -193,13 +177,7 @@ pub fn generate_struct(
                                 #field_name: self.#field_name()
                             })
                         } else {
-                            let load = if utils::is_built_in_type(&inner_ty) {
-                                quote! {}
-                            } else {
-                                quote! {
-                                    .map(|p| p.load())
-                                }
-                            };
+                            let load = quote! { .map(|p| p.load()) };
                             Ok(quote! {
                                 #field_name: self.#field_name()#load
                             })
@@ -209,14 +187,8 @@ pub fn generate_struct(
                             #field_name: self.#field_name()
                         })
                     } else {
-                        Ok(if utils::is_built_in_type(field_ty) {
-                            quote! {
-                                #field_name: self.#field_name()
-                            }
-                        } else {
-                            quote! {
-                                #field_name: self.#field_name().load()
-                            }
+                        Ok(quote! {
+                            #field_name: self.#field_name().load()
                         })
                     }
                 })
@@ -259,16 +231,6 @@ pub fn generate_struct(
             } else {
                 quote! {}
             };
-
-            // let proc_methods = if write {
-            //     quote! {
-            //         pub fn read_only(&'a self) -> #read_only_model_name<'a> {
-            //             #read_only_model_name::new(&self.view_context, self.base_path.clone())
-            //         }
-            //     }
-            // } else {
-            //     quote! {}
-            // };
 
             let result = quote! {
                 pub struct #model_name {

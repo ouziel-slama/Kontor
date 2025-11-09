@@ -2,6 +2,8 @@ use stdlib::*;
 
 contract!(name = "token");
 
+const BURNER: &str = "burn";
+
 #[derive(Clone, Default, StorageRoot)]
 struct TokenStorage {
     pub ledger: Map<String, Decimal>,
@@ -28,6 +30,13 @@ impl Guest for Token {
         mint(&ctx.model(), ctx.signer().to_string(), n);
     }
 
+    fn burn(ctx: &ProcContext, n: Decimal) -> Result<(), Error> {
+        Self::transfer(ctx, BURNER.to_string(), n)?;
+        let model = ctx.model();
+        model.set_total_supply(model.total_supply() - n);
+        Ok(())
+    }
+
     fn transfer(ctx: &ProcContext, to: String, n: Decimal) -> Result<(), Error> {
         let from = ctx.signer().to_string();
         let ledger = ctx.model().ledger();
@@ -52,9 +61,15 @@ impl Guest for Token {
         ctx.model()
             .ledger()
             .keys()
-            .map(|k| Balance {
-                value: ctx.model().ledger().get(&k).unwrap_or_default(),
-                key: k,
+            .filter_map(|k| {
+                if [BURNER.to_string()].contains(&k) {
+                    None
+                } else {
+                    Some(Balance {
+                        value: ctx.model().ledger().get(&k).unwrap_or_default(),
+                        key: k,
+                    })
+                }
             })
             .collect()
     }

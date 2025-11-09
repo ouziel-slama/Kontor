@@ -92,7 +92,7 @@ pub fn derive_store(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #[automatically_derived]
         impl #impl_generics stdlib::Store<crate::context::ProcStorage> for #name #ty_generics #where_clause {
-            fn __set(ctx: &crate::context::ProcStorage, base_path: stdlib::DotPathBuf, value: #name #ty_generics) {
+            fn __set(ctx: &std::rc::Rc<crate::context::ProcStorage>, base_path: stdlib::DotPathBuf, value: #name #ty_generics) {
                 #body
             }
         }
