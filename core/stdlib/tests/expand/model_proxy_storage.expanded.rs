@@ -17,11 +17,7 @@ impl ProxyStorageModel {
         }
     }
     pub fn contract_address(&self) -> ContractAddress {
-        ContractAddressModel::new(
-                self.ctx.clone(),
-                self.base_path.push("contract_address"),
-            )
-            .load()
+        self.ctx.__get(self.base_path.push("contract_address")).unwrap()
     }
     pub fn load(&self) -> ProxyStorage {
         ProxyStorage {
@@ -50,11 +46,7 @@ impl ProxyStorageWriteModel {
         }
     }
     pub fn contract_address(&self) -> ContractAddress {
-        ContractAddressWriteModel::new(
-                self.ctx.clone(),
-                self.base_path.push("contract_address"),
-            )
-            .load()
+        self.ctx.__get(self.base_path.push("contract_address")).unwrap()
     }
     pub fn set_contract_address(&self, value: ContractAddress) {
         self.ctx.__set(self.base_path.push("contract_address"), value);

@@ -4,7 +4,7 @@ struct ProxyStorage {
 }
 impl ProxyStorage {
     pub fn init(self, ctx: &crate::ProcContext) {
-        ctx.storage().__set(stdlib::DotPathBuf::new(), self)
+        std::rc::Rc::new(ctx.storage()).__set(stdlib::DotPathBuf::new(), self)
     }
 }
 impl crate::ProcContext {
