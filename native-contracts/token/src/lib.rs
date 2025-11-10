@@ -22,8 +22,8 @@ fn mint(model: &TokenStorageWriteModel, to: String, n: Decimal) -> Result<(), Er
     assert_gt_zero(n)?;
     let ledger = model.ledger();
     let balance = ledger.get(&to).unwrap_or_default();
-    ledger.set(to, balance + n);
-    model.update_total_supply(|t| t + n);
+    ledger.set(to, balance.add(n)?);
+    model.try_update_total_supply(|t| t.add(n))?;
     Ok(())
 }
 
@@ -67,7 +67,7 @@ impl Guest for Token {
 
     fn burn(ctx: &ProcContext, n: Decimal) -> Result<(), Error> {
         Self::transfer(ctx, BURNER.to_string(), n)?;
-        ctx.model().update_total_supply(|t| t - n);
+        ctx.model().try_update_total_supply(|t| t.sub(n))?;
         Ok(())
     }
 
@@ -83,8 +83,8 @@ impl Guest for Token {
             return Err(Error::Message("insufficient funds".to_string()));
         }
 
-        ledger.set(from, from_balance - n);
-        ledger.set(to, to_balance + n);
+        ledger.set(from, from_balance.sub(n)?);
+        ledger.set(to, to_balance.add(n)?);
         Ok(())
     }
 
