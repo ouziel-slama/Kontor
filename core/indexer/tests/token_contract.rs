@@ -9,8 +9,8 @@ async fn run_test_token_contract(runtime: &mut Runtime) -> Result<()> {
     let holder = runtime.identity().await?;
     let token = runtime.publish(&minter, "token").await?;
 
-    token::mint(runtime, &token, &minter, 900.into()).await?;
-    token::mint(runtime, &token, &minter, 100.into()).await?;
+    token::mint(runtime, &token, &minter, 900.into()).await??;
+    token::mint(runtime, &token, &minter, 100.into()).await??;
 
     let result = token::balance(runtime, &token, &minter).await?;
     assert_eq!(result, Some(1000.into()));
@@ -33,8 +33,12 @@ async fn run_test_token_contract(runtime: &mut Runtime) -> Result<()> {
     let result = token::balance(runtime, &token, "foo").await?;
     assert_eq!(result, None);
 
-    let result = token::balance_log10(runtime, &token, &minter).await??;
-    assert_eq!(result, Some("2.981_365_509_078_544_415".into()));
+    let balances = token::balances(runtime, &token).await?;
+    assert_eq!(balances.len(), 2);
+    let total = balances
+        .iter()
+        .fold(Integer::from(0), |acc, x| acc + x.value);
+    assert_eq!(total, token::total_supply(runtime, &token).await?);
 
     Ok(())
 }
@@ -51,9 +55,9 @@ async fn run_test_token_contract_large_numbers(runtime: &mut Runtime) -> Result<
         &minter,
         "100_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000_000".into(),
     )
-    .await?;
+    .await??;
 
-    token::mint_checked(runtime, &token, &minter, 100.into()).await??;
+    token::mint(runtime, &token, &minter, 100.into()).await??;
 
     let result = token::balance(runtime, &token, &minter).await?;
     assert_eq!(
@@ -66,7 +70,7 @@ async fn run_test_token_contract_large_numbers(runtime: &mut Runtime) -> Result<
 
     let max_int = "115_792_089_237_316_195_423_570_985_008_687_907_853_269_984_665_640_564_039_457";
     assert!(
-        token::mint_checked(runtime, &token, &minter, max_int.into())
+        token::mint(runtime, &token, &minter, max_int.into())
             .await?
             .is_err()
     );
@@ -93,12 +97,6 @@ async fn run_test_token_contract_large_numbers(runtime: &mut Runtime) -> Result<
             "99_999_999_999_999_999_999_999_999_999_000_000_000_000_000_000_000_000_000_100".into()
         )
     );
-
-    let result = token::balance_log10(runtime, &token, &minter).await??;
-    assert_eq!(result, Some("59.000_000_000_000_000_000".into()));
-
-    let result = token::balance_log10(runtime, &token, &holder).await??;
-    assert_eq!(result, Some("30.000_000_000_000_000_000".into()));
 
     Ok(())
 }

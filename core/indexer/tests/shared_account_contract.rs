@@ -16,7 +16,7 @@ async fn run_test_shared_account_contract(runtime: &mut Runtime) -> Result<()> {
     let token = runtime.publish(&alice, "token").await?;
     let shared_account = runtime.publish(&alice, "shared-account").await?;
 
-    token::mint(runtime, &token, &alice, 100.into()).await?;
+    token::mint(runtime, &token, &alice, 100.into()).await??;
 
     let account_id = shared_account::open(
         runtime,

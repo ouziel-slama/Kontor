@@ -45,6 +45,13 @@ async fn run_test_native_token_contract(runtime: &mut Runtime) -> Result<()> {
     let result = token::balance(runtime, "foo").await?;
     assert_eq!(result, None);
 
+    let balances = token::balances(runtime).await?;
+    assert_eq!(balances.len(), 2);
+    let total = balances
+        .iter()
+        .fold(Decimal::from(0), |acc, x| acc + x.value);
+    assert_eq!(total, token::total_supply(runtime).await?);
+
     Ok(())
 }
 

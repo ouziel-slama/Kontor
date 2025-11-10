@@ -97,7 +97,7 @@ impl Guest for Token {
             .ledger()
             .keys()
             .filter_map(|k| {
-                if [BURNER.to_string()].contains(&k) {
+                if [BURNER.to_string(), "core".to_string()].contains(&k) {
                     None
                 } else {
                     Some(Balance {
