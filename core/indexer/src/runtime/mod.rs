@@ -223,6 +223,7 @@ impl Runtime {
     pub async fn issuance(&mut self, signer: &Signer) -> Result<()> {
         token::api::issuance(self, &Signer::Core(Box::new(signer.clone())), 10.into())
             .await
+            .expect("Failed to run issuance")
             .expect("Failed to issue tokens");
         Ok(())
     }

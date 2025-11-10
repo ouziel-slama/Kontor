@@ -17,7 +17,7 @@ world root {
   }
 
   export init: func(ctx: borrow<proc-context>);
-  export mint: func(ctx: borrow<proc-context>, n: decimal);
+  export mint: func(ctx: borrow<proc-context>, n: decimal) -> result<_, error>;
   export burn: func(ctx: borrow<proc-context>, n: decimal) -> result<_, error>;
   export transfer: func(ctx: borrow<proc-context>, to: string, n: decimal) -> result<_, error>;
   export balance: func(ctx: borrow<view-context>, acc: string) -> option<decimal>;
