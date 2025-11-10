@@ -590,8 +590,8 @@ impl Runtime {
                 }
             })
             .await
+            .expect("Failed to run burn and release gas")
             .expect("Failed to burn and release gas")
-            .map_err(|e| anyhow!("Problem burning and releasing gas: {}", e))?;
         }
         self.storage
             .insert_contract_result(

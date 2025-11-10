@@ -68,6 +68,14 @@ impl ProxyStorageWriteModel {
         let path = self.base_path.push("contract_address");
         self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
     }
+    pub fn try_update_contract_address(
+        &self,
+        f: impl Fn(ContractAddress) -> Result<ContractAddress, crate::error::Error>,
+    ) -> Result<(), crate::error::Error> {
+        let path = self.base_path.push("contract_address");
+        self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+        Ok(())
+    }
     pub fn load(&self) -> ProxyStorage {
         ProxyStorage {
             contract_address: self.contract_address(),

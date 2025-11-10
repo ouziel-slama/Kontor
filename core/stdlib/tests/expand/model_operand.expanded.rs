@@ -50,6 +50,14 @@ impl OperandWriteModel {
         let path = self.base_path.push("y");
         self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
     }
+    pub fn try_update_y(
+        &self,
+        f: impl Fn(u64) -> Result<u64, crate::error::Error>,
+    ) -> Result<(), crate::error::Error> {
+        let path = self.base_path.push("y");
+        self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+        Ok(())
+    }
     pub fn load(&self) -> Operand {
         Operand { y: self.y() }
     }
