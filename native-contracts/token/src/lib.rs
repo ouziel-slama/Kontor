@@ -10,11 +10,21 @@ struct TokenStorage {
     pub total_supply: Decimal,
 }
 
-fn mint(model: &TokenStorageWriteModel, to: String, n: Decimal) {
+fn assert_gt_zero(n: Decimal) -> Result<(), Error> {
+    if n <= 0.into() {
+        return Err(Error::Message("Amount must be positive".to_string()));
+    }
+
+    Ok(())
+}
+
+fn mint(model: &TokenStorageWriteModel, to: String, n: Decimal) -> Result<(), Error> {
+    assert_gt_zero(n)?;
     let ledger = model.ledger();
     let balance = ledger.get(&to).unwrap_or_default();
-    ledger.set(to, balance + n);
-    model.update_total_supply(|t| t + n);
+    ledger.set(to, balance.add(n)?);
+    model.try_update_total_supply(|t| t.add(n))?;
+    Ok(())
 }
 
 impl Guest for Token {
@@ -22,12 +32,12 @@ impl Guest for Token {
         TokenStorage::default().init(ctx);
     }
 
-    fn issuance(ctx: &CoreContext, n: Decimal) {
+    fn issuance(ctx: &CoreContext, n: Decimal) -> Result<(), Error> {
         mint(
             &ctx.proc_context().model(),
             ctx.signer_proc_context().signer().to_string(),
             n,
-        );
+        )
     }
 
     fn hold(ctx: &CoreContext, n: Decimal) -> Result<(), Error> {
@@ -51,17 +61,18 @@ impl Guest for Token {
         )
     }
 
-    fn mint(ctx: &ProcContext, n: Decimal) {
-        mint(&ctx.model(), ctx.signer().to_string(), n);
+    fn mint(ctx: &ProcContext, n: Decimal) -> Result<(), Error> {
+        mint(&ctx.model(), ctx.signer().to_string(), n)
     }
 
     fn burn(ctx: &ProcContext, n: Decimal) -> Result<(), Error> {
         Self::transfer(ctx, BURNER.to_string(), n)?;
-        ctx.model().update_total_supply(|t| t - n);
+        ctx.model().try_update_total_supply(|t| t.sub(n))?;
         Ok(())
     }
 
     fn transfer(ctx: &ProcContext, to: String, n: Decimal) -> Result<(), Error> {
+        assert_gt_zero(n)?;
         let from = ctx.signer().to_string();
         let ledger = ctx.model().ledger();
 
@@ -72,8 +83,8 @@ impl Guest for Token {
             return Err(Error::Message("insufficient funds".to_string()));
         }
 
-        ledger.set(from, from_balance - n);
-        ledger.set(to, to_balance + n);
+        ledger.set(from, from_balance.sub(n)?);
+        ledger.set(to, to_balance.add(n)?);
         Ok(())
     }
 
@@ -86,7 +97,7 @@ impl Guest for Token {
             .ledger()
             .keys()
             .filter_map(|k| {
-                if [BURNER.to_string()].contains(&k) {
+                if [BURNER.to_string(), "core".to_string()].contains(&k) {
                     None
                 } else {
                     Some(Balance {

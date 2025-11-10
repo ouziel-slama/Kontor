@@ -71,6 +71,14 @@ impl ContractAddressWriteModel {
         let path = self.base_path.push("name");
         self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
     }
+    pub fn try_update_name(
+        &self,
+        f: impl Fn(String) -> Result<String, crate::error::Error>,
+    ) -> Result<(), crate::error::Error> {
+        let path = self.base_path.push("name");
+        self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+        Ok(())
+    }
     pub fn set_height(&self, value: i64) {
         self.ctx.__set(self.base_path.push("height"), value);
     }
@@ -78,12 +86,28 @@ impl ContractAddressWriteModel {
         let path = self.base_path.push("height");
         self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
     }
+    pub fn try_update_height(
+        &self,
+        f: impl Fn(i64) -> Result<i64, crate::error::Error>,
+    ) -> Result<(), crate::error::Error> {
+        let path = self.base_path.push("height");
+        self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+        Ok(())
+    }
     pub fn set_tx_index(&self, value: i64) {
         self.ctx.__set(self.base_path.push("tx_index"), value);
     }
     pub fn update_tx_index(&self, f: impl Fn(i64) -> i64) {
         let path = self.base_path.push("tx_index");
         self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
+    }
+    pub fn try_update_tx_index(
+        &self,
+        f: impl Fn(i64) -> Result<i64, crate::error::Error>,
+    ) -> Result<(), crate::error::Error> {
+        let path = self.base_path.push("tx_index");
+        self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+        Ok(())
     }
     pub fn load(&self) -> ContractAddress {
         ContractAddress {

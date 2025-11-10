@@ -2,9 +2,29 @@ use stdlib::*;
 
 contract!(name = "token");
 
+const BURNER: &str = "burn";
+
 #[derive(Clone, Default, StorageRoot)]
 struct TokenStorage {
     pub ledger: Map<String, Integer>,
+    pub total_supply: Integer,
+}
+
+fn assert_gt_zero(n: Integer) -> Result<(), Error> {
+    if n <= 0.into() {
+        return Err(Error::Message("Amount must be positive".to_string()));
+    }
+
+    Ok(())
+}
+
+fn mint(model: &TokenStorageWriteModel, to: String, n: Integer) -> Result<(), Error> {
+    assert_gt_zero(n)?;
+    let ledger = model.ledger();
+    let balance = ledger.get(&to).unwrap_or_default();
+    ledger.set(to, balance.add(n)?);
+    model.try_update_total_supply(|t| t.add(n))?;
+    Ok(())
 }
 
 impl Guest for Token {
@@ -12,24 +32,18 @@ impl Guest for Token {
         TokenStorage::default().init(ctx);
     }
 
-    fn mint(ctx: &ProcContext, n: Integer) {
-        let to = ctx.signer().to_string();
-        let ledger = ctx.model().ledger();
-
-        let balance = ledger.get(&to).unwrap_or_default();
-        ledger.set(to, balance + n);
+    fn mint(ctx: &ProcContext, n: Integer) -> Result<(), Error> {
+        mint(&ctx.model(), ctx.signer().to_string(), n)
     }
 
-    fn mint_checked(ctx: &ProcContext, n: Integer) -> Result<(), Error> {
-        let to = ctx.signer().to_string();
-        let ledger = ctx.model().ledger();
-
-        let balance = ledger.get(&to).unwrap_or_default();
-        ledger.set(to, balance.add(n)?);
+    fn burn(ctx: &ProcContext, n: Integer) -> Result<(), Error> {
+        Self::transfer(ctx, BURNER.to_string(), n)?;
+        ctx.model().try_update_total_supply(|t| t.sub(n))?;
         Ok(())
     }
 
     fn transfer(ctx: &ProcContext, to: String, n: Integer) -> Result<(), Error> {
+        assert_gt_zero(n)?;
         let from = ctx.signer().to_string();
         let ledger = ctx.model().ledger();
 
@@ -40,8 +54,8 @@ impl Guest for Token {
             return Err(Error::Message("insufficient funds".to_string()));
         }
 
-        ledger.set(from, from_balance - n);
-        ledger.set(to, to_balance + n);
+        ledger.set(from, from_balance.sub(n)?);
+        ledger.set(to, to_balance.add(n)?);
         Ok(())
     }
 
@@ -49,11 +63,24 @@ impl Guest for Token {
         ctx.model().ledger().get(acc)
     }
 
-    fn balance_log10(ctx: &ViewContext, acc: String) -> Result<Option<Decimal>, Error> {
+    fn balances(ctx: &ViewContext) -> Vec<Balance> {
         ctx.model()
             .ledger()
-            .get(acc)
-            .map(|i| Decimal::from(i).log10())
-            .transpose()
+            .keys()
+            .filter_map(|k| {
+                if [BURNER.to_string()].contains(&k) {
+                    None
+                } else {
+                    Some(Balance {
+                        value: ctx.model().ledger().get(&k).unwrap_or_default(),
+                        key: k,
+                    })
+                }
+            })
+            .collect()
+    }
+
+    fn total_supply(ctx: &ViewContext) -> Integer {
+        ctx.model().total_supply()
     }
 }
