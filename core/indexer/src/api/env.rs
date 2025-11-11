@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -12,5 +15,5 @@ pub struct Env {
     pub reader: database::Reader,
     pub result_subscriber: ResultSubscriber,
     pub bitcoin: Client,
-    pub runtime: Runtime,
+    pub runtime: Arc<Mutex<Runtime>>,
 }

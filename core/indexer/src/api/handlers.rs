@@ -249,7 +249,7 @@ fn extract_contract_address(s: &str) -> anyhow::Result<ContractAddress> {
 
 pub async fn post_contract(
     Path(address): Path<String>,
-    State(mut env): State<Env>,
+    State(env): State<Env>,
     Json(ViewExpr { expr }): Json<ViewExpr>,
 ) -> Result<ResultEvent> {
     let contract_address = extract_contract_address(&address)?;
@@ -257,7 +257,12 @@ pub async fn post_contract(
         .split("(")
         .next()
         .ok_or(anyhow!("Invalid wave expression"))?;
-    let result = env.runtime.execute(None, &contract_address, &expr).await;
+    let result = env
+        .runtime
+        .lock()
+        .await
+        .execute(None, &contract_address, &expr)
+        .await;
     let metadata = ResultEventMetadata::builder()
         .contract_address(contract_address)
         .func_name(func_name.to_string())
@@ -291,13 +296,13 @@ pub async fn get_contract(
     State(env): State<Env>,
 ) -> Result<ContractResponse> {
     let contract_address = extract_contract_address(&address)?;
-    let contract_id = env
-        .runtime
+    let runtime = env.runtime.lock().await;
+    let contract_id = runtime
         .storage
         .contract_id(&contract_address)
         .await?
         .ok_or(HttpError::NotFound("Contract not found".to_string()))?;
 
-    let wit = env.runtime.storage.component_wit(contract_id).await?;
+    let wit = runtime.storage.component_wit(contract_id).await?;
     Ok(ContractResponse { wit }.into())
 }

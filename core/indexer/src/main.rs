@@ -1,4 +1,5 @@
 use std::panic;
+use std::sync::Arc;
 
 use crate::api::Env;
 use anyhow::Result;
@@ -8,7 +9,7 @@ use indexer::reactor::results::ResultSubscriber;
 use indexer::runtime::Runtime;
 use indexer::{api, block, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -78,7 +79,7 @@ async fn main() -> Result<()> {
             reader: reader.clone(),
             result_subscriber,
             bitcoin: bitcoin.clone(),
-            runtime: Runtime::new_read_only(&reader).await?,
+            runtime: Arc::new(Mutex::new(Runtime::new_read_only(&reader).await?)),
         })
         .await?,
     );
