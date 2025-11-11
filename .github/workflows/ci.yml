@@ -71,12 +71,17 @@ jobs:
         working-directory: ./core
 
   test:
-    name: Build & Test (${{ matrix.os }})
+    name: ${{ matrix.test-type == 'standard' && 'Tests' || 'Optimized Tests' }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     environment: mainnet
     strategy:
       matrix:
         os: [ubuntu-x86-4cpu, macos-latest]
+        test-type: [standard, optimized]
+        exclude:
+          # Only run optimized tests on one OS to save CI time
+          - os: macos-latest
+            test-type: optimized
     steps:
       - uses: actions/checkout@v4
       - name: Initial disk usage
@@ -126,9 +131,16 @@ jobs:
         run: cargo install cargo-expand
       - name: Install wasm-opt
         run: cargo install wasm-opt
-      - name: Run core integration tests
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run tests (standard)
+        if: matrix.test-type == 'standard'
         working-directory: ./core
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
+      - name: Run tests (optimized - prop & load tests only)
+        if: matrix.test-type == 'optimized'
+        working-directory: ./core
+        run: cargo nextest run --workspace --release -E 'binary(*_prop) + binary(load_tests)'
 
   docker-cache-deps:
     name: Docker - Cache Dependencies (${{ matrix.arch }})
