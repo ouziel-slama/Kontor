@@ -20,6 +20,9 @@ fn assert_gt_zero(n: Decimal) -> Result<(), Error> {
 
 fn mint(model: &TokenStorageWriteModel, to: String, n: Decimal) -> Result<(), Error> {
     assert_gt_zero(n)?;
+    if n > 1000.into() {
+        return Err(Error::Message("Amount exceeds limit".to_string()));
+    }
     let ledger = model.ledger();
     let balance = ledger.get(&to).unwrap_or_default();
     ledger.set(to, balance.add(n)?);

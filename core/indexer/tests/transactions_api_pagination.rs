@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use axum::{Router, routing::get};
 use axum_test::{TestResponse, TestServer};
@@ -19,6 +21,7 @@ use indexer::{
 use libsql::params;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,7 +115,7 @@ async fn create_test_app() -> Result<Router> {
         config: Config::new_na(),
         cancel_token: CancellationToken::new(),
         result_subscriber: ResultSubscriber::default(),
-        runtime: Runtime::new_read_only(&reader).await?,
+        runtime: Arc::new(Mutex::new(Runtime::new_read_only(&reader).await?)),
         reader,
     };
 
