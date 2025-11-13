@@ -109,9 +109,6 @@ COPY --from=cacher /usr/local/cargo /usr/local/cargo
 # Copy source code
 COPY . .
 
-# Copy .git directory for built info
-COPY .git /build/.git
-
 # Replace the glibc sqlean extensions with musl versions
 RUN rm -rf core/indexer/sqlean-0.28.0/linux-* && \
     mkdir -p core/indexer/sqlean-0.28.0/linux-x64 && \
