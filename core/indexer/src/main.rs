@@ -7,7 +7,7 @@ use clap::Parser;
 use indexer::database::queries::delete_unprocessed_blocks;
 use indexer::reactor::results::ResultSubscriber;
 use indexer::runtime::Runtime;
-use indexer::{api, block, reactor};
+use indexer::{api, block, built_info, reactor};
 use indexer::{bitcoin_client, bitcoin_follower, config::Config, database, logging, stopper};
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -17,6 +17,11 @@ use tracing::{error, info};
 async fn main() -> Result<()> {
     logging::setup();
     info!("Kontor");
+    info!(
+        "{}@{}",
+        built_info::PKG_VERSION,
+        built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown")
+    );
     let config = Config::try_parse()?;
     info!("{:#?}", config);
     let bitcoin = bitcoin_client::Client::new_from_config(&config)?;
