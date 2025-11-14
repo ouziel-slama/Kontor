@@ -23,7 +23,7 @@ async fn test_token_contract_load() -> Result<()> {
     let token = runtime.publish(&minter, "token").await?;
 
     // Mint a large supply
-    let _ = token::mint(runtime, &token, &minter, "1000000000".into()).await?;
+    token::mint(runtime, &token, &minter, "1000000000".into()).await??;
 
     // Create a pool of users
     let mut users = vec![];

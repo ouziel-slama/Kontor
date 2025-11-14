@@ -22,7 +22,7 @@ async fn test_api_view_calls_load() -> Result<()> {
     let token = runtime.publish(&minter, "token").await?;
 
     // Create some state
-    let _ = token::mint(runtime, &token, &minter, "1000000".into()).await?;
+    token::mint(runtime, &token, &minter, "1000000".into()).await??;
 
     let holder = runtime.identity().await?;
     for i in 0..10 {
