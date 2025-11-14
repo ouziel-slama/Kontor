@@ -62,12 +62,18 @@ async fn test_token_contract_load() -> Result<()> {
     info!("Load test completed!");
     info!("  Total operations: {}", num_operations);
     info!("  Total time: {:?}", elapsed);
-    info!("  Operations/sec: {:.2}", num_operations as f64 / elapsed.as_secs_f64());
+    info!(
+        "  Operations/sec: {:.2}",
+        num_operations as f64 / elapsed.as_secs_f64()
+    );
 
     // Estimate blocks created (transfers create blocks, balance checks don't)
     let num_transfers = num_operations / 3;
     info!("  Estimated blocks: {}", num_transfers);
-    info!("  Blocks/sec: {:.2}", num_transfers as f64 / elapsed.as_secs_f64());
+    info!(
+        "  Blocks/sec: {:.2}",
+        num_transfers as f64 / elapsed.as_secs_f64()
+    );
 
     // Verify final state
     let minter_balance = token::balance(runtime, &token, &minter).await?;

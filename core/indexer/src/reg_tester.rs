@@ -65,10 +65,7 @@ async fn run_bitcoin(data_dir: &Path) -> Result<(Child, bitcoin_client::Client)>
     create_bitcoin_conf(data_dir).await?;
 
     // Check if bitcoind is in PATH
-    let bitcoind_check = Command::new("which")
-        .arg("bitcoind")
-        .output()
-        .await;
+    let bitcoind_check = Command::new("which").arg("bitcoind").output().await;
 
     if bitcoind_check.is_err() || !bitcoind_check.unwrap().status.success() {
         bail!(
