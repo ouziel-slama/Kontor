@@ -76,6 +76,7 @@ Compile Bitcoin:
 cmake -B build -DENABLE_WALLET=OFF -DENABLE_IPC=OFF -DWITH_ZMQ=ON
 cmake --build build
 ```
+
 Compiled binaries including `bitcoind` are located in `build/bin`. **This directory must be on your `$PATH` when running tests.**
 
 ### Run Tests
