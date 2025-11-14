@@ -71,11 +71,16 @@ jobs:
         working-directory: ./core
 
   test:
-    name: Build & Test (${{ matrix.os }})
+    name: ${{ matrix.test-type == 'standard' && 'Tests' || 'Optimized Tests' }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-x86-4cpu, macos-latest]
+        test-type: [standard, optimized]
+        exclude:
+          # Only run optimized tests on macOS to save CI time
+          - os: ubuntu-x86-4cpu
+            test-type: optimized
     steps:
       - uses: actions/checkout@v4
       - name: Initial disk usage
@@ -125,9 +130,14 @@ jobs:
         run: cargo install cargo-expand
       - name: Install wasm-opt
         run: cargo install wasm-opt
-      - name: Run core integration tests
+      - name: Run tests (standard)
+        if: matrix.test-type == 'standard'
         working-directory: ./core
         run: cargo test --workspace
+      - name: Run tests (optimized - long running tests only)
+        if: matrix.test-type == 'optimized'
+        working-directory: ./core
+        run: cargo test --release --workspace -- --ignored
 
   docker-cache-deps:
     name: Docker - Cache Dependencies (${{ matrix.arch }})
@@ -139,7 +149,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-x86-4cpu
+          - runner: ubuntu-x86-4cpu-1
             platform: linux/amd64
             arch: amd64
           - runner: ubuntu-arm64-4cpu
@@ -194,7 +204,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-x86-4cpu
+          - runner: ubuntu-x86-4cpu-1
             platform: linux/amd64
             arch: amd64
           - runner: ubuntu-arm64-4cpu
