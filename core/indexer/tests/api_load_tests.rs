@@ -11,7 +11,7 @@ use tracing::info;
 interface!(name = "token", path = "../test-contracts/token/wit");
 
 /// API load test: make many view calls to measure API throughput
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
+#[testlib::test(contracts_dir = "test-contracts", mode = "regtest")]
 async fn test_api_view_calls_load() -> Result<()> {
     logging::setup();
 

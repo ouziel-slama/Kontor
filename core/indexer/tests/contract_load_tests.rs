@@ -12,7 +12,7 @@ interface!(name = "token", path = "../test-contracts/token/wit");
 
 /// Simple load test: process many blocks with many contract calls
 /// Each contract call creates a transaction and mines a block automatically in regtest
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
+#[testlib::test(contracts_dir = "test-contracts", mode = "regtest")]
 async fn test_token_contract_load() -> Result<()> {
     logging::setup();
 
