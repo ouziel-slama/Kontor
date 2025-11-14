@@ -7,7 +7,7 @@ world root {
   import kontor:built-in/context;
   import kontor:built-in/error;
   import kontor:built-in/numbers;
-  use kontor:built-in/context.{core-context, view-context, proc-context, signer};
+  use kontor:built-in/context.{view-context, proc-context, signer};
   use kontor:built-in/error.{error};
   use kontor:built-in/numbers.{decimal};
 
@@ -16,8 +16,7 @@ world root {
     value: decimal,
   }
 
-  export init: func(ctx: borrow<proc-context>);
-  export mint: func(ctx: borrow<proc-context>, n: decimal);
+  export mint: func(ctx: borrow<proc-context>, n: decimal) -> result<_, error>;
   export burn: func(ctx: borrow<proc-context>, n: decimal) -> result<_, error>;
   export transfer: func(ctx: borrow<proc-context>, to: string, n: decimal) -> result<_, error>;
   export balance: func(ctx: borrow<view-context>, acc: string) -> option<decimal>;
@@ -32,12 +31,12 @@ async fn run_test(runtime: &mut Runtime) -> Result<()> {
     Ok(())
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_get_wit_from_api() -> Result<()> {
     run_test(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
+#[testlib::test(contracts_dir = "test-contracts", mode = "regtest")]
 async fn test_get_wit_from_api_regtest() -> Result<()> {
     run_test(runtime).await
 }

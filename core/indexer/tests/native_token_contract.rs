@@ -11,12 +11,12 @@ async fn run_test_native_token_contract(runtime: &mut Runtime) -> Result<()> {
     let minter = runtime.identity().await?;
     let holder = runtime.identity().await?;
 
-    token::mint(runtime, &minter, 900.into()).await?;
-    token::mint(runtime, &minter, 100.into()).await?;
+    token::mint(runtime, &minter, 900.into()).await??;
+    token::mint(runtime, &minter, 100.into()).await??;
 
     let result = token::balance(runtime, &minter).await?;
     // extra 10 comes from automatic issuance at identity creation
-    let minter_tokens_spent_as_gas = Decimal::from("0.000000232");
+    let minter_tokens_spent_as_gas = Decimal::from("0.00000023");
     assert_eq!(
         result,
         Some(Decimal::from(1010) - minter_tokens_spent_as_gas)
@@ -36,7 +36,7 @@ async fn run_test_native_token_contract(runtime: &mut Runtime) -> Result<()> {
     assert_eq!(result, Some(Decimal::from(62) - holder_tokens_spent_as_gas));
 
     let result = token::balance(runtime, &minter).await?;
-    let minter_tokens_spent_as_gas = Decimal::from("0.000000486");
+    let minter_tokens_spent_as_gas = Decimal::from("0.000000482");
     assert_eq!(
         result,
         Some(Decimal::from(958) - minter_tokens_spent_as_gas)
@@ -45,15 +45,22 @@ async fn run_test_native_token_contract(runtime: &mut Runtime) -> Result<()> {
     let result = token::balance(runtime, "foo").await?;
     assert_eq!(result, None);
 
+    let balances = token::balances(runtime).await?;
+    assert_eq!(balances.len(), 2);
+    let total = balances
+        .iter()
+        .fold(Decimal::from(0), |acc, x| acc + x.value);
+    assert_eq!(total, token::total_supply(runtime).await?);
+
     Ok(())
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_native_token_contract() -> Result<()> {
     run_test_native_token_contract(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
+#[testlib::test(contracts_dir = "test-contracts", mode = "regtest")]
 async fn test_native_token_contract_regtest() -> Result<()> {
     run_test_native_token_contract(runtime).await
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use indexer::{
     api::{self, Env, ws::Response, ws_client::WebSocketClient},
@@ -12,7 +14,7 @@ use indexer::{
     runtime::Runtime,
     test_utils::{new_mock_block_hash, new_test_db},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
@@ -34,7 +36,7 @@ async fn test_websocket_server() -> Result<()> {
             reader: reader.clone(),
             result_subscriber: result_subscriber.clone(), // Clone for shared use
             bitcoin,
-            runtime: Runtime::new_read_only(&reader).await?,
+            runtime: Arc::new(Mutex::new(Runtime::new_read_only(&reader).await?)),
         })
         .await?,
     );

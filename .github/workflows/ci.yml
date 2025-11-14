@@ -73,7 +73,6 @@ jobs:
   test:
     name: ${{ matrix.test-type == 'standard' && 'Tests' || 'Optimized Tests' }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    environment: mainnet
     strategy:
       matrix:
         os: [ubuntu-x86-4cpu, macos-latest]

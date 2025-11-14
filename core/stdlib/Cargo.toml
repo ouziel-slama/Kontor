@@ -8,8 +8,9 @@ workspace = true
 
 [dependencies]
 macros = { path = "../macros" }
+wit-bindgen = { workspace = true }
 wasm-wave = { workspace = true }
 
 [dev-dependencies]
 macrotest = "=1.2.0"
-trybuild = "=1.0.113"
+trybuild = "=1.0.114"

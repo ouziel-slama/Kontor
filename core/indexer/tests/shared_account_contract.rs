@@ -16,7 +16,7 @@ async fn run_test_shared_account_contract(runtime: &mut Runtime) -> Result<()> {
     let token = runtime.publish(&alice, "token").await?;
     let shared_account = runtime.publish(&alice, "shared-account").await?;
 
-    token::mint(runtime, &token, &alice, 100.into()).await?;
+    token::mint(runtime, &token, &alice, 100.into()).await??;
 
     let account_id = shared_account::open(
         runtime,
@@ -113,12 +113,12 @@ async fn run_test_shared_account_contract(runtime: &mut Runtime) -> Result<()> {
     Ok(())
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_shared_account_contract() -> Result<()> {
     run_test_shared_account_contract(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
+#[testlib::test(contracts_dir = "test-contracts", mode = "regtest")]
 async fn test_shared_account_contract_regtest() -> Result<()> {
     run_test_shared_account_contract(runtime).await
 }

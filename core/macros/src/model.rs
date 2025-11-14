@@ -150,12 +150,19 @@ pub fn generate_struct(
                             Ok(quote! {})
                         } else if utils::is_primitive_type(field_ty) {
                             let update_field_name = Ident::new(&format!("update_{}", field_name), field_name.span());
+                            let try_update_field_name = Ident::new(&format!("try_update_{}", field_name), field_name.span());
                             Ok(quote! {
                                 #setter
 
                                 pub fn #update_field_name(&self, f: impl Fn(#field_ty) -> #field_ty) {
                                     let path = self.base_path.push(#field_name_str);
                                     self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
+                                }
+
+                                pub fn #try_update_field_name(&self, f: impl Fn(#field_ty) -> Result<#field_ty, crate::error::Error>) -> Result<(), crate::error::Error> {
+                                    let path = self.base_path.push(#field_name_str);
+                                    self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+                                    Ok(())
                                 }
                             })
                         } else {

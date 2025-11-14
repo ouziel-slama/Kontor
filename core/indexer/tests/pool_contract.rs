@@ -14,8 +14,8 @@ async fn run_test_amm_swaps(runtime: &mut Runtime) -> Result<()> {
     let token_b = runtime.publish_as(&admin, "token", "token-b").await?;
     let pool = runtime.publish(&admin, "pool").await?;
 
-    token::mint(runtime, &token_a, &minter, 1000.into()).await?;
-    token::mint(runtime, &token_b, &minter, 1000.into()).await?;
+    token::mint(runtime, &token_a, &minter, 1000.into()).await??;
+    token::mint(runtime, &token_b, &minter, 1000.into()).await??;
 
     token::transfer(runtime, &token_a, &minter, &admin, 100.into()).await??;
     token::transfer(runtime, &token_b, &minter, &admin, 500.into()).await??;
@@ -118,8 +118,8 @@ async fn run_test_amm_swap_fee(runtime: &mut Runtime) -> Result<()> {
     let token_b = runtime.publish_as(&admin, "token", "token-b").await?;
     let pool = runtime.publish(&admin, "pool").await?;
 
-    token::mint(runtime, &token_a, &minter, 1000.into()).await?;
-    token::mint(runtime, &token_b, &minter, 1000.into()).await?;
+    token::mint(runtime, &token_a, &minter, 1000.into()).await??;
+    token::mint(runtime, &token_b, &minter, 1000.into()).await??;
 
     token::transfer(runtime, &token_a, &minter, &admin, 100.into()).await??;
     token::transfer(runtime, &token_b, &minter, &admin, 500.into()).await??;
@@ -209,8 +209,8 @@ async fn run_test_amm_shares_token_interface(runtime: &mut Runtime) -> Result<()
     let token_b = runtime.publish_as(&admin, "token", "token-b").await?;
     let pool = runtime.publish(&admin, "pool").await?;
 
-    token::mint(runtime, &token_a, &minter, 1000.into()).await?;
-    token::mint(runtime, &token_b, &minter, 1000.into()).await?;
+    token::mint(runtime, &token_a, &minter, 1000.into()).await??;
+    token::mint(runtime, &token_b, &minter, 1000.into()).await??;
 
     token::transfer(runtime, &token_a, &minter, &admin, 100.into()).await??;
     token::transfer(runtime, &token_b, &minter, &admin, 500.into()).await??;
@@ -265,8 +265,8 @@ async fn run_test_amm_swap_low_slippage(runtime: &mut Runtime) -> Result<()> {
     let token_b = runtime.publish_as(&admin, "token", "token-b").await?;
     let pool = runtime.publish(&admin, "pool").await?;
 
-    token::mint(runtime, &token_a, &minter, 110000.into()).await?;
-    token::mint(runtime, &token_b, &minter, 510000.into()).await?;
+    token::mint(runtime, &token_a, &minter, 110000.into()).await??;
+    token::mint(runtime, &token_b, &minter, 510000.into()).await??;
 
     token::transfer(runtime, &token_a, &minter, &admin, 100000.into()).await??;
     token::transfer(runtime, &token_b, &minter, &admin, 500000.into()).await??;
@@ -346,8 +346,8 @@ async fn run_test_amm_deposit_withdraw(runtime: &mut Runtime) -> Result<()> {
     let token_b = runtime.publish_as(&admin, "token", "token-b").await?;
     let pool = runtime.publish(&admin, "pool").await?;
 
-    token::mint(runtime, &token_a, &minter, 1000.into()).await?;
-    token::mint(runtime, &token_b, &minter, 1000.into()).await?;
+    token::mint(runtime, &token_a, &minter, 1000.into()).await??;
+    token::mint(runtime, &token_b, &minter, 1000.into()).await??;
 
     token::transfer(runtime, &token_a, &minter, &admin, 100.into()).await??;
     token::transfer(runtime, &token_b, &minter, &admin, 500.into()).await??;
@@ -456,8 +456,8 @@ async fn run_test_amm_limits(runtime: &mut Runtime) -> Result<()> {
     let large_value: Integer = "340_282_366_920_938_463_463_374_606_431".into(); // sqrt(MAX_INT) - 1000
     let oversized_value = large_value + 1.into();
 
-    token::mint(runtime, &token_a, &minter, max_int.into()).await?;
-    token::mint(runtime, &token_b, &minter, max_int.into()).await?;
+    token::mint(runtime, &token_a, &minter, max_int.into()).await??;
+    token::mint(runtime, &token_b, &minter, max_int.into()).await??;
 
     token::transfer(runtime, &token_a, &minter, &admin, 1000.into()).await??;
     token::transfer(runtime, &token_b, &minter, &admin, 1000.into()).await??;
@@ -539,37 +539,37 @@ async fn run_test_amm_limits(runtime: &mut Runtime) -> Result<()> {
     Ok(())
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_amm_swaps() -> Result<()> {
     run_test_amm_swaps(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_amm_swap_fee() -> Result<()> {
     run_test_amm_swap_fee(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_amm_shares_token_interface() -> Result<()> {
     run_test_amm_shares_token_interface(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_amm_swap_low_slippage() -> Result<()> {
     run_test_amm_swap_low_slippage(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_amm_deposit_withdraw() -> Result<()> {
     run_test_amm_deposit_withdraw(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts")]
+#[testlib::test(contracts_dir = "test-contracts")]
 async fn test_amm_limits() -> Result<()> {
     run_test_amm_limits(runtime).await
 }
 
-#[runtime(contracts_dir = "../../test-contracts", mode = "regtest")]
+#[testlib::test(contracts_dir = "test-contracts", mode = "regtest")]
 async fn test_pool_contract_regtest() -> Result<()> {
     logging::setup();
     run_test_amm_swaps(runtime).await?;

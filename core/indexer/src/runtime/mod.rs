@@ -223,6 +223,7 @@ impl Runtime {
     pub async fn issuance(&mut self, signer: &Signer) -> Result<()> {
         token::api::issuance(self, &Signer::Core(Box::new(signer.clone())), 10.into())
             .await
+            .expect("Failed to run issuance")
             .expect("Failed to issue tokens");
         Ok(())
     }
@@ -336,7 +337,7 @@ impl Runtime {
             .ok_or(anyhow!("Contract not found: {}", contract_address))?;
         let component = self.load_component(contract_id).await?;
         let linker = self.make_linker()?;
-        let fuel_limit = fuel.unwrap_or(self.fuel_limit_for_non_procs());
+        let mut fuel_limit = fuel.unwrap_or(self.fuel_limit_for_non_procs());
         let mut store = self.make_store(fuel_limit)?;
         let instance = linker.instantiate_async(&mut store, &component).await?;
         let fallback_name = "fallback";
@@ -381,6 +382,10 @@ impl Runtime {
                     if t.eq(&wasmtime::component::ResourceType::host::<CoreContext>()) =>
                 {
                     is_proc = true;
+                    fuel_limit = self.fuel_limit_for_non_procs();
+                    store
+                        .set_fuel(fuel_limit)
+                        .expect("Failed to set fuel for core context procedure");
                     params.insert(
                         0,
                         wasmtime::component::Val::Resource(
@@ -569,11 +574,20 @@ impl Runtime {
         {
             result = Err(e);
         }
-        let gas = self.gas_consumed(
-            starting_fuel,
-            store.get_fuel().expect("Fuel should be available"),
-        );
+        let gas = self
+            .gas_consumed(
+                starting_fuel,
+                store.get_fuel().expect("Fuel should be available"),
+            )
+            .max(1);
+
         if is_op_result && !signer.is_core() {
+            tracing::info!(
+                "Gas consumed: {} {} {}",
+                gas,
+                starting_fuel,
+                store.get_fuel().unwrap()
+            );
             Box::pin({
                 let mut runtime = self.clone();
                 runtime.stack = Stack::new();
@@ -589,8 +603,8 @@ impl Runtime {
                 }
             })
             .await
+            .expect("Failed to run burn and release gas")
             .expect("Failed to burn and release gas")
-            .map_err(|e| anyhow!("Problem burning and releasing gas: {}", e))?;
         }
         self.storage
             .insert_contract_result(
@@ -1062,11 +1076,7 @@ impl HasData for Runtime {
     type Data<'a> = &'a mut Runtime;
 }
 
-impl built_in::error::Host for Runtime {
-    async fn meta_force_generate_error(&mut self, _e: built_in::error::Error) -> Result<()> {
-        unimplemented!()
-    }
-}
+impl built_in::error::Host for Runtime {}
 
 impl built_in::crypto::Host for Runtime {}
 
@@ -1926,19 +1936,5 @@ impl built_in::numbers::HostWithStore for Runtime {
             )
             .await?;
         Ok(numerics::log10_decimal(a))
-    }
-
-    async fn meta_force_generate_integer<T>(
-        _accessor: &Accessor<T, Self>,
-        _i: Integer,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-
-    async fn meta_force_generate_decimal<T>(
-        _accessor: &Accessor<T, Self>,
-        _d: Decimal,
-    ) -> Result<()> {
-        unimplemented!()
     }
 }

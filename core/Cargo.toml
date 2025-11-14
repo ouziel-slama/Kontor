@@ -10,6 +10,7 @@ too_many_arguments = "allow"
 [workspace.dependencies]
 # IMPORTANT
 wasmtime = { version = "=38.0.4", features = ["wave", "component-model-async"] }
+wit-bindgen = "=0.47.0"
 wit-component = "=0.240.0"
 wit-parser = "=0.240.0"
 wasm-wave = "=0.240.0"
@@ -29,7 +30,7 @@ tower-http = { version = "=0.6.6", features = [
 ] }
 tower = "=0.5.2"
 tracing = "=0.1.41"
-libsql = "=0.9.24"
+libsql = "=0.9.27"
 glob = "=0.3.3"
 async-trait = "=0.1.89"
 tempfile = "=3.23.0"

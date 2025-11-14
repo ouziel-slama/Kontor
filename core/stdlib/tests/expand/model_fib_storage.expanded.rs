@@ -50,6 +50,14 @@ impl FibValueWriteModel {
         let path = self.base_path.push("value");
         self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap()));
     }
+    pub fn try_update_value(
+        &self,
+        f: impl Fn(u64) -> Result<u64, crate::error::Error>,
+    ) -> Result<(), crate::error::Error> {
+        let path = self.base_path.push("value");
+        self.ctx.__set(path.clone(), f(self.ctx.__get(path).unwrap())?);
+        Ok(())
+    }
     pub fn load(&self) -> FibValue {
         FibValue { value: self.value() }
     }
