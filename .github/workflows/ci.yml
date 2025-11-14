@@ -14,7 +14,7 @@ env:
 jobs:
   quality-checks:
     name: Lint & Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x86-4cpu
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -279,7 +279,7 @@ jobs:
 
   docker-manifest:
     name: Docker - Publish Multi-Arch Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x86-4cpu
     timeout-minutes: 600
     needs: docker-build
     if: github.event_name == 'pull_request'
