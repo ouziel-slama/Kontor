@@ -78,8 +78,8 @@ jobs:
         os: [ubuntu-x86-4cpu, macos-latest]
         test-type: [standard, optimized]
         exclude:
-          # Only run optimized tests on macOS to save CI time
-          - os: ubuntu-x86-4cpu
+          # Only run optimized tests on ubuntu-x86-4cpu
+          - os: macos-latest
             test-type: optimized
     steps:
       - uses: actions/checkout@v4
