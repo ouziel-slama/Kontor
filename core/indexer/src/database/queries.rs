@@ -365,20 +365,18 @@ pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<i64,
     conn.execute(
         r#"
             INSERT OR REPLACE INTO contracts (
-                id,
                 name,
                 height,
                 tx_index,
                 size,
                 bytes
-            ) SELECT
-                COALESCE(MAX(id), 0) + 1,
+            ) VALUES (
                 ?,
                 ?,
                 ?,
                 ?,
                 ?
-            FROM contracts
+            )
             "#,
         params![
             row.name.clone(),
