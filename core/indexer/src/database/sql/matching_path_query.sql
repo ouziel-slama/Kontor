@@ -1,19 +1,26 @@
-SELECT path FROM (
-  SELECT
+SELECT
   path
-  FROM (
+FROM
+  (
     SELECT
-      *,
-      ROW_NUMBER() OVER (ORDER BY height DESC) AS rank
+      path
     FROM
-      contract_state
+      (
+        SELECT
+          *,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              height DESC
+          ) AS rank
+        FROM
+          contract_state
+        WHERE
+          contract_id = :contract_id
+          AND path LIKE :base_path || '%'
+      ) t
     WHERE
-      contract_id = :contract_id
-      AND path LIKE :base_path || '%'
-  ) t
-  WHERE
-    rank = 1
-    AND deleted = false
-)
+      rank = 1
+      AND deleted = false
+  )
 WHERE
   path REGEXP :path;
