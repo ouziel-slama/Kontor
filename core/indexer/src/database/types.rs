@@ -22,9 +22,8 @@ impl From<&Block> for BlockRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct CheckpointRow {
-    pub id: i64,
     pub height: i64,
     pub hash: String,
 }

@@ -1,47 +1,9 @@
 CREATE TRIGGER IF NOT EXISTS trigger_checkpoint_on_contract_state_insert AFTER INSERT ON contract_state BEGIN
 -- Insert a new checkpoint with the calculated hash
 INSERT INTO
-  checkpoints (id, height, hash)
+  checkpoints (height, hash)
 VALUES
   (
-    -- Determine the ID
-    CASE
-    -- If no checkpoints exist, use ID 1
-      WHEN NOT EXISTS (
-        SELECT
-          1
-        FROM
-          checkpoints
-      ) THEN 1
-      -- If we've reached a new interval, increment the ID
-      WHEN (NEW.height / 50) > (
-        (
-          SELECT
-            height
-          FROM
-            checkpoints
-          WHERE
-            id = (
-              SELECT
-                MAX(id)
-              FROM
-                checkpoints
-            )
-        ) / 50
-      ) THEN (
-        SELECT
-          MAX(id)
-        FROM
-          checkpoints
-      ) + 1
-      -- Otherwise, use the same ID as the latest checkpoint
-      ELSE (
-        SELECT
-          MAX(id)
-        FROM
-          checkpoints
-      )
-    END,
     NEW.height,
     (
       WITH
@@ -79,13 +41,10 @@ VALUES
                     hash
                   FROM
                     checkpoints
-                  WHERE
-                    id = (
-                      SELECT
-                        MAX(id)
-                      FROM
-                        checkpoints
-                    )
+                  ORDER BY
+                    height DESC
+                  LIMIT
+                    1
                 )
               )
             )
@@ -99,9 +58,8 @@ VALUES
         END
     )
   )
-ON CONFLICT (id) DO UPDATE
+ON CONFLICT (height) DO UPDATE
 SET
-  height = NEW.height,
   hash = excluded.hash;
 
 END;

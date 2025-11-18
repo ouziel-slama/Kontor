@@ -760,14 +760,14 @@ pub async fn insert_contract_result(
     Ok(conn.last_insert_rowid())
 }
 
-pub async fn get_checkpoint_by_id(
+pub async fn get_checkpoint_by_height(
     conn: &libsql::Connection,
-    id: i64,
+    height: i64,
 ) -> Result<Option<CheckpointRow>, Error> {
     let mut row = conn
         .query(
-            "SELECT id, height, hash FROM checkpoints WHERE id = ?",
-            params![id],
+            "SELECT height, hash FROM checkpoints WHERE height = ?",
+            params![height],
         )
         .await?;
     Ok(row.next().await?.map(|r| from_row(&r)).transpose()?)
@@ -778,7 +778,7 @@ pub async fn get_checkpoint_latest(
 ) -> Result<Option<CheckpointRow>, Error> {
     let mut row = conn
         .query(
-            "SELECT id, height, hash FROM checkpoints ORDER BY id DESC LIMIT 1",
+            "SELECT height, hash FROM checkpoints ORDER BY height DESC LIMIT 1",
             params![],
         )
         .await?;
