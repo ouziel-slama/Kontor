@@ -49,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_contract_state_contract_tx ON contract_state (con
 CREATE TABLE IF NOT EXISTS contract_results (
   id INTEGER PRIMARY KEY,
   contract_id INTEGER NOT NULL,
-  func_name TEXT NOT NULL,
+  func TEXT NOT NULL,
   height INTEGER NOT NULL,
   tx_index INTEGER NOT NULL,
   input_index INTEGER NOT NULL,
