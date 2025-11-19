@@ -11,8 +11,9 @@ use indexer::{
     bitcoin_client::Client,
     config::Config,
     database::{
-        queries::{insert_block, insert_transaction},
-        types::{BlockRow, TransactionListResponse, TransactionRow},
+        Reader, Writer,
+        queries::{insert_block, insert_contract, insert_contract_state, insert_transaction},
+        types::{BlockRow, ContractRow, ContractStateRow, TransactionListResponse, TransactionRow},
     },
     reactor::results::ResultSubscriber,
     runtime::Runtime,
@@ -29,11 +30,8 @@ struct TransactionListResponseWrapper {
     result: TransactionListResponse,
 }
 
-async fn create_test_app() -> Result<Router> {
-    let (reader, writer, _temp_dir) = new_test_db().await?;
-
+async fn create_test_app(reader: Reader, writer: Writer) -> Result<Router> {
     let conn = writer.connection();
-
     // Insert blocks for heights 800000-800005
     for height in 800000..=800005 {
         let block = BlockRow {
@@ -43,10 +41,18 @@ async fn create_test_app() -> Result<Router> {
         insert_block(&conn, block).await?;
     }
 
-    let reader_conn = reader.connection().await?;
-    let mut reader_verify_rows = reader_conn
-        .query("SELECT COUNT(*) FROM blocks", params![])
-        .await?;
+    insert_contract(
+        &conn,
+        ContractRow::builder()
+            .name("token".to_string())
+            .height(800000)
+            .tx_index(1)
+            .bytes(vec![])
+            .build(),
+    )
+    .await?;
+
+    let mut reader_verify_rows = conn.query("SELECT COUNT(*) FROM blocks", params![]).await?;
     if let Some(row) = reader_verify_rows.next().await? {
         let count: i64 = row.get(0)?;
         assert_eq!(count, 6);
@@ -62,6 +68,17 @@ async fn create_test_app() -> Result<Router> {
         insert_transaction(&conn, tx).await?;
     }
 
+    insert_contract_state(
+        &conn,
+        ContractStateRow::builder()
+            .contract_id(1)
+            .height(800000)
+            .tx_index(1)
+            .path("foo".to_string())
+            .build(),
+    )
+    .await?;
+
     // Height 800001: 3 transactions (indices 0-2)
     for tx_index in 0..3 {
         let tx = TransactionRow::builder()
@@ -72,6 +89,17 @@ async fn create_test_app() -> Result<Router> {
         insert_transaction(&conn, tx).await?;
     }
 
+    insert_contract_state(
+        &conn,
+        ContractStateRow::builder()
+            .contract_id(1)
+            .height(800001)
+            .tx_index(2)
+            .path("bar".to_string())
+            .build(),
+    )
+    .await?;
+
     // Height 800002: 7 transactions (indices 0-6)
     for tx_index in 0..7 {
         let tx = TransactionRow::builder()
@@ -81,6 +109,17 @@ async fn create_test_app() -> Result<Router> {
             .build();
         insert_transaction(&conn, tx).await?;
     }
+
+    insert_contract_state(
+        &conn,
+        ContractStateRow::builder()
+            .contract_id(1)
+            .height(800002)
+            .tx_index(3)
+            .path("biz".to_string())
+            .build(),
+    )
+    .await?;
 
     // Height 800003: 1 transaction (index 0)
     let tx = TransactionRow::builder()
@@ -123,7 +162,6 @@ async fn create_test_app() -> Result<Router> {
     Ok(Router::new()
         .route("/api/blocks/{identifier}", get(get_block))
         .route("/api/blocks/latest", get(get_block_latest))
-        .route("/api/blocks/{height}/transactions", get(get_transactions))
         .route("/api/transactions", get(get_transactions))
         .route("/api/transactions/{txid}", get(get_transaction))
         .with_state(env))
@@ -133,9 +171,10 @@ async fn collect_all_transactions_with_cursor(
     server: &TestServer,
     endpoint: &str,
     limit: u32,
+    height: Option<u32>,
 ) -> Result<Vec<TransactionRow>> {
     let mut all_transactions = Vec::new();
-    let mut cursor: Option<String> = None;
+    let mut cursor: Option<i64> = None;
     let mut iterations = 0;
     const MAX_ITERATIONS: usize = 50; // Safety limit
 
@@ -145,11 +184,13 @@ async fn collect_all_transactions_with_cursor(
             panic!("Too many iterations, possible infinite loop");
         }
 
-        let url = if let Some(ref c) = cursor {
-            format!("{}?limit={}&cursor={}", endpoint, limit, c)
-        } else {
-            format!("{}?limit={}", endpoint, limit)
-        };
+        let mut url = format!("{}?limit={}", endpoint, limit);
+        if let Some(c) = cursor.as_ref() {
+            url += &format!("&cursor={}", c);
+        }
+        if let Some(h) = height {
+            url += &format!("&height={}", h);
+        }
 
         let response: TestResponse = server.get(&url).await;
         assert_eq!(response.status_code(), StatusCode::OK);
@@ -176,6 +217,7 @@ async fn collect_all_transactions_with_offset(
     server: &TestServer,
     endpoint: &str,
     limit: u32,
+    height: Option<u32>,
 ) -> Result<Vec<TransactionRow>> {
     let mut all_transactions = Vec::new();
     let mut offset = 0;
@@ -188,7 +230,10 @@ async fn collect_all_transactions_with_offset(
             panic!("Too many iterations, possible infinite loop");
         }
 
-        let url = format!("{}?limit={}&offset={}", endpoint, limit, offset);
+        let mut url = format!("{}?limit={}&offset={}", endpoint, limit, offset);
+        if let Some(h) = height {
+            url += &format!("&height={}", h);
+        }
         let response: TestResponse = server.get(&url).await;
         assert_eq!(response.status_code(), StatusCode::OK);
 
@@ -208,15 +253,16 @@ async fn collect_all_transactions_with_offset(
 
 #[tokio::test]
 async fn test_cursor_pagination_no_gaps_all_transactions() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Test with different page sizes
     for limit in [1, 2, 3, 5, 7, 10] {
         let cursor_transactions =
-            collect_all_transactions_with_cursor(&server, "/api/transactions", limit).await?;
+            collect_all_transactions_with_cursor(&server, "/api/transactions", limit, None).await?;
         let offset_transactions =
-            collect_all_transactions_with_offset(&server, "/api/transactions", limit).await?;
+            collect_all_transactions_with_offset(&server, "/api/transactions", limit, None).await?;
 
         // Both methods should return the same transactions in the same order
         assert_eq!(
@@ -280,16 +326,17 @@ async fn test_cursor_pagination_no_gaps_all_transactions() -> Result<()> {
 
 #[tokio::test]
 async fn test_cursor_pagination_no_gaps_single_height() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Test pagination for height 800000 (5 transactions)
     for limit in [1, 2, 3, 4, 5, 6] {
         let cursor_transactions =
-            collect_all_transactions_with_cursor(&server, "/api/blocks/800000/transactions", limit)
+            collect_all_transactions_with_cursor(&server, "/api/transactions", limit, Some(800000))
                 .await?;
         let offset_transactions =
-            collect_all_transactions_with_offset(&server, "/api/blocks/800000/transactions", limit)
+            collect_all_transactions_with_offset(&server, "/api/transactions", limit, Some(800000))
                 .await?;
 
         // Both methods should return the same transactions
@@ -344,16 +391,17 @@ async fn test_cursor_pagination_no_gaps_single_height() -> Result<()> {
 
 #[tokio::test]
 async fn test_cursor_pagination_no_gaps_height_with_many_transactions() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Test pagination for height 800002 (7 transactions)
     for limit in [1, 2, 3, 4, 5, 6, 7, 8] {
         let cursor_transactions =
-            collect_all_transactions_with_cursor(&server, "/api/blocks/800002/transactions", limit)
+            collect_all_transactions_with_cursor(&server, "/api/transactions", limit, Some(800002))
                 .await?;
         let offset_transactions =
-            collect_all_transactions_with_offset(&server, "/api/blocks/800002/transactions", limit)
+            collect_all_transactions_with_offset(&server, "/api/transactions", limit, Some(800002))
                 .await?;
 
         // Both methods should return the same transactions
@@ -388,12 +436,13 @@ async fn test_cursor_pagination_no_gaps_height_with_many_transactions() -> Resul
 
 #[tokio::test]
 async fn test_cursor_pagination_edge_cases() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Test with limit=1 to ensure every transaction is returned exactly once
     let transactions =
-        collect_all_transactions_with_cursor(&server, "/api/transactions", 1).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 1, None).await?;
 
     // Create a set of unique transaction IDs to check for duplicates
     let mut seen_txids = std::collections::HashSet::new();
@@ -407,7 +456,7 @@ async fn test_cursor_pagination_edge_cases() -> Result<()> {
 
     // Test height with single transaction (800003)
     let single_tx =
-        collect_all_transactions_with_cursor(&server, "/api/blocks/800003/transactions", 1).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 1, Some(800003)).await?;
     assert_eq!(
         single_tx.len(),
         1,
@@ -418,7 +467,7 @@ async fn test_cursor_pagination_edge_cases() -> Result<()> {
 
     // Test empty height (800006 - no transactions)
     let empty_result =
-        collect_all_transactions_with_cursor(&server, "/api/blocks/800006/transactions", 10)
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 10, Some(800006))
             .await?;
     assert_eq!(
         empty_result.len(),
@@ -431,12 +480,13 @@ async fn test_cursor_pagination_edge_cases() -> Result<()> {
 
 #[tokio::test]
 async fn test_cursor_pagination_boundary_conditions() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Test that cursor pagination works correctly when page size equals total count
     let height_800001_all =
-        collect_all_transactions_with_cursor(&server, "/api/blocks/800001/transactions", 3).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 3, Some(800001)).await?;
     assert_eq!(
         height_800001_all.len(),
         3,
@@ -445,7 +495,7 @@ async fn test_cursor_pagination_boundary_conditions() -> Result<()> {
 
     // Test that cursor pagination works correctly when page size exceeds total count
     let height_800001_large =
-        collect_all_transactions_with_cursor(&server, "/api/blocks/800001/transactions", 10)
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 10, Some(800001))
             .await?;
     assert_eq!(
         height_800001_large.len(),
@@ -467,18 +517,19 @@ async fn test_cursor_pagination_boundary_conditions() -> Result<()> {
 
 #[tokio::test]
 async fn test_cursor_consistency_across_different_limits() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Collect all transactions with different page sizes
     let results_limit_1 =
-        collect_all_transactions_with_cursor(&server, "/api/transactions", 1).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 1, None).await?;
     let results_limit_3 =
-        collect_all_transactions_with_cursor(&server, "/api/transactions", 3).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 3, None).await?;
     let results_limit_7 =
-        collect_all_transactions_with_cursor(&server, "/api/transactions", 7).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 7, None).await?;
     let results_limit_22 =
-        collect_all_transactions_with_cursor(&server, "/api/transactions", 22).await?;
+        collect_all_transactions_with_cursor(&server, "/api/transactions", 22, None).await?;
 
     // All should return the same transactions in the same order
     let all_results = [
@@ -515,11 +566,12 @@ async fn test_cursor_consistency_across_different_limits() -> Result<()> {
 
 #[tokio::test]
 async fn test_cursor_pagination_maintains_total_count() -> Result<()> {
-    let app = create_test_app().await?;
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
     let server = TestServer::new(app)?;
 
     // Test that total_count decreases as we paginate (showing remaining items)
-    let mut cursor: Option<String> = None;
+    let mut cursor: Option<i64> = None;
     let mut page_count = 0;
     let limit = 3;
     let mut previous_total_count = None;
@@ -567,6 +619,116 @@ async fn test_cursor_pagination_maintains_total_count() -> Result<()> {
     }
 
     assert!(page_count > 1, "Should have required multiple pages");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cursor_pagination_contract_address() -> Result<()> {
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
+    let server = TestServer::new(app)?;
+
+    let url = "/api/transactions?limit=1&contract=token_800000_1";
+    let response: TestResponse = server.get(url).await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    let transactions = result.result.transactions;
+    let meta = result.result.pagination;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800002);
+    assert_eq!(transactions[0].tx_index, 3);
+    assert!(meta.has_more);
+    assert_eq!(meta.next_cursor, Some(transactions[0].id));
+    assert_eq!(meta.total_count, 3);
+
+    let url = format!(
+        "/api/transactions?limit=1&contract=token_800000_1&cursor={}",
+        meta.next_cursor.unwrap()
+    );
+    let response: TestResponse = server.get(&url).await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    let transactions = result.result.transactions;
+    let meta = result.result.pagination;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800001);
+    assert_eq!(transactions[0].tx_index, 2);
+    assert!(meta.has_more);
+    assert_eq!(meta.next_cursor, Some(transactions[0].id));
+
+    let url = format!(
+        "/api/transactions?limit=1&contract=token_800000_1&cursor={}",
+        meta.next_cursor.unwrap()
+    );
+    let response: TestResponse = server.get(&url).await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    let transactions = result.result.transactions;
+    let meta = result.result.pagination;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800000);
+    assert_eq!(transactions[0].tx_index, 1);
+    assert!(!meta.has_more);
+    assert!(meta.next_cursor.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cursor_pagination_contract_address_asc() -> Result<()> {
+    let (reader, writer, _temp_dir) = new_test_db().await?;
+    let app = create_test_app(reader, writer).await?;
+    let server = TestServer::new(app)?;
+
+    let url = "/api/transactions?limit=1&contract=token_800000_1&order=asc";
+    let response: TestResponse = server.get(url).await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    let transactions = result.result.transactions;
+    let meta = result.result.pagination;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800000);
+    assert_eq!(transactions[0].tx_index, 1);
+    assert!(meta.has_more);
+    assert_eq!(meta.next_cursor, Some(transactions[0].id));
+    assert_eq!(meta.total_count, 3);
+
+    let url = format!(
+        "/api/transactions?limit=1&contract=token_800000_1&cursor={}&order=asc",
+        meta.next_cursor.unwrap()
+    );
+    let response: TestResponse = server.get(&url).await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    let transactions = result.result.transactions;
+    let meta = result.result.pagination;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800001);
+    assert_eq!(transactions[0].tx_index, 2);
+    assert!(meta.has_more);
+    assert_eq!(meta.next_cursor, Some(transactions[0].id));
+
+    let url = format!(
+        "/api/transactions?limit=1&contract=token_800000_1&cursor={}&order=asc",
+        meta.next_cursor.unwrap()
+    );
+    let response: TestResponse = server.get(&url).await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    let transactions = result.result.transactions;
+    let meta = result.result.pagination;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800002);
+    assert_eq!(transactions[0].tx_index, 3);
+    assert!(!meta.has_more);
+    assert!(meta.next_cursor.is_none());
 
     Ok(())
 }

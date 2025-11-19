@@ -2,7 +2,9 @@ use anyhow::Result;
 use bitcoin::hashes::Hash;
 use indexer::{
     database::{
-        queries::{get_checkpoint_by_id, insert_block, insert_contract_state},
+        queries::{
+            get_checkpoint_by_height, get_checkpoint_latest, insert_block, insert_contract_state,
+        },
         types::{BlockRow, ContractStateRow},
     },
     test_utils::new_test_db,
@@ -23,7 +25,6 @@ async fn test_checkpoint_trigger() -> Result<()> {
         insert_block(&conn, block).await?;
     }
 
-    // Test case 1: First insertion creates a checkpoint with ID 1
     let contract_state1 = ContractStateRow::builder()
         .contract_id(1)
         .tx_index(1)
@@ -33,8 +34,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state1.clone()).await?;
 
-    // Verify the first checkpoint
-    let checkpoint1 = get_checkpoint_by_id(&conn, 1).await?.unwrap();
+    let checkpoint1 = get_checkpoint_by_height(&conn, 10).await?.unwrap();
     assert_eq!(checkpoint1.height, 10);
     let expected_hash1 = calculate_row_hash(&contract_state1)?;
     assert_eq!(
@@ -44,7 +44,6 @@ async fn test_checkpoint_trigger() -> Result<()> {
     let checkpoint_count1 = count_checkpoints(&conn).await?;
     assert_eq!(checkpoint_count1, 1);
 
-    // Test case 2: Second insertion within same interval updates the checkpoint
     let contract_state2 = ContractStateRow::builder()
         .contract_id(1)
         .tx_index(2)
@@ -53,8 +52,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state2.clone()).await?;
 
-    // Verify the checkpoint was updated
-    let checkpoint2 = get_checkpoint_by_id(&conn, 1).await?.unwrap();
+    let checkpoint2 = get_checkpoint_by_height(&conn, 20).await?.unwrap();
     assert_eq!(checkpoint2.height, 20);
     let expected_hash2 = calculate_combined_hash(&contract_state2, &checkpoint1.hash)?;
     assert_eq!(
@@ -62,9 +60,8 @@ async fn test_checkpoint_trigger() -> Result<()> {
         expected_hash2.to_lowercase()
     );
     let checkpoint_count2 = count_checkpoints(&conn).await?;
-    assert_eq!(checkpoint_count2, 1);
+    assert_eq!(checkpoint_count2, 2);
 
-    // Test case 3: Insertion in a new interval creates a new checkpoint
     let contract_state3 = ContractStateRow::builder()
         .contract_id(2)
         .tx_index(3)
@@ -74,8 +71,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state3.clone()).await?;
 
-    // Verify a new checkpoint was created
-    let checkpoint3 = get_checkpoint_by_id(&conn, 2).await?.unwrap();
+    let checkpoint3 = get_checkpoint_by_height(&conn, 60).await?.unwrap();
     assert_eq!(checkpoint3.height, 60);
     let expected_hash3 = calculate_combined_hash(&contract_state3, &checkpoint2.hash)?;
     assert_eq!(
@@ -83,9 +79,8 @@ async fn test_checkpoint_trigger() -> Result<()> {
         expected_hash3.to_lowercase()
     );
     let checkpoint_count3 = count_checkpoints(&conn).await?;
-    assert_eq!(checkpoint_count3, 2);
+    assert_eq!(checkpoint_count3, 3);
 
-    // Test case 4: Another insertion in the same new interval updates that checkpoint
     let contract_state4 = ContractStateRow::builder()
         .contract_id(2)
         .tx_index(4)
@@ -95,8 +90,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state4.clone()).await?;
 
-    // Verify the second checkpoint was updated
-    let checkpoint4 = get_checkpoint_by_id(&conn, 2).await?.unwrap();
+    let checkpoint4 = get_checkpoint_by_height(&conn, 75).await?.unwrap();
     assert_eq!(checkpoint4.height, 75);
     let expected_hash4 = calculate_combined_hash(&contract_state4, &checkpoint3.hash)?;
     assert_eq!(
@@ -104,9 +98,8 @@ async fn test_checkpoint_trigger() -> Result<()> {
         expected_hash4.to_lowercase()
     );
     let checkpoint_count4 = count_checkpoints(&conn).await?;
-    assert_eq!(checkpoint_count4, 2);
+    assert_eq!(checkpoint_count4, 4);
 
-    // Test case 5: Insertion in yet another new interval creates another checkpoint
     let contract_state5 = ContractStateRow::builder()
         .contract_id(3)
         .tx_index(5)
@@ -116,8 +109,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state5.clone()).await?;
 
-    // Verify a third checkpoint was created
-    let checkpoint5 = get_checkpoint_by_id(&conn, 3).await?.unwrap();
+    let checkpoint5 = get_checkpoint_by_height(&conn, 120).await?.unwrap();
     assert_eq!(checkpoint5.height, 120);
     let expected_hash5 = calculate_combined_hash(&contract_state5, &checkpoint4.hash)?;
     assert_eq!(
@@ -125,9 +117,8 @@ async fn test_checkpoint_trigger() -> Result<()> {
         expected_hash5.to_lowercase()
     );
     let checkpoint_count5 = count_checkpoints(&conn).await?;
-    assert_eq!(checkpoint_count5, 3);
+    assert_eq!(checkpoint_count5, 5);
 
-    // Test case 6: Insertion in another new interval creates another checkpoint without a value
     let contract_state6 = ContractStateRow::builder()
         .contract_id(4)
         .tx_index(6)
@@ -136,8 +127,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state6.clone()).await?;
 
-    // Verify a fourth checkpoint was created
-    let checkpoint6 = get_checkpoint_by_id(&conn, 4).await?.unwrap();
+    let checkpoint6 = get_checkpoint_by_height(&conn, 190).await?.unwrap();
     assert_eq!(checkpoint6.height, 190);
     let expected_hash6 = calculate_combined_hash(&contract_state6, &checkpoint5.hash)?;
     assert_eq!(
@@ -145,9 +135,8 @@ async fn test_checkpoint_trigger() -> Result<()> {
         expected_hash6.to_lowercase()
     );
     let checkpoint_count6 = count_checkpoints(&conn).await?;
-    assert_eq!(checkpoint_count6, 4);
+    assert_eq!(checkpoint_count6, 6);
 
-    // Test case 7: Insertion in the same interval overwrites previous checkpoint
     let contract_state7 = ContractStateRow::builder()
         .contract_id(4)
         .tx_index(7)
@@ -157,8 +146,7 @@ async fn test_checkpoint_trigger() -> Result<()> {
         .build();
     insert_contract_state(&conn, contract_state7.clone()).await?;
 
-    // Verify the fourth checkpoint was updated
-    let checkpoint7 = get_checkpoint_by_id(&conn, 4).await?.unwrap();
+    let checkpoint7 = get_checkpoint_by_height(&conn, 199).await?.unwrap();
     assert_eq!(checkpoint7.height, 199);
     let expected_hash7 = calculate_combined_hash(&contract_state7, &checkpoint6.hash)?;
     assert_eq!(
@@ -166,7 +154,30 @@ async fn test_checkpoint_trigger() -> Result<()> {
         expected_hash7.to_lowercase()
     );
     let checkpoint_count7 = count_checkpoints(&conn).await?;
-    assert_eq!(checkpoint_count7, 4);
+    assert_eq!(checkpoint_count7, 7);
+
+    let checkpoint_latest = get_checkpoint_latest(&conn).await?.unwrap();
+    assert_eq!(checkpoint7, checkpoint_latest);
+
+    // Test case 8: Insertion in the same height
+    let contract_state8 = ContractStateRow::builder()
+        .contract_id(4)
+        .tx_index(8)
+        .height(199)
+        .path("/test/path7".to_string())
+        .value(b"test value 7".to_vec())
+        .build();
+    insert_contract_state(&conn, contract_state8.clone()).await?;
+    assert_eq!(count_checkpoints(&conn).await?, 7);
+    let expected_hash8 = calculate_combined_hash(&contract_state8, &checkpoint7.hash)?;
+    assert_eq!(
+        expected_hash8.to_lowercase(),
+        get_checkpoint_latest(&conn)
+            .await?
+            .unwrap()
+            .hash
+            .to_lowercase()
+    );
 
     Ok(())
 }

@@ -1,11 +1,44 @@
 use std::fmt::Display;
 
-use base64::{Engine, engine::general_purpose};
 use bitcoin::BlockHash;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
+use serde_with::{DefaultOnNull, DisplayFromStr, serde_as};
 
-use crate::{block::Block, database::queries::Error};
+use crate::{block::Block, runtime::ContractAddress};
+
+pub trait HasRowId {
+    fn id(&self) -> i64;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OrderDirection {
+    Asc,
+    #[default]
+    Desc,
+}
+
+impl std::fmt::Display for OrderDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OrderDirection::Asc => write!(f, "ASC"),
+            OrderDirection::Desc => write!(f, "DESC"),
+        }
+    }
+}
+
+impl std::str::FromStr for OrderDirection {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "asc" | "ascending" => Ok(OrderDirection::Asc),
+            "desc" | "descending" | "" => Ok(OrderDirection::Desc), // empty also defaults
+            _ => Err("Invalid order direction".to_string()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct BlockRow {
@@ -22,9 +55,8 @@ impl From<&Block> for BlockRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct CheckpointRow {
-    pub id: i64,
     pub height: i64,
     pub hash: String,
 }
@@ -49,9 +81,17 @@ impl ContractStateRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct TransactionRow {
+    #[builder(default = 0)]
+    pub id: i64,
     pub txid: String,
     pub height: i64,
     pub tx_index: i64,
+}
+
+impl HasRowId for TransactionRow {
+    fn id(&self) -> i64 {
+        self.id
+    }
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -91,42 +131,12 @@ impl ContractRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionCursor {
-    pub height: i64,
-    pub index: i64,
-}
-
-impl TransactionCursor {
-    pub fn encode(&self) -> String {
-        let cursor_str = format!("{}:{}", self.height, self.index);
-        general_purpose::STANDARD.encode(cursor_str.as_bytes())
-    }
-
-    pub fn decode(cursor: &str) -> Result<Self, Error> {
-        // rename base64_encode
-        let decoded_bytes = general_purpose::STANDARD
-            .decode(cursor)
-            .map_err(|_| Error::InvalidCursor)?;
-
-        let cursor_str = String::from_utf8(decoded_bytes).map_err(|_| Error::InvalidCursor)?;
-
-        let parts: Vec<&str> = cursor_str.split(':').collect();
-        if parts.len() != 2 {
-            return Err(Error::InvalidCursor);
-        }
-
-        let height = parts[0].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
-        let index = parts[1].parse::<i64>().map_err(|_| Error::InvalidCursor)?;
-
-        Ok(TransactionCursor { height, index })
-    }
-}
-
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_cursor: Option<String>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub next_cursor: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_offset: Option<i64>,
     pub has_more: bool,
@@ -139,19 +149,44 @@ pub struct TransactionListResponse {
     pub pagination: PaginationMeta,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationQuery {
-    pub cursor: Option<String>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub cursor: Option<i64>,
     pub offset: Option<i64>,
     pub limit: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
 pub struct TransactionQuery {
-    pub cursor: Option<String>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    cursor: Option<i64>,
     pub offset: Option<i64>,
-    pub limit: Option<i64>,
+    limit: Option<i64>,
     pub height: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub contract: Option<ContractAddress>,
+    #[builder(default)]
+    #[serde_as(as = "DefaultOnNull<DisplayFromStr>")]
+    #[serde(default)]
+    pub order: OrderDirection,
+}
+
+impl TransactionQuery {
+    pub fn cursor(&self) -> Option<i64> {
+        if let Some(cursor) = self.cursor
+            && cursor < 0
+        {
+            return None;
+        }
+        self.cursor
+    }
+
+    pub fn limit(&self) -> i64 {
+        self.limit.map_or(20, |l| l.clamp(0, 1000))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

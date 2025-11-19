@@ -5,13 +5,13 @@ CREATE TABLE IF NOT EXISTS blocks (
 );
 
 CREATE TABLE IF NOT EXISTS checkpoints (
-  id INTEGER PRIMARY KEY,
-  height INTEGER UNIQUE,
+  height INTEGER PRIMARY KEY,
   hash TEXT NOT NULL UNIQUE,
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
+  id INTEGER PRIMARY KEY,
   txid TEXT NOT NULL UNIQUE,
   height INTEGER NOT NULL,
   tx_index INTEGER NOT NULL,
@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS contract_state (
 
 CREATE INDEX IF NOT EXISTS idx_contract_state_lookup ON contract_state (contract_id, path, height DESC);
 
+CREATE INDEX IF NOT EXISTS idx_contract_state_contract_tx ON contract_state (contract_id, height DESC, tx_index DESC);
+
 CREATE TABLE IF NOT EXISTS contract_results (
   contract_id INTEGER NOT NULL,
   func_name TEXT NOT NULL,
@@ -55,6 +57,11 @@ CREATE TABLE IF NOT EXISTS contract_results (
   gas INTEGER NOT NULL,
   size INTEGER NOT NULL,
   value TEXT,
-  UNIQUE (height, tx_index, input_index, op_index, result_index)
-  FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
+  UNIQUE (
+    height,
+    tx_index,
+    input_index,
+    op_index,
+    result_index
+  ) FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
 );

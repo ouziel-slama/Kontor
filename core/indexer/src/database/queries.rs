@@ -1,18 +1,18 @@
 use bitcoin::BlockHash;
 use futures_util::{Stream, stream};
-use libsql::{Connection, de::from_row, named_params, params};
+use libsql::{Connection, Value, de::from_row, named_params, params};
+use serde::de::DeserializeOwned;
 use thiserror::Error as ThisError;
 
 use crate::{
     database::types::{
-        CheckpointRow, ContractListRow, ContractResultRow, ContractRow, OpResultId, PaginationMeta,
-        TransactionCursor, TransactionRow,
+        CheckpointRow, ContractListRow, ContractResultRow, ContractRow, HasRowId, OpResultId,
+        OrderDirection, PaginationMeta, TransactionQuery, TransactionRow,
     },
     runtime::ContractAddress,
 };
 
 use super::types::{BlockRow, ContractStateRow};
-use libsql::Transaction;
 
 #[derive(ThisError, Debug)]
 pub enum Error {
@@ -24,6 +24,8 @@ pub enum Error {
     InvalidCursor,
     #[error("Out of fuel")]
     OutOfFuel,
+    #[error("Contract not found: {0}")]
+    ContractNotFound(String),
 }
 
 pub async fn insert_block(conn: &Connection, block: BlockRow) -> Result<i64, Error> {
@@ -365,20 +367,18 @@ pub async fn insert_contract(conn: &Connection, row: ContractRow) -> Result<i64,
     conn.execute(
         r#"
             INSERT OR REPLACE INTO contracts (
-                id,
                 name,
                 height,
                 tx_index,
                 size,
                 bytes
-            ) SELECT
-                COALESCE(MAX(id), 1) + 1,
+            ) VALUES (
                 ?,
                 ?,
                 ?,
                 ?,
                 ?
-            FROM contracts
+            )
             "#,
         params![
             row.name.clone(),
@@ -505,7 +505,7 @@ pub async fn get_transaction_by_txid(
 ) -> Result<Option<TransactionRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT txid, height, tx_index FROM transactions WHERE txid = ?",
+            "SELECT id, txid, height, tx_index FROM transactions WHERE txid = ?",
             params![txid],
         )
         .await?;
@@ -519,7 +519,7 @@ pub async fn get_transactions_at_height(
 ) -> Result<Vec<TransactionRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT txid, height, tx_index FROM transactions WHERE height = ?",
+            "SELECT id, txid, height, tx_index FROM transactions WHERE height = ?",
             params![height],
         )
         .await?;
@@ -531,34 +531,34 @@ pub async fn get_transactions_at_height(
     Ok(results)
 }
 
-pub async fn get_transactions_paginated(
-    tx: &Transaction,
-    height: Option<i64>,
-    cursor: Option<String>,
+pub async fn get_paginated<T>(
+    conn: &Connection,
+    var: &str,
+    selects: &str,
+    from: &str,
+    mut where_clauses: Vec<String>,
+    mut params: Vec<(String, Value)>,
+    order: OrderDirection,
+    cursor: Option<i64>,
     offset: Option<i64>,
     limit: i64,
-) -> Result<(Vec<TransactionRow>, PaginationMeta), Error> {
-    let mut where_clauses = Vec::new();
-
-    // Build height filter
-    if height.is_some() {
-        where_clauses.push("t.height = :height");
+) -> Result<(Vec<T>, PaginationMeta), Error>
+where
+    T: DeserializeOwned + HasRowId,
+{
+    if let Some(cursor) = cursor {
+        where_clauses.push(format!(
+            "{}.id {} :cursor",
+            var,
+            if order == OrderDirection::Desc {
+                "<"
+            } else {
+                ">"
+            }
+        ));
+        params.push((":cursor".to_string(), Value::Integer(cursor)));
     }
 
-    let cursor_decoded = cursor
-        .as_ref()
-        .map(|c| TransactionCursor::decode(c).map_err(|_| Error::InvalidCursor))
-        .transpose()?;
-
-    if cursor_decoded.is_some() {
-        where_clauses.push("(t.height, t.tx_index) < (:cursor_height, :cursor_index)");
-    }
-
-    let (cursor_height, cursor_index) = cursor_decoded
-        .as_ref()
-        .map_or((None, None), |c| (Some(c.height), Some(c.index)));
-
-    // Build WHERE clause
     let where_sql = if where_clauses.is_empty() {
         String::new()
     } else {
@@ -566,78 +566,68 @@ pub async fn get_transactions_paginated(
     };
 
     // Get total count first
-    let count_query = format!("SELECT COUNT(*) FROM transactions t {}", where_sql);
-    let mut count_rows = tx
+    let total_count = conn
         .query(
-            &count_query,
-            named_params! {
-                ":height": height,
-                ":cursor_height": cursor_height,
-                ":cursor_index": cursor_index,
-            },
+            &format!(
+                "SELECT COUNT(DISTINCT {}.id) FROM {} {}",
+                var, from, where_sql
+            ),
+            params.clone(),
         )
-        .await?;
-
-    let total_count = count_rows
+        .await?
         .next()
         .await?
         .map_or(0, |r| r.get::<i64>(0).unwrap_or(0));
 
     // Build OFFSET clause
-    let offset_clause = cursor
-        .is_none()
-        .then_some(offset)
-        .flatten()
-        .map_or(String::from(""), |_| "OFFSET :offset".to_string());
+    let mut offset_clause = "";
+    if cursor.is_none()
+        && let Some(offset) = offset
+    {
+        offset_clause = "OFFSET :offset";
+        params.push((":offset".to_string(), Value::Integer(offset)));
+    }
 
-    let query = format!(
-        r#"
-         SELECT t.txid, t.height, t.tx_index
-         FROM transactions t
-         {where_sql}
-         ORDER BY t.height DESC, t.tx_index DESC
-         LIMIT :limit
-         {offset_clause}
-         "#,
-        where_sql = where_sql,
-        offset_clause = offset_clause
-    );
+    params.push((":limit".to_string(), Value::Integer(limit + 1)));
 
     // Execute main query with ALL named parameters
-    let mut rows = tx
+    let mut rows = conn
         .query(
-            &query,
-            named_params! {
-                ":height": height,
-                ":cursor_height": cursor_height,
-                ":cursor_index": cursor_index,
-                ":offset": offset,
-                ":limit": (limit + 1),
-            },
+            &format!(
+                r#"
+                SELECT {selects}
+                FROM {from}
+                {where_sql}
+                ORDER BY {var}.id {order}
+                LIMIT :limit
+                {offset_clause}
+                "#,
+                selects = selects,
+                from = from,
+                where_sql = where_sql,
+                var = var,
+                order = order,
+                offset_clause = offset_clause
+            ),
+            params,
         )
         .await?;
 
-    let mut transactions: Vec<TransactionRow> = Vec::new();
+    let mut results: Vec<T> = Vec::new();
     while let Some(row) = rows.next().await? {
-        transactions.push(from_row(&row)?);
+        results.push(from_row(&row)?);
     }
 
-    let has_more = transactions.len() > limit as usize;
+    let has_more = results.len() > limit as usize;
 
     if has_more {
-        transactions.pop();
+        results.pop();
     }
 
-    let next_cursor = transactions
+    let next_cursor = results
         .last()
         .filter(|_| offset.is_none() && has_more)
-        .map(|last_tx| {
-            TransactionCursor {
-                height: last_tx.height,
-                index: last_tx.tx_index,
-            }
-            .encode()
-        });
+        .map(|last_tx| last_tx.id());
 
     let next_offset = (cursor.is_none() && has_more).then(|| offset.unwrap_or(0) + limit);
 
@@ -648,7 +638,45 @@ pub async fn get_transactions_paginated(
         total_count,
     };
 
-    Ok((transactions, pagination))
+    Ok((results, pagination))
+}
+
+pub async fn get_transactions_paginated(
+    conn: &Connection,
+    query: TransactionQuery,
+) -> Result<(Vec<TransactionRow>, PaginationMeta), Error> {
+    let mut where_clauses = Vec::new();
+    let mut params: Vec<(String, Value)> = Vec::new();
+    let var = "t";
+    let mut selects = "t.id, t.txid, t.height, t.tx_index".to_string();
+    let mut from = format!("transactions {}", var);
+    if let Some(address) = &query.contract {
+        let contract_id = get_contract_id_from_address(conn, address)
+            .await?
+            .ok_or(Error::ContractNotFound(address.to_string()))?;
+        selects = format!("DISTINCT {}", selects);
+        from = format!("{} JOIN contract_state c USING (height, tx_index)", from);
+        where_clauses.push(format!("c.contract_id = {}", contract_id));
+    }
+
+    if let Some(height) = query.height {
+        where_clauses.push("t.height = :height".to_string());
+        params.push((":height".to_string(), Value::Integer(height)));
+    }
+
+    get_paginated(
+        conn,
+        var,
+        &selects,
+        &from,
+        where_clauses,
+        params,
+        query.order,
+        query.cursor(),
+        query.offset,
+        query.limit(),
+    )
+    .await
 }
 
 pub async fn get_op_result(
@@ -762,14 +790,14 @@ pub async fn insert_contract_result(
     Ok(conn.last_insert_rowid())
 }
 
-pub async fn get_checkpoint_by_id(
+pub async fn get_checkpoint_by_height(
     conn: &libsql::Connection,
-    id: i64,
+    height: i64,
 ) -> Result<Option<CheckpointRow>, Error> {
     let mut row = conn
         .query(
-            "SELECT id, height, hash FROM checkpoints WHERE id = ?",
-            params![id],
+            "SELECT height, hash FROM checkpoints WHERE height = ?",
+            params![height],
         )
         .await?;
     Ok(row.next().await?.map(|r| from_row(&r)).transpose()?)
@@ -780,7 +808,7 @@ pub async fn get_checkpoint_latest(
 ) -> Result<Option<CheckpointRow>, Error> {
     let mut row = conn
         .query(
-            "SELECT id, height, hash FROM checkpoints ORDER BY id DESC LIMIT 1",
+            "SELECT height, hash FROM checkpoints ORDER BY height DESC LIMIT 1",
             params![],
         )
         .await?;

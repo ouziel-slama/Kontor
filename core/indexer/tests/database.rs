@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use indexer::{
     database::{
         queries::{
@@ -12,7 +12,8 @@ use indexer::{
             get_transaction_by_txid, get_transactions_at_height, insert_block, insert_contract,
             insert_contract_result, insert_contract_state, insert_processed_block,
             insert_transaction, matching_path, path_prefix_filter_contract_state,
-            select_block_at_height, select_block_by_height_or_hash, select_block_latest,
+            rollback_to_height, select_block_at_height, select_block_by_height_or_hash,
+            select_block_latest,
         },
         types::{
             BlockRow, ContractListRow, ContractResultRow, ContractRow, ContractStateRow,
@@ -22,7 +23,7 @@ use indexer::{
     runtime::ContractAddress,
     test_utils::{new_mock_block_hash, new_mock_transaction, new_test_db},
 };
-use libsql::params;
+use libsql::{Connection, params};
 
 #[tokio::test]
 async fn test_database() -> Result<()> {
@@ -444,6 +445,51 @@ async fn test_contracts() -> Result<()> {
     let rows = get_contracts(&conn).await?;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], ContractListRow { id, ..row.into() });
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_contracts_gapless() -> Result<()> {
+    let (_reader, writer, _temp_dir) = new_test_db().await?;
+    let conn = writer.connection();
+    let insert = async |conn: &Connection, i: i64| {
+        insert_block(
+            conn,
+            BlockRow::builder()
+                .hash(new_mock_block_hash(i as u32))
+                .height(i)
+                .build(),
+        )
+        .await
+        .unwrap();
+        let row = ContractRow::builder()
+            .bytes("value".as_bytes().to_vec())
+            .height(i)
+            .tx_index(1)
+            .name("test".to_string())
+            .build();
+        insert_contract(conn, row.clone()).await.unwrap();
+    };
+    for i in 1i64..=5 {
+        insert(&conn, i).await;
+    }
+    let query = "SELECT id FROM contracts ORDER BY height ASC";
+    let get_ids = async |conn: &Connection| {
+        conn.query(query, params![])
+            .await
+            .unwrap()
+            .into_stream()
+            .map(|row| row.unwrap().get::<i64>(0).unwrap())
+            .collect::<Vec<_>>()
+            .await
+    };
+    assert_eq!(get_ids(&conn).await, vec![1, 2, 3, 4, 5]);
+    rollback_to_height(&conn, 3).await?;
+    assert_eq!(get_ids(&conn).await, vec![1, 2, 3]);
+    for i in 4i64..=5 {
+        insert(&conn, i).await;
+    }
+    assert_eq!(get_ids(&conn).await, vec![1, 2, 3, 4, 5]);
     Ok(())
 }
 
