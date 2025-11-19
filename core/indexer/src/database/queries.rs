@@ -1,6 +1,6 @@
 use bitcoin::BlockHash;
 use futures_util::{Stream, stream};
-use libsql::{Connection, de::from_row, named_params, params};
+use libsql::{Connection, Value, de::from_row, named_params, params};
 use thiserror::Error as ThisError;
 
 use crate::{
@@ -533,12 +533,17 @@ pub async fn get_transactions_paginated(
     query: TransactionQuery,
 ) -> Result<(Vec<TransactionRow>, PaginationMeta), Error> {
     let mut where_clauses = Vec::new();
-    if query.height.is_some() {
+    let mut params: Vec<(String, Value)> = Vec::new();
+    if let Some(height) = query.height {
         where_clauses.push("t.height = :height");
+        params.push((":height".to_string(), Value::Integer(height)));
     }
-    if query.cursor().is_some() {
+
+    if let Some(cursor) = query.cursor() {
         where_clauses.push("t.id < :cursor");
+        params.push((":cursor".to_string(), Value::Integer(cursor)));
     }
+
     let where_sql = if where_clauses.is_empty() {
         String::new()
     } else {
@@ -549,10 +554,7 @@ pub async fn get_transactions_paginated(
     let total_count = conn
         .query(
             &format!("SELECT COUNT(*) FROM transactions t {}", where_sql),
-            named_params! {
-                ":height": query.height,
-                ":cursor": query.cursor(),
-            },
+            params.clone(),
         )
         .await?
         .next()
@@ -560,12 +562,15 @@ pub async fn get_transactions_paginated(
         .map_or(0, |r| r.get::<i64>(0).unwrap_or(0));
 
     // Build OFFSET clause
-    let offset_clause = query
-        .cursor()
-        .is_none()
-        .then_some(query.offset)
-        .flatten()
-        .map_or("".to_string(), |_| "OFFSET :offset".to_string());
+    let mut offset_clause = "";
+    if query.cursor().is_none()
+        && let Some(offset) = query.offset
+    {
+        offset_clause = "OFFSET :offset";
+        params.push((":offset".to_string(), Value::Integer(offset)));
+    }
+
+    params.push((":limit".to_string(), Value::Integer(query.limit() + 1)));
 
     // Execute main query with ALL named parameters
     let mut rows = conn
@@ -582,12 +587,7 @@ pub async fn get_transactions_paginated(
                 where_sql = where_sql,
                 offset_clause = offset_clause
             ),
-            named_params! {
-                ":height": query.height,
-                ":cursor": query.cursor(),
-                ":offset": query.offset,
-                ":limit": (query.limit() + 1),
-            },
+            params,
         )
         .await?;
 
