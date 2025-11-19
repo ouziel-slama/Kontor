@@ -5,7 +5,10 @@ use indexer::{
             get_transactions_paginated, insert_block, insert_contract, insert_contract_state,
             insert_transaction,
         },
-        types::{BlockRow, ContractRow, ContractStateRow, TransactionQuery, TransactionRow},
+        types::{
+            BlockRow, ContractRow, ContractStateRow, OrderDirection, TransactionQuery,
+            TransactionRow,
+        },
     },
     test_utils::new_test_db,
 };
@@ -137,7 +140,7 @@ async fn test_transaction_query_contract_address() -> Result<()> {
     let s = serde_json::to_string(&x).unwrap();
     assert_eq!(
         s,
-        "{\"cursor\":null,\"offset\":null,\"limit\":null,\"height\":null,\"contract\":\"token_1_0\"}"
+        "{\"cursor\":null,\"offset\":null,\"limit\":null,\"height\":null,\"contract\":\"token_1_0\",\"order\":\"DESC\"}"
     );
     Ok(())
 }
@@ -569,6 +572,78 @@ async fn test_cursor_contract_address_querying() -> Result<()> {
 
     assert_eq!(transactions.len(), 1);
     assert_eq!(transactions[0].height, 800000);
+    assert_eq!(transactions[0].tx_index, 0);
+    assert!(!meta.has_more);
+    assert!(meta.next_cursor.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cursor_contract_address_querying_asc() -> Result<()> {
+    let (_, writer, _temp_dir) = new_test_db().await?;
+    let conn = writer.connection();
+    setup_test_data(&conn).await?;
+
+    let (transactions, meta) = get_transactions_paginated(
+        &conn,
+        TransactionQuery::builder()
+            .contract(ContractAddress {
+                name: "token".to_string(),
+                height: 800000,
+                tx_index: 1,
+            })
+            .limit(1)
+            .order(OrderDirection::Asc)
+            .build(),
+    )
+    .await?;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800000);
+    assert_eq!(transactions[0].tx_index, 0);
+    assert!(meta.has_more);
+    assert_eq!(meta.next_cursor, Some(transactions[0].id));
+    assert_eq!(meta.total_count, 3);
+
+    let (transactions, meta) = get_transactions_paginated(
+        &conn,
+        TransactionQuery::builder()
+            .maybe_cursor(meta.next_cursor)
+            .contract(ContractAddress {
+                name: "token".to_string(),
+                height: 800000,
+                tx_index: 1,
+            })
+            .limit(1)
+            .order(OrderDirection::Asc)
+            .build(),
+    )
+    .await?;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800001);
+    assert_eq!(transactions[0].tx_index, 1);
+    assert!(meta.has_more);
+    assert_eq!(meta.next_cursor, Some(transactions[0].id));
+
+    let (transactions, meta) = get_transactions_paginated(
+        &conn,
+        TransactionQuery::builder()
+            .maybe_cursor(meta.next_cursor)
+            .contract(ContractAddress {
+                name: "token".to_string(),
+                height: 800000,
+                tx_index: 1,
+            })
+            .limit(1)
+            .order(OrderDirection::Asc)
+            .build(),
+    )
+    .await?;
+
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].height, 800002);
     assert_eq!(transactions[0].tx_index, 0);
     assert!(!meta.has_more);
     assert!(meta.next_cursor.is_none());

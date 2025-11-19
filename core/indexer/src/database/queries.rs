@@ -7,7 +7,7 @@ use thiserror::Error as ThisError;
 use crate::{
     database::types::{
         CheckpointRow, ContractListRow, ContractResultRow, ContractRow, HasRowId, OpResultId,
-        PaginationMeta, TransactionQuery, TransactionRow,
+        OrderDirection, PaginationMeta, TransactionQuery, TransactionRow,
     },
     runtime::ContractAddress,
 };
@@ -538,6 +538,7 @@ pub async fn get_paginated<T>(
     from: &str,
     mut where_clauses: Vec<String>,
     mut params: Vec<(String, Value)>,
+    order: OrderDirection,
     cursor: Option<i64>,
     offset: Option<i64>,
     limit: i64,
@@ -546,7 +547,15 @@ where
     T: DeserializeOwned + HasRowId,
 {
     if let Some(cursor) = cursor {
-        where_clauses.push(format!("{}.id < :cursor", var));
+        where_clauses.push(format!(
+            "{}.id {} :cursor",
+            var,
+            if order == OrderDirection::Desc {
+                "<"
+            } else {
+                ">"
+            }
+        ));
         params.push((":cursor".to_string(), Value::Integer(cursor)));
     }
 
@@ -586,16 +595,18 @@ where
         .query(
             &format!(
                 r#"
-                         SELECT {selects}
-                         FROM {from}
-                         {where_sql}
-                         ORDER BY t.id DESC
-                         LIMIT :limit
-                         {offset_clause}
-                         "#,
+                SELECT {selects}
+                FROM {from}
+                {where_sql}
+                ORDER BY {var}.id {order}
+                LIMIT :limit
+                {offset_clause}
+                "#,
                 selects = selects,
                 from = from,
                 where_sql = where_sql,
+                var = var,
+                order = order,
                 offset_clause = offset_clause
             ),
             params,
@@ -660,6 +671,7 @@ pub async fn get_transactions_paginated(
         &from,
         where_clauses,
         params,
+        query.order,
         query.cursor(),
         query.offset,
         query.limit(),

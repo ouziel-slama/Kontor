@@ -3,12 +3,41 @@ use std::fmt::Display;
 use bitcoin::BlockHash;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
+use serde_with::{DefaultOnNull, DisplayFromStr, serde_as};
 
 use crate::{block::Block, runtime::ContractAddress};
 
 pub trait HasRowId {
     fn id(&self) -> i64;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OrderDirection {
+    Asc,
+    #[default]
+    Desc,
+}
+
+impl std::fmt::Display for OrderDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OrderDirection::Asc => write!(f, "ASC"),
+            OrderDirection::Desc => write!(f, "DESC"),
+        }
+    }
+}
+
+impl std::str::FromStr for OrderDirection {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "asc" | "ascending" => Ok(OrderDirection::Asc),
+            "desc" | "descending" | "" => Ok(OrderDirection::Desc), // empty also defaults
+            _ => Err("Invalid order direction".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
@@ -139,6 +168,10 @@ pub struct TransactionQuery {
     pub height: Option<i64>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub contract: Option<ContractAddress>,
+    #[builder(default)]
+    #[serde_as(as = "DefaultOnNull<DisplayFromStr>")]
+    #[serde(default)]
+    pub order: OrderDirection,
 }
 
 impl TransactionQuery {
