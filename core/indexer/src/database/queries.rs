@@ -723,6 +723,7 @@ pub async fn get_op_result(
         .query(
             r#"
             SELECT
+                c.id,
                 c.contract_id,
                 c.func_name,
                 c.height,
@@ -761,6 +762,7 @@ pub async fn get_contract_result(
         .query(
             r#"
             SELECT
+                id,
                 contract_id,
                 func_name,
                 height,

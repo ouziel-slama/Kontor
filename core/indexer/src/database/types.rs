@@ -195,6 +195,8 @@ pub struct TransactionQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
 pub struct ContractResultRow {
+    #[builder(default = 0)]
+    pub id: i64,
     pub height: i64,
     pub tx_index: i64,
     #[builder(default = 0)]
