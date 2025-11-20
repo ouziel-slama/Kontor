@@ -348,6 +348,10 @@ pub async fn get_results(
         .into());
     }
 
+    if query.func.is_some() && query.contract.is_none() {
+        return Err(HttpError::BadRequest("func requires contract".to_string()).into());
+    }
+
     let (results, pagination) =
         get_results_paginated(&*env.reader.connection().await?, query).await?;
     Ok(PaginatedResponse {
