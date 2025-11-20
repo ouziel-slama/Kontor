@@ -747,6 +747,10 @@ pub async fn get_results_paginated(
         where_clauses.push(format!("r.contract_id = {}", contract_id));
     }
 
+    if let Some(func) = &query.func {
+        where_clauses.push(format!("r.func = '{}'", func));
+    }
+
     if let Some(height) = query.height {
         where_clauses.push("r.height = :height".to_string());
         params.push((":height".to_string(), Value::Integer(height)));

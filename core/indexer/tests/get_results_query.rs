@@ -62,6 +62,7 @@ async fn test_get_results_query() -> Result<()> {
         &conn,
         ContractResultRow::builder()
             .contract_id(contract_2_id)
+            .func("foo".to_string())
             .height(1)
             .tx_index(4)
             .gas(100)
@@ -181,6 +182,29 @@ async fn test_get_results_query() -> Result<()> {
     assert_eq!(results[0].contract_height, 1);
     assert_eq!(results[0].contract_tx_index, 1);
     assert_eq!(meta.total_count, 3);
+
+    // func filtering
+    let (results, meta) = get_results_paginated(
+        &conn,
+        ResultQuery::builder()
+            .contract(ContractAddress {
+                name: "storage".to_string(),
+                height: 1,
+                tx_index: 2,
+            })
+            .func("foo".to_string())
+            .order(indexer::database::types::OrderDirection::Asc)
+            .limit(1)
+            .build(),
+    )
+    .await?;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].func, "foo".to_string());
+    assert_eq!(results[0].contract_name, "storage");
+    assert_eq!(results[0].contract_height, 1);
+    assert_eq!(results[0].contract_tx_index, 2);
+    assert_eq!(meta.total_count, 1);
+    assert!(meta.next_cursor.is_none());
 
     // height filtering
     let (results, meta) = get_results_paginated(
