@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { deserialize, serialize } from "../ts/postcard-ts";
+import { serializeInst, deserializeInst } from "../ts/postcard-ts";
 
 test("publish", () => {
   let inst = {
@@ -10,8 +10,8 @@ test("publish", () => {
     },
   };
   const str = JSON.stringify(inst);
-  const bs = serialize(str);
-  let result = deserialize(bs);
+  const bs = serializeInst(str);
+  let result = deserializeInst(bs);
   expect(inst).toStrictEqual(JSON.parse(result));
 });
 
@@ -24,15 +24,15 @@ test("call", () => {
     },
   };
   const str = JSON.stringify(inst);
-  const bs = serialize(str);
-  let result = deserialize(bs);
+  const bs = serializeInst(str);
+  let result = deserializeInst(bs);
   expect(inst).toStrictEqual(JSON.parse(result));
 });
 
 test("issuance", () => {
   let inst = "Issuance";
   const str = JSON.stringify(inst);
-  const bs = serialize(str);
-  let result = deserialize(bs);
+  const bs = serializeInst(str);
+  let result = deserializeInst(bs);
   expect(inst).toStrictEqual(JSON.parse(result));
 });

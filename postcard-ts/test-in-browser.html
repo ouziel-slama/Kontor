@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>postcard-ts browser proof</title>
     <script type="module">
-      import { serialize, deserialize } from "./ts/postcard-ts.js";
+      import { serializeInst, deserializeInst } from "./ts/postcard-ts.js";
 
       async function run() {
         console.log("Testing in the actual browser right now…");
@@ -18,8 +18,8 @@
           },
         };
         var str = JSON.stringify(inst);
-        var bs = serialize(str);
-        var result = deserialize(bs);
+        var bs = serializeInst(str);
+        var result = deserializeInst(bs);
         if (result !== str) {
           throw new Error("Deserialized string should match original");
         }
@@ -34,8 +34,8 @@
           },
         };
         var str = JSON.stringify(inst);
-        var bs = serialize(str);
-        var result = deserialize(bs);
+        var bs = serializeInst(str);
+        var result = deserializeInst(bs);
         if (result !== str) {
           throw new Error("Deserialized string should match original");
         }
@@ -44,8 +44,8 @@
         console.log("Running issuance test");
         var inst = "Issuance";
         var str = JSON.stringify(inst);
-        var bs = serialize(str);
-        var result = deserialize(bs);
+        var bs = serializeInst(str);
+        var result = deserializeInst(bs);
         if (result !== str) {
           throw new Error("Deserialized string should match original");
         }

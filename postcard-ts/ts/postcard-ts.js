@@ -729,25 +729,25 @@ let exports0;
 let memory0;
 let realloc0;
 let postReturn0;
-let exports0Serialize;
+let exports0SerializeInst;
 
-function serialize(arg0) {
+function serializeInst(arg0) {
   var ptr0 = utf8Encode(arg0, realloc0, memory0);
   var len0 = utf8EncodedLen;
-  _debugLog('[iface="serialize", function="serialize"][Instruction::CallWasm] enter', {
-    funcName: 'serialize',
+  _debugLog('[iface="serialize-inst", function="serialize-inst"][Instruction::CallWasm] enter', {
+    funcName: 'serialize-inst',
     paramCount: 2,
     async: false,
     postReturn: true,
   });
-  const _wasm_call_currentTaskID = startCurrentTask(0, false, 'exports0Serialize');
-  const ret = exports0Serialize(ptr0, len0);
+  const _wasm_call_currentTaskID = startCurrentTask(0, false, 'exports0SerializeInst');
+  const ret = exports0SerializeInst(ptr0, len0);
   endCurrentTask(0);
   var ptr1 = dataView(memory0).getUint32(ret + 0, true);
   var len1 = dataView(memory0).getUint32(ret + 4, true);
   var result1 = new Uint8Array(memory0.buffer.slice(ptr1, ptr1 + len1 * 1));
-  _debugLog('[iface="serialize", function="serialize"][Instruction::Return]', {
-    funcName: 'serialize',
+  _debugLog('[iface="serialize-inst", function="serialize-inst"][Instruction::Return]', {
+    funcName: 'serialize-inst',
     paramCount: 1,
     async: false,
     postReturn: true
@@ -761,28 +761,28 @@ function serialize(arg0) {
   return retCopy;
   
 }
-let exports0Deserialize;
+let exports0DeserializeInst;
 
-function deserialize(arg0) {
+function deserializeInst(arg0) {
   var val0 = arg0;
   var len0 = val0.byteLength;
   var ptr0 = realloc0(0, 0, 1, len0 * 1);
   var src0 = new Uint8Array(val0.buffer || val0, val0.byteOffset, len0 * 1);
   (new Uint8Array(memory0.buffer, ptr0, len0 * 1)).set(src0);
-  _debugLog('[iface="deserialize", function="deserialize"][Instruction::CallWasm] enter', {
-    funcName: 'deserialize',
+  _debugLog('[iface="deserialize-inst", function="deserialize-inst"][Instruction::CallWasm] enter', {
+    funcName: 'deserialize-inst',
     paramCount: 2,
     async: false,
     postReturn: true,
   });
-  const _wasm_call_currentTaskID = startCurrentTask(0, false, 'exports0Deserialize');
-  const ret = exports0Deserialize(ptr0, len0);
+  const _wasm_call_currentTaskID = startCurrentTask(0, false, 'exports0DeserializeInst');
+  const ret = exports0DeserializeInst(ptr0, len0);
   endCurrentTask(0);
   var ptr1 = dataView(memory0).getUint32(ret + 0, true);
   var len1 = dataView(memory0).getUint32(ret + 4, true);
   var result1 = utf8Decoder.decode(new Uint8Array(memory0.buffer, ptr1, len1));
-  _debugLog('[iface="deserialize", function="deserialize"][Instruction::Return]', {
-    funcName: 'deserialize',
+  _debugLog('[iface="deserialize-inst", function="deserialize-inst"][Instruction::Return]', {
+    funcName: 'deserialize-inst',
     paramCount: 1,
     async: false,
     postReturn: true
@@ -803,9 +803,9 @@ const $init = (() => {
     ({ exports: exports0 } = yield instantiateCore(yield module0));
     memory0 = exports0.memory;
     realloc0 = exports0.cabi_realloc;
-    postReturn0 = exports0.cabi_post_deserialize;
-    exports0Serialize = exports0.serialize;
-    exports0Deserialize = exports0.deserialize;
+    postReturn0 = exports0['cabi_post_deserialize-inst'];
+    exports0SerializeInst = exports0['serialize-inst'];
+    exports0DeserializeInst = exports0['deserialize-inst'];
   })();
   let promise, resolve, reject;
   function runNext (value) {
@@ -832,4 +832,4 @@ const $init = (() => {
 
 await $init;
 
-export { deserialize, serialize,  }
+export { deserializeInst, serializeInst,  }

@@ -1,3 +1,3 @@
 // world root:component/root
-export function serialize(jsonStr: string): Uint8Array;
-export function deserialize(bytes: Uint8Array): string;
+export function serializeInst(jsonStr: string): Uint8Array;
+export function deserializeInst(bytes: Uint8Array): string;

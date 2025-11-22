@@ -2140,6 +2140,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-types"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "macros",
+ "postcard",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "wit-bindgen 0.48.1",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
