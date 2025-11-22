@@ -15,7 +15,7 @@ use libsql::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 pub use stdlib::CheckedArithmetics;
-use stdlib::impls;
+use stdlib::{contract_address, impls};
 pub use storage::Storage;
 use tokio::sync::Mutex;
 pub use types::default_val_for_type;
