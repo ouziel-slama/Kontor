@@ -347,12 +347,13 @@ impl Runtime {
         };
 
         let func_name = call.name();
-        let func_params = func.params(&store);
-        let func_param_types = func_params.iter().map(|(_, t)| t).collect::<Vec<_>>();
+        let component_func = func.ty(&store);
+        let func_params = component_func.params();
+        let func_param_types = func_params.map(|(_, t)| t).collect::<Vec<_>>();
         let (func_ctx_param_type, func_param_types) = func_param_types
             .split_first()
             .ok_or(anyhow!("Context/signer parameter not found"))?;
-        let mut params = call.to_wasm_params(func_param_types.to_vec())?;
+        let mut params = call.to_wasm_params(func_param_types)?;
         let resource_type = match func_ctx_param_type {
             wasmtime::component::Type::Borrow(t) => Ok(*t),
             _ => Err(anyhow!("Unsupported context type")),
@@ -442,9 +443,8 @@ impl Runtime {
             return Err(anyhow!("Missing fuel for procedure"));
         }
 
-        let results = func
-            .results(&store)
-            .iter()
+        let results = component_func
+            .results()
             .map(default_val_for_type)
             .collect::<Vec<_>>();
 

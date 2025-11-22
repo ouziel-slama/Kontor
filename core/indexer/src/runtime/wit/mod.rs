@@ -8,14 +8,14 @@ pub use resources::{
 wasmtime::component::bindgen!({
     path: "src/runtime/wit",
     with: {
-        "kontor:built-in/context/signer": Signer,
-        "kontor:built-in/context/view-context": ViewContext,
-        "kontor:built-in/context/proc-context": ProcContext,
-        "kontor:built-in/context/fall-context": FallContext,
-        "kontor:built-in/context/core-context": CoreContext,
-        "kontor:built-in/context/view-storage": ViewStorage,
-        "kontor:built-in/context/proc-storage": ProcStorage,
-        "kontor:built-in/context/keys": Keys,
+        "kontor:built-in/context.signer": Signer,
+        "kontor:built-in/context.view-context": ViewContext,
+        "kontor:built-in/context.proc-context": ProcContext,
+        "kontor:built-in/context.fall-context": FallContext,
+        "kontor:built-in/context.core-context": CoreContext,
+        "kontor:built-in/context.view-storage": ViewStorage,
+        "kontor:built-in/context.proc-storage": ProcStorage,
+        "kontor:built-in/context.keys": Keys,
     },
     additional_derives: [stdlib::Wavey],
     imports: {
