@@ -3,6 +3,7 @@ use macros::contract_address;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 pub use wit_bindgen;
+use bitcoin::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
 pub struct ContractAddress {
@@ -46,4 +47,9 @@ pub fn inst_json_to_bytes(json: String) -> Vec<u8> {
 pub fn inst_bytes_to_json(bytes: Vec<u8>) -> String {
     let inst = deserialize::<Inst>(&bytes).expect("Failed to deserialize from postcard");
     serde_json::to_string(&inst).expect("Failed to serialize to JSON")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpReturnData {
+    PubKey(XOnlyPublicKey),
 }

@@ -325,17 +325,14 @@ pub async fn test_compose_reveal_op_return_size_validation(
             .unwrap(),
             vout: 0,
         },
-        commit_prevout,
+        commit_prevout: commit_prevout.clone(),
         commit_script_data: commit_data,
     };
 
     // With single-push OP_RETURN, total payload includes the tag ("kon").
     // So max user data length is 80 - 3 = 77 bytes.
     let ok_inputs = RevealInputs::builder()
-        .commit_txid(
-            Txid::from_str("0000000000000000000000000000000000000000000000000000000000000003")
-                .unwrap(),
-        )
+        .commit_tx(build_dummy_tx(vec![], vec![commit_prevout.clone()]))
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![participant.clone()])
         .op_return_data(vec![1u8; 77])
@@ -345,10 +342,7 @@ pub async fn test_compose_reveal_op_return_size_validation(
     assert!(ok.is_ok(), "77-byte OP_RETURN payload should be accepted");
 
     let err_inputs = RevealInputs::builder()
-        .commit_txid(
-            Txid::from_str("0000000000000000000000000000000000000000000000000000000000000003")
-                .unwrap(),
-        )
+        .commit_tx(build_dummy_tx(vec![], vec![commit_prevout.clone()]))
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![participant])
         .op_return_data(vec![2u8; 78])

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
-        compose::{ComposeOutputs, ComposeQuery},
+        compose::{ComposeOutputs, ComposeQuery, RevealOutputs, RevealQuery},
         error::ErrorResponse,
         handlers::{
             ContractResponse, Info, OpWithResult, ResultRow, TransactionHex, ViewExpr, ViewResult,
@@ -65,6 +65,17 @@ impl Client {
         Self::handle_response(
             self.client
                 .post(format!("{}/transactions/compose", &self.url))
+                .json(&query)
+                .send()
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn compose_reveal(&self, query: RevealQuery) -> Result<RevealOutputs> {
+        Self::handle_response(
+            self.client
+                .post(format!("{}/transactions/compose/reveal", &self.url))
                 .json(&query)
                 .send()
                 .await?,
