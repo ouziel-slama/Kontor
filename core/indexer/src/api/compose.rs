@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use bitcoin::{
     Address, AddressType, Amount, FeeRate, KnownHrp, OutPoint, Psbt, ScriptBuf, TxOut, Witness,
     absolute::LockTime,
-    consensus::encode::serialize as serialize_tx,
+    consensus::encode::{self, serialize as serialize_tx},
     opcodes::{
         OP_0, OP_FALSE,
         all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
@@ -229,7 +229,7 @@ pub struct RevealParticipantQuery {
 
 #[derive(Serialize, Deserialize)]
 pub struct RevealQuery {
-    pub commit_txid: String,
+    pub commit_tx_hex: String,
     pub sat_per_vbyte: u64,
     pub participants: Vec<RevealParticipantQuery>,
     pub op_return_data: Option<Vec<u8>>,
@@ -248,7 +248,7 @@ pub struct RevealParticipantInputs {
 
 #[derive(Builder, Serialize, Clone)]
 pub struct RevealInputs {
-    pub commit_txid: bitcoin::Txid,
+    pub commit_tx: Transaction,
     pub fee_rate: FeeRate,
     pub participants: Vec<RevealParticipantInputs>,
     pub op_return_data: Option<Vec<u8>>,
@@ -257,17 +257,14 @@ pub struct RevealInputs {
 }
 
 impl RevealInputs {
-    pub async fn from_query(
-        query: RevealQuery,
-        network: bitcoin::Network,
-        bitcoin_client: &Client,
-    ) -> Result<Self> {
+    pub async fn from_query(query: RevealQuery, network: bitcoin::Network) -> Result<Self> {
         if query.sat_per_vbyte == 0 {
             return Err(anyhow!("Invalid fee rate"));
         }
         let fee_rate =
             FeeRate::from_sat_per_vb(query.sat_per_vbyte).ok_or(anyhow!("Invalid fee rate"))?;
-        let commit_txid = bitcoin::Txid::from_str(&query.commit_txid)?;
+
+        let commit_tx = encode::deserialize_hex::<bitcoin::Transaction>(&query.commit_tx_hex)?;
 
         if query.participants.is_empty() {
             return Err(anyhow!("participants cannot be empty"));
@@ -282,14 +279,11 @@ impl RevealInputs {
             }
             let x_only_public_key = XOnlyPublicKey::from_str(&p.x_only_public_key)?;
             let commit_outpoint = OutPoint {
-                txid: commit_txid,
+                txid: commit_tx.compute_txid(),
                 vout: p.commit_vout,
             };
-            let tx = bitcoin_client
-                .get_raw_transaction(&commit_outpoint.txid)
-                .await
-                .map_err(|e| anyhow!("Failed to fetch transaction: {}", e))?;
-            let commit_prevout = tx
+
+            let commit_prevout = commit_tx
                 .output
                 .get(commit_outpoint.vout as usize)
                 .cloned()
@@ -314,7 +308,7 @@ impl RevealInputs {
         let chained_script_data = query.chained_script_data.clone();
 
         Ok(Self {
-            commit_txid,
+            commit_tx,
             fee_rate,
             participants: participants_inputs,
             op_return_data,
@@ -598,7 +592,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         });
     }
     let reveal_inputs = RevealInputs::builder()
-        .commit_txid(commit_txid)
+        .commit_tx(commit_transaction.clone())
         .fee_rate(params.fee_rate)
         .participants(participants)
         .envelope(params.envelope)

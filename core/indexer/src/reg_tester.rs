@@ -3,7 +3,7 @@ use std::{path::Path, str::FromStr, sync::Arc};
 use crate::{
     api::{
         client::Client as KontorClient,
-        compose::{ComposeOutputs, ComposeQuery, InstructionQuery},
+        compose::{ComposeOutputs, ComposeQuery, InstructionQuery, RevealOutputs, RevealQuery},
         handlers::{OpWithResult, ResultRow, TransactionHex, ViewResult},
         ws_client::WebSocketClient,
     },
@@ -602,6 +602,15 @@ impl RegTester {
 
     pub async fn compose(&self, query: ComposeQuery) -> Result<ComposeOutputs> {
         self.inner.lock().await.kontor_client.compose(query).await
+    }
+
+    pub async fn compose_reveal(&self, query: RevealQuery) -> Result<RevealOutputs> {
+        self.inner
+            .lock()
+            .await
+            .kontor_client
+            .compose_reveal(query)
+            .await
     }
 
     pub async fn mempool_info(&self) -> Result<GetMempoolInfoResult> {

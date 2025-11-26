@@ -125,7 +125,7 @@ pub async fn post_compose_reveal(
     State(env): State<Env>,
     Json(query): Json<RevealQuery>,
 ) -> Result<RevealOutputs> {
-    let inputs = RevealInputs::from_query(query, env.config.network, &env.bitcoin)
+    let inputs = RevealInputs::from_query(query, env.config.network)
         .await
         .map_err(|e| HttpError::BadRequest(e.to_string()))?;
     let outputs = compose_reveal(inputs).map_err(|e| HttpError::BadRequest(e.to_string()))?;

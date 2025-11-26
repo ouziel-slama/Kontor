@@ -7,11 +7,11 @@ use bitcoin::{Address, FeeRate, KnownHrp, OutPoint, TapSighashType, TxOut};
 use bitcoin::{consensus::encode::serialize as serialize_tx, key::Secp256k1};
 use indexer::api::compose::{
     ComposeInputs, ComposeQuery, InstructionInputs, InstructionQuery, RevealInputs,
-    RevealParticipantInputs, compose, compose_reveal,
+    RevealParticipantInputs, RevealParticipantQuery, RevealQuery, compose, compose_reveal,
 };
 use indexer::test_utils;
 use indexer::witness_data::{TokenBalance, WitnessData};
-use indexer_types::{Inst, serialize};
+use indexer_types::{ContractAddress, Inst, OpReturnData, serialize};
 use testlib::RegTester;
 
 pub async fn test_compose(reg_tester: &mut RegTester) -> Result<()> {
@@ -522,7 +522,7 @@ pub async fn test_reveal_with_op_return_mempool_accept(reg_tester: &mut RegTeste
 
     // Add OP_RETURN data (within 77 bytes total payload minus tag)
     let inputs = RevealInputs::builder()
-        .commit_txid(commit_tx.compute_txid())
+        .commit_tx(commit_tx.clone())
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![RevealParticipantInputs {
             address: seller_address.clone(),
@@ -704,5 +704,235 @@ pub async fn test_compose_insufficient_funds(reg_tester: &mut RegTester) -> Resu
         ),
     }
 
+    Ok(())
+}
+
+pub async fn test_compose_attach_and_detach(reg_tester: &mut RegTester) -> Result<()> {
+    let secp = Secp256k1::new();
+
+    let identity = reg_tester.identity().await?;
+    let seller_address = identity.address;
+    let keypair = identity.keypair;
+    let (internal_key, _parity) = keypair.x_only_public_key();
+    let (out_point, utxo_for_output) = identity.next_funding_utxo;
+
+    let instruction = Inst::Call {
+        gas_limit: 50_000,
+        contract: ContractAddress {
+            name: "attach".to_string(),
+            height: 0,
+            tx_index: 1,
+        },
+        expr: "attach(0)".to_string(), // token data??
+    };
+
+    let chained_instructions = Inst::Call {
+        gas_limit: 50_000,
+        contract: ContractAddress {
+            name: "detach".to_string(),
+            height: 0,
+            tx_index: 1,
+        },
+        expr: "detach()".to_string(),
+    };
+
+    let query = ComposeQuery::builder()
+        .instructions(vec![InstructionQuery {
+            address: seller_address.to_string(),
+            x_only_public_key: internal_key.to_string(),
+            funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
+            script_data: instruction.clone(),
+        }])
+        .sat_per_vbyte(2)
+        .envelope(600)
+        .chained_script_data(chained_instructions.clone())
+        .build();
+
+    let compose_outputs = reg_tester.compose(query).await?;
+
+    let mut commit_transaction = compose_outputs.commit_transaction;
+
+    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
+
+    let derived_token_data = serialize(&instruction)?;
+
+    let derived_tap_script = Builder::new()
+        .push_slice(internal_key.serialize())
+        .push_opcode(OP_CHECKSIG)
+        .push_opcode(OP_FALSE)
+        .push_opcode(OP_IF)
+        .push_slice(b"kon")
+        .push_opcode(OP_0)
+        .push_slice(PushBytesBuf::try_from(derived_token_data)?)
+        .push_opcode(OP_ENDIF)
+        .into_script();
+
+    assert_eq!(derived_tap_script, tap_script);
+
+    let taproot_spend_info = TaprootBuilder::new()
+        .add_leaf(0, derived_tap_script.clone())
+        .map_err(|e| anyhow!("Failed to add leaf: {}", e))?
+        .finalize(&secp, internal_key)
+        .map_err(|e| anyhow!("Failed to finalize Taproot tree: {:?}", e))?;
+    let script_address = Address::p2tr_tweaked(taproot_spend_info.output_key(), KnownHrp::Mainnet);
+
+    assert_eq!(commit_transaction.input.len(), 1);
+    assert_eq!(commit_transaction.output.len(), 2);
+    assert!(commit_transaction.output[0].value.to_sat() >= 600);
+    assert_eq!(
+        commit_transaction.output[0].script_pubkey,
+        script_address.script_pubkey()
+    );
+    if commit_transaction.output.len() > 1 {
+        assert_eq!(
+            commit_transaction.output[1].script_pubkey,
+            seller_address.script_pubkey()
+        );
+    }
+
+    let mut reveal_transaction = compose_outputs.reveal_transaction;
+
+    let chained_tap_script = compose_outputs.per_participant[0]
+        .chained
+        .as_ref()
+        .unwrap()
+        .tap_script
+        .clone();
+
+    let derived_chained_instruction = Inst::Call {
+        gas_limit: 50_000,
+        contract: ContractAddress {
+            name: "detach".to_string(),
+            height: 0,
+            tx_index: 1,
+        },
+        expr: "detach()".to_string(),
+    };
+
+    let derived_chained_tap_script = Builder::new()
+        .push_slice(internal_key.serialize())
+        .push_opcode(OP_CHECKSIG)
+        .push_opcode(OP_FALSE)
+        .push_opcode(OP_IF)
+        .push_slice(b"kon")
+        .push_opcode(OP_0)
+        .push_slice(PushBytesBuf::try_from(serialize(
+            &derived_chained_instruction,
+        )?)?)
+        .push_opcode(OP_ENDIF)
+        .into_script();
+
+    assert_eq!(derived_chained_tap_script, chained_tap_script);
+
+    let chained_taproot_spend_info = TaprootBuilder::new()
+        .add_leaf(0, derived_chained_tap_script.clone())
+        .map_err(|e| anyhow!("Failed to add leaf: {}", e))?
+        .finalize(&secp, internal_key)
+        .map_err(|e| anyhow!("Failed to finalize Taproot tree: {:?}", e))?;
+    let chained_script_address =
+        Address::p2tr_tweaked(chained_taproot_spend_info.output_key(), KnownHrp::Mainnet);
+
+    assert_eq!(reveal_transaction.input.len(), 1);
+    assert_eq!(
+        reveal_transaction.input[0].previous_output.txid,
+        commit_transaction.compute_txid()
+    );
+    assert_eq!(reveal_transaction.input[0].previous_output.vout, 0);
+
+    assert_eq!(reveal_transaction.output.len(), 1);
+    assert_eq!(reveal_transaction.output[0].value.to_sat(), 600);
+    assert_eq!(
+        reveal_transaction.output[0].script_pubkey,
+        chained_script_address.script_pubkey()
+    );
+    if reveal_transaction.output.len() > 1 {
+        assert_eq!(
+            reveal_transaction.output[1].script_pubkey,
+            seller_address.script_pubkey()
+        );
+    }
+
+    let commit_previous_output = TxOut {
+        value: utxo_for_output.value,
+        script_pubkey: seller_address.script_pubkey(),
+    };
+
+    test_utils::sign_key_spend(
+        &secp,
+        &mut commit_transaction,
+        &[commit_previous_output],
+        &keypair,
+        0,
+        Some(TapSighashType::All),
+    )?;
+
+    let reveal_previous_outputs = [commit_transaction.output[0].clone()];
+
+    test_utils::sign_script_spend(
+        &secp,
+        &taproot_spend_info,
+        &tap_script,
+        &mut reveal_transaction,
+        &reveal_previous_outputs,
+        &keypair,
+        0,
+    )?;
+
+    // Reveal only spends the script output now
+
+    let commit_tx_hex = hex::encode(serialize_tx(&commit_transaction));
+    let reveal_tx_hex = hex::encode(serialize_tx(&reveal_transaction));
+
+    // Second reveal (detach)
+    let chained_script_data_bytes = serialize(&chained_instructions)?;
+
+    let reveal_query = RevealQuery {
+        commit_tx_hex: reveal_tx_hex.clone(),
+        sat_per_vbyte: 2,
+        participants: vec![RevealParticipantQuery {
+            address: seller_address.to_string(),
+            x_only_public_key: internal_key.to_string(),
+            commit_vout: 0,
+            commit_script_data: chained_script_data_bytes,
+            envelope: None,
+        }],
+        op_return_data: Some(serialize(&OpReturnData::PubKey(internal_key))?),
+        envelope: None,
+        chained_script_data: None,
+    };
+
+    let detach_outputs = reg_tester.compose_reveal(reveal_query).await?;
+    let mut detach_transaction = detach_outputs.transaction;
+
+    assert_eq!(detach_transaction.input.len(), 1);
+    assert_eq!(
+        detach_transaction.input[0].previous_output.txid,
+        reveal_transaction.compute_txid()
+    );
+
+    test_utils::sign_script_spend(
+        &secp,
+        &chained_taproot_spend_info,
+        &chained_tap_script,
+        &mut detach_transaction,
+        &[reveal_transaction.output[0].clone()],
+        &keypair,
+        0,
+    )?;
+
+    let detach_tx_hex = hex::encode(serialize_tx(&detach_transaction));
+
+    let result = reg_tester
+        .mempool_accept_result(&[commit_tx_hex, reveal_tx_hex, detach_tx_hex])
+        .await?;
+
+    assert_eq!(
+        result.len(),
+        3,
+        "Expected exactly three transaction results"
+    );
+    assert!(result[0].allowed, "Commit transaction was rejected");
+    assert!(result[1].allowed, "Reveal transaction was rejected");
+    assert!(result[2].allowed, "Detach transaction was rejected");
     Ok(())
 }

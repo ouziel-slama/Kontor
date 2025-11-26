@@ -99,6 +99,8 @@ use compose_tests::signature_replay_fails::{
 use compose_tests::size_limit::test_compose_progressive_size_limit_testnet;
 use compose_tests::swap::test_swap_psbt;
 
+use crate::compose_tests::compose_api::test_compose_attach_and_detach;
+
 async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result<()> {
     info!("test_commit_reveal_chained_reveal");
     let secp = Secp256k1::new();
@@ -140,7 +142,7 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
 
     let chained_reveal_tx = compose_reveal(
         RevealInputs::builder()
-            .commit_txid(reveal_tx.compute_txid())
+            .commit_tx(reveal_tx.clone())
             .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
             .participants(vec![RevealParticipantInputs {
                 address: seller_address.clone(),
@@ -456,5 +458,6 @@ async fn test_compose_regtest() -> Result<()> {
     test_compose_duplicate_address_and_duplicate_utxo(&mut reg_tester.clone()).await?;
     test_compose_param_bounds_and_fee_rate(&mut reg_tester.clone()).await?;
     test_reveal_with_op_return_mempool_accept(&mut reg_tester.clone()).await?;
+    test_compose_attach_and_detach(&mut reg_tester.clone()).await?;
     Ok(())
 }

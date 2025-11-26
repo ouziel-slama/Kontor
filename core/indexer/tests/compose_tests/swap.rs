@@ -247,7 +247,7 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
     let transfer_bytes = serialize(&transfer_data)?;
 
     let reveal_inputs = RevealInputs::builder()
-        .commit_txid(attach_reveal_tx.compute_txid())
+        .commit_tx(attach_reveal_tx.clone())
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![RevealParticipantInputs {
             address: seller_address.clone(),
