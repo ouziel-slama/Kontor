@@ -1,80 +1,95 @@
 use anyhow::Result;
+use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::FeeRate;
 use bitcoin::OutPoint;
 use bitcoin::Psbt;
+use bitcoin::Sequence;
 use bitcoin::TapSighashType;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::absolute::LockTime;
+use bitcoin::key::Keypair;
 use bitcoin::psbt::Input;
 use bitcoin::psbt::Output;
-use bitcoin::script::Instruction;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
-use bitcoin::{
-    ScriptBuf,
-    address::{Address, KnownHrp},
-    consensus::encode::serialize as serialize_tx,
-    key::Secp256k1,
-};
+use bitcoin::{ScriptBuf, consensus::encode::serialize as serialize_tx, key::Secp256k1};
 use indexer::api::compose::compose;
 use indexer::api::compose::compose_reveal;
 use indexer::api::compose::{ComposeInputs, InstructionInputs};
 use indexer::api::compose::{RevealInputs, RevealParticipantInputs};
-use indexer::op_return::OpReturnData;
 use indexer::test_utils;
-use indexer::witness_data::TokenBalance;
-use indexer::witness_data::WitnessData;
-use indexer_types::{deserialize, serialize};
+use indexer_types::OpReturnData;
+use indexer_types::{ContractAddress, Inst, serialize};
 use testlib::RegTester;
 use tracing::info;
 
-pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
-    info!("test_swap_psbt");
+struct SwapTestContext {
+    attach_commit_tx_hex: String,
+    raw_attach_reveal_tx_hex: String,
+    raw_psbt_hex: String,
+    final_tx: Transaction,
+}
+
+struct SwapTestParams {
+    seller_address: Address,
+    seller_keypair: Keypair,
+    seller_internal_key: XOnlyPublicKey,
+    seller_out_point: OutPoint,
+    seller_utxo_for_output: TxOut,
+    buyer_address: Address,
+    buyer_keypair: Keypair,
+    buyer_internal_key: XOnlyPublicKey,
+    buyer_out_point: OutPoint,
+    buyer_utxo_for_output: TxOut,
+}
+
+async fn setup_swap_test(params: SwapTestParams) -> Result<SwapTestContext> {
     let secp = Secp256k1::new();
-
-    let seller_identity = reg_tester.identity().await?;
-    let seller_address = seller_identity.address;
-    let seller_keypair = seller_identity.keypair;
-    let (seller_internal_key, _parity) = seller_keypair.x_only_public_key();
-    let (seller_out_point, seller_utxo_for_output) = seller_identity.next_funding_utxo;
-
-    let buyer_identity = reg_tester.identity().await?;
-    let buyer_address = buyer_identity.address;
-    let buyer_keypair = buyer_identity.keypair;
-    let (buyer_internal_key, _parity) = buyer_keypair.x_only_public_key();
-    let (buyer_out_point, buyer_utxo_for_output) = buyer_identity.next_funding_utxo;
-
-    let token_value = 1000;
-    let attach_witness_data = WitnessData::Attach {
-        output_index: 0,
-        token_balance: TokenBalance {
-            value: token_value,
-            name: "token_name".to_string(),
+    let seller_address = params.seller_address;
+    let seller_keypair = params.seller_keypair;
+    let seller_internal_key = params.seller_internal_key;
+    let seller_out_point = params.seller_out_point;
+    let seller_utxo_for_output = params.seller_utxo_for_output;
+    let buyer_address = params.buyer_address;
+    let buyer_keypair = params.buyer_keypair;
+    let buyer_internal_key = params.buyer_internal_key;
+    let buyer_out_point = params.buyer_out_point;
+    let buyer_utxo_for_output = params.buyer_utxo_for_output;
+    let instruction = Inst::Call {
+        gas_limit: 50_000,
+        contract: ContractAddress {
+            name: "token".to_string(),
+            height: 0,
+            tx_index: 0,
         },
+        expr: "attach(0)".to_string(),
     };
 
-    let serialized_token_balance = serialize(&attach_witness_data)?;
+    let serialized_instruction = serialize(&instruction)?;
 
-    let detach_data = WitnessData::Detach {
-        output_index: 0,
-        token_balance: TokenBalance {
-            value: token_value,
-            name: "token_name".to_string(),
+    let chained_instructions = Inst::Call {
+        gas_limit: 50_000,
+        contract: ContractAddress {
+            name: "token".to_string(),
+            height: 0,
+            tx_index: 0,
         },
+        expr: "detach()".to_string(),
     };
-    let serialized_detach_data = serialize(&detach_data)?;
+    let serialized_detach_data = serialize(&chained_instructions)?;
 
     let compose_params = ComposeInputs::builder()
         .instructions(vec![InstructionInputs {
             address: seller_address.clone(),
             x_only_public_key: seller_internal_key,
             funding_utxos: vec![(seller_out_point, seller_utxo_for_output.clone())],
-            script_data: serialized_token_balance,
+            script_data: serialized_instruction,
         }])
         .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())
         .chained_script_data(serialized_detach_data.clone())
@@ -92,10 +107,7 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
         .tap_script
         .clone();
 
-    let prevouts = vec![TxOut {
-        value: seller_utxo_for_output.clone().value,
-        script_pubkey: seller_address.script_pubkey(),
-    }];
+    let prevouts = vec![seller_utxo_for_output.clone()];
 
     test_utils::sign_key_spend(
         &secp,
@@ -124,65 +136,6 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
         0,
     )?;
 
-    let attach_reveal_witness = attach_reveal_tx.input[0].witness.clone();
-    // Get the script from the witness
-    let script_bytes = attach_reveal_witness.to_vec()[1].clone();
-    let script = ScriptBuf::from_bytes(script_bytes);
-
-    // Parse the script instructions
-    let instructions = script.instructions().collect::<Result<Vec<_>, _>>()?;
-
-    if let [
-        Instruction::PushBytes(key),
-        _,
-        _,
-        _,
-        _,
-        _,
-        Instruction::PushBytes(serialized_data),
-        _,
-    ] = instructions.as_slice()
-    {
-        let witness_data: WitnessData = deserialize(serialized_data.as_bytes())?;
-        assert_eq!(witness_data, attach_witness_data);
-
-        if let WitnessData::Attach {
-            token_balance,
-            output_index,
-        } = witness_data
-        {
-            let detach_data = WitnessData::Detach {
-                output_index,
-                token_balance,
-            };
-            let secp = Secp256k1::new();
-            let serialized_detach_data = serialize(&detach_data)?;
-
-            let x_only_public_key = XOnlyPublicKey::from_slice(key.as_bytes())?;
-            let detach_tap_script = test_utils::build_inscription(
-                serialized_detach_data,
-                test_utils::PublicKey::Taproot(&x_only_public_key),
-            )?;
-
-            let detach_spend_info = TaprootBuilder::new()
-                .add_leaf(0, detach_tap_script)
-                .expect("Failed to add leaf")
-                .finalize(&secp, x_only_public_key)
-                .expect("Failed to finalize Taproot tree");
-
-            let detach_script_address_2 =
-                Address::p2tr_tweaked(detach_spend_info.output_key(), KnownHrp::Mainnet);
-
-            assert_eq!(
-                detach_script_address_2.script_pubkey(),
-                attach_reveal_tx.output[0].script_pubkey
-            );
-        } else {
-            panic!("Invalid witness data");
-        }
-    } else {
-        panic!("Invalid script instructions");
-    }
     let detach_tapscript_spend_info = TaprootBuilder::new()
         .add_leaf(0, detach_tap_script.clone())
         .expect("Failed to add leaf")
@@ -235,15 +188,13 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
         &mut seller_detach_psbt,
         &detach_tap_script,
         seller_internal_key,
-        detach_control_block,
+        detach_control_block.clone(),
         &seller_keypair,
         &prevouts,
     );
 
     // Create transfer data pointing to output 2 (buyer's address)
-    let transfer_data = OpReturnData::D {
-        destination: buyer_internal_key,
-    };
+    let transfer_data = OpReturnData::PubKey(buyer_internal_key);
     let transfer_bytes = serialize(&transfer_data)?;
 
     let reveal_inputs = RevealInputs::builder()
@@ -267,28 +218,24 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
     // Create buyer's PSBT that combines with seller's PSBT
     let mut buyer_psbt = buyer_reveal_outputs.psbt;
 
-    buyer_psbt.inputs[0] = seller_detach_psbt.inputs[0].clone();
+    buyer_psbt.inputs[0] = seller_detach_psbt.inputs[0].clone(); // seller's signed input
+
+    // Ensure seller is paid 600 sats at output index 0 to satisfy SIGHASH_SINGLE
+    buyer_psbt
+        .unsigned_tx
+        .output
+        .insert(0, seller_detach_psbt.unsigned_tx.output[0].clone());
     buyer_psbt.unsigned_tx.input.push(TxIn {
         previous_output: buyer_out_point,
         ..Default::default()
     });
     buyer_psbt.inputs.push(Input {
-        witness_utxo: Some(TxOut {
-            script_pubkey: buyer_address.script_pubkey(),
-            value: buyer_utxo_for_output.value,
-        }),
+        witness_utxo: Some(buyer_utxo_for_output.clone()),
         tap_internal_key: Some(buyer_internal_key),
         ..Default::default()
     });
-
-    // Ensure seller is paid 600 sats at output index 0 to satisfy SIGHASH_SINGLE
-    buyer_psbt.unsigned_tx.output.insert(
-        0,
-        TxOut {
-            value: Amount::from_sat(600),
-            script_pubkey: seller_address.script_pubkey(),
-        },
-    );
+    // Opt-in RBF on buyer input (must be set before signing)
+    buyer_psbt.unsigned_tx.input[1].sequence = Sequence::from_consensus(0xFFFFFFFD);
 
     // Add buyer change so the remainder of the buyer input is not treated as fee
     buyer_psbt.unsigned_tx.output.push(TxOut {
@@ -299,21 +246,58 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
     // Define the prevouts explicitly in the same order as inputs
     let prevouts = [
         attach_reveal_tx.output[0].clone(),
-        TxOut {
-            value: buyer_utxo_for_output.value,
-            script_pubkey: buyer_address.script_pubkey(),
-        },
+        buyer_utxo_for_output.clone(),
     ];
 
     test_utils::sign_buyer_side_psbt(&secp, &mut buyer_psbt, &buyer_keypair, &prevouts);
 
-    let final_tx = buyer_psbt.extract_tx()?;
+    let final_tx = buyer_psbt.extract_tx().expect("failed to extract tx");
     let attach_commit_tx_hex = hex::encode(serialize_tx(&attach_commit_tx));
     let raw_attach_reveal_tx_hex = hex::encode(serialize_tx(&attach_reveal_tx));
     let raw_psbt_hex = hex::encode(serialize_tx(&final_tx));
 
+    Ok(SwapTestContext {
+        attach_commit_tx_hex,
+        raw_attach_reveal_tx_hex,
+        raw_psbt_hex,
+        final_tx,
+    })
+}
+
+pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
+    info!("test_swap_psbt");
+
+    let seller_identity = reg_tester.identity().await?;
+    let seller_address = seller_identity.address;
+    let seller_keypair = seller_identity.keypair;
+    let (seller_internal_key, _parity) = seller_keypair.x_only_public_key();
+    let (seller_out_point, seller_utxo_for_output) = seller_identity.next_funding_utxo;
+
+    let buyer_identity = reg_tester.identity().await?;
+    let buyer_address = buyer_identity.address;
+    let buyer_keypair = buyer_identity.keypair;
+    let (buyer_internal_key, _parity) = buyer_keypair.x_only_public_key();
+    let (buyer_out_point, buyer_utxo_for_output) = buyer_identity.next_funding_utxo;
+    let params = SwapTestParams {
+        seller_address,
+        seller_keypair,
+        seller_internal_key,
+        seller_out_point,
+        seller_utxo_for_output,
+        buyer_address,
+        buyer_keypair,
+        buyer_internal_key,
+        buyer_out_point,
+        buyer_utxo_for_output,
+    };
+    let context = setup_swap_test(params).await?;
+
     let result = reg_tester
-        .mempool_accept_result(&[attach_commit_tx_hex, raw_attach_reveal_tx_hex, raw_psbt_hex])
+        .mempool_accept_result(&[
+            context.attach_commit_tx_hex,
+            context.raw_attach_reveal_tx_hex,
+            context.raw_psbt_hex,
+        ])
         .await?;
 
     assert_eq!(
@@ -327,6 +311,106 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
     assert!(result[0].allowed);
     assert!(result[1].allowed);
     assert!(result[2].allowed);
+
+    Ok(())
+}
+
+pub async fn test_swap_integrity(reg_tester: &mut RegTester) -> Result<()> {
+    info!("test_swap_integrity");
+    let seller_identity = reg_tester.identity().await?;
+    let seller_address = seller_identity.address;
+    let seller_keypair = seller_identity.keypair;
+    let (seller_internal_key, _parity) = seller_keypair.x_only_public_key();
+    let (seller_out_point, seller_utxo_for_output) = seller_identity.next_funding_utxo;
+
+    let buyer_identity = reg_tester.identity().await?;
+    let buyer_address = buyer_identity.address;
+    let buyer_keypair = buyer_identity.keypair;
+    let (buyer_internal_key, _parity) = buyer_keypair.x_only_public_key();
+    let (buyer_out_point, buyer_utxo_for_output) = buyer_identity.next_funding_utxo;
+    let params = SwapTestParams {
+        seller_address,
+        seller_keypair,
+        seller_internal_key,
+        seller_out_point,
+        seller_utxo_for_output,
+        buyer_address,
+        buyer_keypair,
+        buyer_internal_key,
+        buyer_out_point,
+        buyer_utxo_for_output: buyer_utxo_for_output.clone(),
+    };
+    let context = setup_swap_test(params).await?;
+
+    // Validate original flow (commit, reveal, original final)
+    let result_original = reg_tester
+        .mempool_accept_result(&[
+            context.attach_commit_tx_hex.clone(),
+            context.raw_attach_reveal_tx_hex.clone(),
+            context.raw_psbt_hex.clone(),
+        ])
+        .await?;
+    assert_eq!(
+        result_original.len(),
+        3,
+        "Expected commit, reveal, and original final"
+    );
+    assert!(result_original[0].allowed, "Commit should be allowed");
+    assert!(result_original[1].allowed, "Reveal should be allowed");
+    assert!(
+        result_original[2].allowed,
+        "Original final tx should be allowed"
+    );
+
+    // Create malicious tx (Seller tries to redirect asset to themselves)
+    let mut malicious_tx = context.final_tx.clone();
+
+    // Maliciously change the OP_RETURN destination to seller's key
+    let malicious_transfer_data = OpReturnData::PubKey(seller_internal_key);
+    let malicious_transfer_bytes = serialize(&malicious_transfer_data)?;
+
+    // make a new psbt with everything the same except
+
+    // Verify index 1 is OP_RETURN (index 0 is payment to seller)
+    assert!(malicious_tx.output[1].script_pubkey.is_op_return());
+
+    // Overwrite the OP_RETURN
+    malicious_tx.output[1].script_pubkey =
+        ScriptBuf::new_op_return(PushBytesBuf::try_from(malicious_transfer_bytes)?);
+
+    let malicious_hex = hex::encode(serialize_tx(&malicious_tx));
+    // Replacement attempt (commit, reveal, malicious replacement)
+    let result_malicious = reg_tester
+        .mempool_accept_result(&[
+            context.attach_commit_tx_hex.clone(),
+            context.raw_attach_reveal_tx_hex.clone(),
+            malicious_hex,
+        ])
+        .await?;
+    assert_eq!(
+        result_malicious.len(),
+        3,
+        "Expected commit, reveal, and replacement attempt"
+    );
+    assert!(result_malicious[0].allowed, "Commit should be allowed");
+    assert!(result_malicious[1].allowed, "Reveal should be allowed");
+    assert!(
+        !result_malicious[2].allowed,
+        "Malicious replacement should be rejected"
+    );
+
+    // Reject reason should indicate signature validation failed on input 1 (buyer's input)
+    // because buyer's signature covers all outputs (SIGHASH_DEFAULT/ALL) and we changed output 1.
+    if let Some(reason) = &result_malicious[2].reject_reason {
+        assert!(
+            reason.contains("mempool-script-verify-flag-failed")
+                || reason.contains("Invalid Schnorr signature"),
+            "Unexpected reject reason: {}",
+            reason
+        );
+    } else {
+        panic!("Expected reject reason");
+    }
 
     Ok(())
 }
