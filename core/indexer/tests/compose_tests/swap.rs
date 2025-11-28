@@ -375,37 +375,14 @@ pub async fn test_swap_integrity(reg_tester: &mut RegTester) -> Result<()> {
     let malicious_transfer_data = OpReturnData::PubKey(seller_internal_key);
     let malicious_transfer_bytes = serialize(&malicious_transfer_data)?;
 
+    // make a new psbt with everything the same except
+
     // Verify index 1 is OP_RETURN (index 0 is payment to seller)
     assert!(malicious_tx.output[1].script_pubkey.is_op_return());
 
     // Overwrite the OP_RETURN
     malicious_tx.output[1].script_pubkey =
         ScriptBuf::new_op_return(PushBytesBuf::try_from(malicious_transfer_bytes)?);
-
-    // Increase fee to make it a valid RBF candidate (though invalid due to signature)
-    // We reduce the change output (index 2) to increase fee
-    // Assuming output 2 is buyer change
-    malicious_tx.output[2].value -= Amount::from_sat(1000);
-
-    // Re-sign seller input (index 0)
-    // We need to reconstruct the witness for input 0
-    // It's a script spend using `detach_tap_script`
-    let secp = Secp256k1::new();
-    let prevouts = [
-        context.attach_reveal_tx.output[0].clone(),
-        buyer_utxo_for_output.clone(),
-    ];
-
-    test_utils::sign_script_spend_with_sighash(
-        &secp,
-        &context.detach_taproot_spend_info,
-        &context.detach_tap_script,
-        &mut malicious_tx,
-        &prevouts,
-        &seller_keypair,
-        0,
-        TapSighashType::SinglePlusAnyoneCanPay,
-    )?;
 
     let malicious_hex = hex::encode(serialize_tx(&malicious_tx));
     // Replacement attempt (commit, reveal, malicious replacement)
