@@ -64,7 +64,7 @@ impl From<ContractAddress> for indexer_types::ContractAddress {
 impl From<indexer_types::OpReturnData> for OpReturnData {
     fn from(value: indexer_types::OpReturnData) -> Self {
         match value {
-            indexer_types::OpReturnData::PubKey(x) => Self::PubKey(x),
+            indexer_types::OpReturnData::PubKey(x) => Self::PubKey(x.to_string()),
         }
     }
 }

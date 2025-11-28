@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bitcoin::XOnlyPublicKey;
 use macros::contract_address;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -15,7 +16,7 @@ contract_address!(ContractAddress);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpReturnData {
-    PubKey(String),
+    PubKey(XOnlyPublicKey),
 }
 
 #[serde_as]

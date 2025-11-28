@@ -896,7 +896,7 @@ pub async fn test_compose_attach_and_detach(reg_tester: &mut RegTester) -> Resul
             commit_script_data: chained_script_data_bytes,
             envelope: None,
         }],
-        op_return_data: Some(serialize(&OpReturnData::PubKey(internal_key.to_string()))?),
+        op_return_data: Some(serialize(&OpReturnData::PubKey(internal_key))?),
         envelope: None,
         chained_script_data: None,
     };

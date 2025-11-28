@@ -43,7 +43,9 @@ test("issuance", () => {
 });
 
 test("op_return_data", () => {
-  let inst = { PubKey: "0x1234567890abcdef" };
+  let inst = {
+    PubKey: "eb1e64766d59b13670f8766f306e87b15874789948dd28a4376749e0270fbe19",
+  };
   const str = JSON.stringify(inst);
   const bs = serializeOpReturnData(str);
   let result = deserializeOpReturnData(bs);

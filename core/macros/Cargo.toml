@@ -13,7 +13,7 @@ proc-macro = true
 wit-parser = { workspace = true }
 anyhow = { workspace = true }
 
-syn = {version = "=2.0.110", features = ["full"]}
+syn = {version = "=2.0.111", features = ["full"]}
 quote = "=1.0.42"
 proc-macro2 = "=1.0.103"
 darling = "=0.21.3"
