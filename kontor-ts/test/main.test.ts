@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { serializeInst, deserializeInst } from "kontor-ts";
+import {
+  serializeInst,
+  deserializeInst,
+  serializeOpReturnData,
+  deserializeOpReturnData,
+} from "kontor-ts";
 
 test("publish", () => {
   let inst = {
@@ -34,5 +39,15 @@ test("issuance", () => {
   const str = JSON.stringify(inst);
   const bs = serializeInst(str);
   let result = deserializeInst(bs);
+  expect(inst).toStrictEqual(JSON.parse(result));
+});
+
+test("op_return_data", () => {
+  let inst = {
+    PubKey: "eb1e64766d59b13670f8766f306e87b15874789948dd28a4376749e0270fbe19",
+  };
+  const str = JSON.stringify(inst);
+  const bs = serializeOpReturnData(str);
+  let result = deserializeOpReturnData(bs);
   expect(inst).toStrictEqual(JSON.parse(result));
 });

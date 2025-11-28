@@ -151,7 +151,10 @@ pub fn new(context: Env) -> Router {
                         .allow_headers(Any),
                 )
                 .layer(CatchPanicLayer::custom(handle_panic))
-                .layer(TimeoutLayer::new(Duration::from_secs(30))),
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    Duration::from_secs(30),
+                )),
         )
         .with_state(context)
 }

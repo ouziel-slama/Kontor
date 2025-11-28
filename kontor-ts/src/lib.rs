@@ -12,6 +12,14 @@ impl Guest for Lib {
     fn deserialize_inst(bytes: Vec<u8>) -> String {
         inst_bytes_to_json(bytes)
     }
+
+    fn serialize_op_return_data(json_str: String) -> Vec<u8> {
+        op_return_data_json_to_bytes(json_str)
+    }
+
+    fn deserialize_op_return_data(bytes: Vec<u8>) -> String {
+        op_return_data_bytes_to_json(bytes)
+    }
 }
 
 export!(Lib);
