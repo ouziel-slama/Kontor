@@ -10,6 +10,10 @@ struct TokenStorage {
     pub total_supply: Decimal,
 }
 
+fn make_utxo_id(txid: String, vout: u64) -> String {
+    format!("{}:{}", txid, vout)
+}
+
 fn assert_gt_zero(n: Decimal) -> Result<(), Error> {
     if n <= 0.into() {
         return Err(Error::Message("Amount must be positive".to_string()));
@@ -18,16 +22,32 @@ fn assert_gt_zero(n: Decimal) -> Result<(), Error> {
     Ok(())
 }
 
-fn mint(model: &TokenStorageWriteModel, to: String, n: Decimal) -> Result<(), Error> {
-    assert_gt_zero(n)?;
-    if n > 1000.into() {
+fn mint(model: &TokenStorageWriteModel, dst: String, amt: Decimal) -> Result<Mint, Error> {
+    assert_gt_zero(amt)?;
+    if amt > 1000.into() {
         return Err(Error::Message("Amount exceeds limit".to_string()));
     }
     let ledger = model.ledger();
-    let balance = ledger.get(&to).unwrap_or_default();
-    ledger.set(to, balance.add(n)?);
-    model.try_update_total_supply(|t| t.add(n))?;
-    Ok(())
+    let new_amt = ledger.get(&dst).unwrap_or_default().add(amt)?;
+    ledger.set(dst.clone(), new_amt);
+    model.try_update_total_supply(|t| t.add(amt))?;
+    Ok(Mint { dst, amt: new_amt })
+}
+
+fn transfer(ctx: &ProcContext, src: String, dst: String, amt: Decimal) -> Result<Transfer, Error> {
+    assert_gt_zero(amt)?;
+    let ledger = ctx.model().ledger();
+
+    let src_amt = ledger.get(&src).unwrap_or_default();
+    let dst_amt = ledger.get(&dst).unwrap_or_default();
+
+    if src_amt < amt {
+        return Err(Error::Message("insufficient funds".to_string()));
+    }
+
+    ledger.set(src.clone(), src_amt.sub(amt)?);
+    ledger.set(dst.clone(), dst_amt.add(amt)?);
+    Ok(Transfer { src, dst, amt })
 }
 
 impl Guest for Token {
@@ -35,65 +55,72 @@ impl Guest for Token {
         TokenStorage::default().init(ctx);
     }
 
-    fn issuance(ctx: &CoreContext, n: Decimal) -> Result<(), Error> {
+    fn issuance(ctx: &CoreContext, amt: Decimal) -> Result<Mint, Error> {
         mint(
             &ctx.proc_context().model(),
             ctx.signer_proc_context().signer().to_string(),
-            n,
+            amt,
         )
     }
 
-    fn hold(ctx: &CoreContext, n: Decimal) -> Result<(), Error> {
+    fn hold(ctx: &CoreContext, amt: Decimal) -> Result<Transfer, Error> {
         Self::transfer(
             &ctx.signer_proc_context(),
             ctx.proc_context().signer().to_string(),
-            n,
+            amt,
         )
     }
 
-    fn burn_and_release(ctx: &CoreContext, n: Decimal) -> Result<(), Error> {
+    fn release(ctx: &CoreContext, burn_amt: Decimal) -> Result<Burn, Error> {
         let core = ctx.proc_context();
-        Self::burn(&core, n)?;
-        let balance = core
+        let burn = Self::burn(&core, burn_amt)?;
+        let amt = core
             .model()
             .ledger()
             .get(core.signer().to_string())
             .unwrap_or_default();
-        if balance > 0.into() {
-            Self::transfer(
-                &core,
-                ctx.signer_proc_context().signer().to_string(),
-                balance,
-            )?;
+        if amt > 0.into() {
+            Self::transfer(&core, ctx.signer_proc_context().signer().to_string(), amt)?;
         }
-        Ok(())
+        Ok(burn)
     }
 
-    fn mint(ctx: &ProcContext, n: Decimal) -> Result<(), Error> {
-        mint(&ctx.model(), ctx.signer().to_string(), n)
+    fn mint(ctx: &ProcContext, amt: Decimal) -> Result<Mint, Error> {
+        mint(&ctx.model(), ctx.signer().to_string(), amt)
     }
 
-    fn burn(ctx: &ProcContext, n: Decimal) -> Result<(), Error> {
-        Self::transfer(ctx, BURNER.to_string(), n)?;
-        ctx.model().try_update_total_supply(|t| t.sub(n))?;
-        Ok(())
+    fn burn(ctx: &ProcContext, amt: Decimal) -> Result<Burn, Error> {
+        let transfer = Self::transfer(ctx, BURNER.to_string(), amt)?;
+        ctx.model().try_update_total_supply(|t| t.sub(amt))?;
+        Ok(Burn {
+            src: transfer.src,
+            amt: transfer.amt,
+        })
     }
 
-    fn transfer(ctx: &ProcContext, to: String, n: Decimal) -> Result<(), Error> {
-        assert_gt_zero(n)?;
-        let from = ctx.signer().to_string();
-        let ledger = ctx.model().ledger();
+    fn transfer(ctx: &ProcContext, dst: String, amt: Decimal) -> Result<Transfer, Error> {
+        let src = ctx.signer().to_string();
+        transfer(ctx, src, dst, amt)
+    }
 
-        let from_balance = ledger.get(&from).unwrap_or_default();
-        let to_balance = ledger.get(&to).unwrap_or_default();
+    fn attach(ctx: &ProcContext, vout: u64, amt: Decimal) -> Result<Transfer, Error> {
+        let dst = make_utxo_id(ctx.transaction().id(), vout);
+        Self::transfer(ctx, dst, amt)
+    }
 
-        if from_balance < n {
-            return Err(Error::Message("insufficient funds".to_string()));
+    fn detach(ctx: &ProcContext) -> Result<Transfer, Error> {
+        let out_point = ctx.transaction().out_point();
+        let src = make_utxo_id(out_point.txid, out_point.vout);
+        let amt = ctx
+            .model()
+            .ledger()
+            .get(&src)
+            .ok_or(Error::Message("Source has no balance".to_string()))?;
+        if let Some(context::OpReturnData::PubKey(dst)) = ctx.transaction().op_return_data() {
+            transfer(ctx, src, dst, amt)
+        } else {
+            Err(Error::Message("invalid OP_RETURN data".to_string()))
         }
-
-        ledger.set(from, from_balance.sub(n)?);
-        ledger.set(to, to_balance.add(n)?);
-        Ok(())
     }
 
     fn balance(ctx: &ViewContext, acc: String) -> Option<Decimal> {
@@ -104,13 +131,13 @@ impl Guest for Token {
         ctx.model()
             .ledger()
             .keys()
-            .filter_map(|k| {
-                if [BURNER.to_string(), "core".to_string()].contains(&k) {
+            .filter_map(|acc| {
+                if [BURNER.to_string(), "core".to_string()].contains(&acc) {
                     None
                 } else {
                     Some(Balance {
-                        value: ctx.model().ledger().get(&k).unwrap_or_default(),
-                        key: k,
+                        amt: ctx.model().ledger().get(&acc).unwrap_or_default(),
+                        acc,
                     })
                 }
             })

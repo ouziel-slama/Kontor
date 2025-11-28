@@ -12,16 +12,34 @@ world root {
   use kontor:built-in/numbers.{decimal};
 
   record balance {
-    key: string,
-    value: decimal,
+    acc: string,
+    amt: decimal,
   }
 
-  export mint: func(ctx: borrow<proc-context>, n: decimal) -> result<_, error>;
-  export burn: func(ctx: borrow<proc-context>, n: decimal) -> result<_, error>;
-  export transfer: func(ctx: borrow<proc-context>, to: string, n: decimal) -> result<_, error>;
+  record transfer {
+    src: string,
+    dst: string,
+    amt: decimal,
+  }
+
+  record burn {
+    src: string,
+    amt: decimal,
+  }
+
+  record mint {
+    dst: string,
+    amt: decimal,
+  }
+
+  export mint: func(ctx: borrow<proc-context>, amt: decimal) -> result<mint, error>;
+  export burn: func(ctx: borrow<proc-context>, amt: decimal) -> result<burn, error>;
+  export transfer: func(ctx: borrow<proc-context>, dst: string, amt: decimal) -> result<transfer, error>;
   export balance: func(ctx: borrow<view-context>, acc: string) -> option<decimal>;
   export balances: func(ctx: borrow<view-context>) -> list<balance>;
   export total-supply: func(ctx: borrow<view-context>) -> decimal;
+  export attach: func(ctx: borrow<proc-context>, vout: u64, amt: decimal) -> result<transfer, error>;
+  export detach: func(ctx: borrow<proc-context>) -> result<transfer, error>;
 }
 "#;
 
