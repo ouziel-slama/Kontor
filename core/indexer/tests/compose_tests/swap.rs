@@ -1,19 +1,22 @@
 use anyhow::Result;
+use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::FeeRate;
 use bitcoin::OutPoint;
 use bitcoin::Psbt;
+use bitcoin::Sequence;
 use bitcoin::TapSighashType;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::absolute::LockTime;
+use bitcoin::key::Keypair;
 use bitcoin::psbt::Input;
 use bitcoin::psbt::Output;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::taproot::LeafVersion;
-use bitcoin::taproot::TaprootBuilder;
+use bitcoin::taproot::{TaprootBuilder, TaprootSpendInfo};
 use bitcoin::transaction::Version;
 use bitcoin::{ScriptBuf, consensus::encode::serialize as serialize_tx, key::Secp256k1};
 use indexer::api::compose::compose;
@@ -31,24 +34,36 @@ struct SwapTestContext {
     raw_attach_reveal_tx_hex: String,
     raw_psbt_hex: String,
     final_tx: Transaction,
-    seller_internal_key: XOnlyPublicKey,
+    attach_reveal_tx: Transaction,
+    detach_tap_script: ScriptBuf,
+    detach_taproot_spend_info: TaprootSpendInfo,
 }
 
-async fn setup_swap_test(reg_tester: &mut RegTester) -> Result<SwapTestContext> {
+struct SwapTestParams {
+    seller_address: Address,
+    seller_keypair: Keypair,
+    seller_internal_key: XOnlyPublicKey,
+    seller_out_point: OutPoint,
+    seller_utxo_for_output: TxOut,
+    buyer_address: Address,
+    buyer_keypair: Keypair,
+    buyer_internal_key: XOnlyPublicKey,
+    buyer_out_point: OutPoint,
+    buyer_utxo_for_output: TxOut,
+}
+
+async fn setup_swap_test(params: SwapTestParams) -> Result<SwapTestContext> {
     let secp = Secp256k1::new();
-
-    let seller_identity = reg_tester.identity().await?;
-    let seller_address = seller_identity.address;
-    let seller_keypair = seller_identity.keypair;
-    let (seller_internal_key, _parity) = seller_keypair.x_only_public_key();
-    let (seller_out_point, seller_utxo_for_output) = seller_identity.next_funding_utxo;
-
-    let buyer_identity = reg_tester.identity().await?;
-    let buyer_address = buyer_identity.address;
-    let buyer_keypair = buyer_identity.keypair;
-    let (buyer_internal_key, _parity) = buyer_keypair.x_only_public_key();
-    let (buyer_out_point, buyer_utxo_for_output) = buyer_identity.next_funding_utxo;
-
+    let seller_address = params.seller_address;
+    let seller_keypair = params.seller_keypair;
+    let seller_internal_key = params.seller_internal_key;
+    let seller_out_point = params.seller_out_point;
+    let seller_utxo_for_output = params.seller_utxo_for_output;
+    let buyer_address = params.buyer_address;
+    let buyer_keypair = params.buyer_keypair;
+    let buyer_internal_key = params.buyer_internal_key;
+    let buyer_out_point = params.buyer_out_point;
+    let buyer_utxo_for_output = params.buyer_utxo_for_output;
     let instruction = Inst::Call {
         gas_limit: 50_000,
         contract: ContractAddress {
@@ -176,7 +191,7 @@ async fn setup_swap_test(reg_tester: &mut RegTester) -> Result<SwapTestContext> 
         &mut seller_detach_psbt,
         &detach_tap_script,
         seller_internal_key,
-        detach_control_block,
+        detach_control_block.clone(),
         &seller_keypair,
         &prevouts,
     );
@@ -222,6 +237,8 @@ async fn setup_swap_test(reg_tester: &mut RegTester) -> Result<SwapTestContext> 
         tap_internal_key: Some(buyer_internal_key),
         ..Default::default()
     });
+    // Opt-in RBF on buyer input (must be set before signing)
+    buyer_psbt.unsigned_tx.input[1].sequence = Sequence::from_consensus(0xFFFFFFFD);
 
     // Add buyer change so the remainder of the buyer input is not treated as fee
     buyer_psbt.unsigned_tx.output.push(TxOut {
@@ -247,13 +264,39 @@ async fn setup_swap_test(reg_tester: &mut RegTester) -> Result<SwapTestContext> 
         raw_attach_reveal_tx_hex,
         raw_psbt_hex,
         final_tx,
-        seller_internal_key,
+        attach_reveal_tx,
+        detach_tap_script,
+        detach_taproot_spend_info: detach_tapscript_spend_info,
     })
 }
 
 pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
     info!("test_swap_psbt");
-    let context = setup_swap_test(reg_tester).await?;
+
+    let seller_identity = reg_tester.identity().await?;
+    let seller_address = seller_identity.address;
+    let seller_keypair = seller_identity.keypair;
+    let (seller_internal_key, _parity) = seller_keypair.x_only_public_key();
+    let (seller_out_point, seller_utxo_for_output) = seller_identity.next_funding_utxo;
+
+    let buyer_identity = reg_tester.identity().await?;
+    let buyer_address = buyer_identity.address;
+    let buyer_keypair = buyer_identity.keypair;
+    let (buyer_internal_key, _parity) = buyer_keypair.x_only_public_key();
+    let (buyer_out_point, buyer_utxo_for_output) = buyer_identity.next_funding_utxo;
+    let params = SwapTestParams {
+        seller_address,
+        seller_keypair,
+        seller_internal_key,
+        seller_out_point,
+        seller_utxo_for_output,
+        buyer_address,
+        buyer_keypair,
+        buyer_internal_key,
+        buyer_out_point,
+        buyer_utxo_for_output,
+    };
+    let context = setup_swap_test(params).await?;
 
     let result = reg_tester
         .mempool_accept_result(&[
@@ -280,37 +323,113 @@ pub async fn test_swap_psbt(reg_tester: &mut RegTester) -> Result<()> {
 
 pub async fn test_swap_integrity(reg_tester: &mut RegTester) -> Result<()> {
     info!("test_swap_integrity");
-    let context = setup_swap_test(reg_tester).await?;
+    let seller_identity = reg_tester.identity().await?;
+    let seller_address = seller_identity.address;
+    let seller_keypair = seller_identity.keypair;
+    let (seller_internal_key, _parity) = seller_keypair.x_only_public_key();
+    let (seller_out_point, seller_utxo_for_output) = seller_identity.next_funding_utxo;
+
+    let buyer_identity = reg_tester.identity().await?;
+    let buyer_address = buyer_identity.address;
+    let buyer_keypair = buyer_identity.keypair;
+    let (buyer_internal_key, _parity) = buyer_keypair.x_only_public_key();
+    let (buyer_out_point, buyer_utxo_for_output) = buyer_identity.next_funding_utxo;
+    let params = SwapTestParams {
+        seller_address,
+        seller_keypair,
+        seller_internal_key,
+        seller_out_point,
+        seller_utxo_for_output,
+        buyer_address,
+        buyer_keypair,
+        buyer_internal_key,
+        buyer_out_point,
+        buyer_utxo_for_output: buyer_utxo_for_output.clone(),
+    };
+    let context = setup_swap_test(params).await?;
+
+    // Validate original flow (commit, reveal, original final)
+    let result_original = reg_tester
+        .mempool_accept_result(&[
+            context.attach_commit_tx_hex.clone(),
+            context.raw_attach_reveal_tx_hex.clone(),
+            context.raw_psbt_hex.clone(),
+        ])
+        .await?;
+    assert_eq!(
+        result_original.len(),
+        3,
+        "Expected commit, reveal, and original final"
+    );
+    assert!(result_original[0].allowed, "Commit should be allowed");
+    assert!(result_original[1].allowed, "Reveal should be allowed");
+    assert!(
+        result_original[2].allowed,
+        "Original final tx should be allowed"
+    );
 
     // Create malicious tx (Seller tries to redirect asset to themselves)
     let mut malicious_tx = context.final_tx.clone();
 
     // Maliciously change the OP_RETURN destination to seller's key
-    let malicious_transfer_data = OpReturnData::PubKey(context.seller_internal_key);
+    let malicious_transfer_data = OpReturnData::PubKey(seller_internal_key);
     let malicious_transfer_bytes = serialize(&malicious_transfer_data)?;
 
-    // Verify index 1 is OP_RETURN
+    // Verify index 1 is OP_RETURN (index 0 is payment to seller)
     assert!(malicious_tx.output[1].script_pubkey.is_op_return());
 
     // Overwrite the OP_RETURN
     malicious_tx.output[1].script_pubkey =
         ScriptBuf::new_op_return(PushBytesBuf::try_from(malicious_transfer_bytes)?);
 
+    // Increase fee to make it a valid RBF candidate (though invalid due to signature)
+    // We reduce the change output (index 2) to increase fee
+    // Assuming output 2 is buyer change
+    malicious_tx.output[2].value -= Amount::from_sat(1000);
+
+    // Re-sign seller input (index 0)
+    // We need to reconstruct the witness for input 0
+    // It's a script spend using `detach_tap_script`
+    let secp = Secp256k1::new();
+    let prevouts = [
+        context.attach_reveal_tx.output[0].clone(),
+        buyer_utxo_for_output.clone(),
+    ];
+
+    test_utils::sign_script_spend_with_sighash(
+        &secp,
+        &context.detach_taproot_spend_info,
+        &context.detach_tap_script,
+        &mut malicious_tx,
+        &prevouts,
+        &seller_keypair,
+        0,
+        TapSighashType::SinglePlusAnyoneCanPay,
+    )?;
+
     let malicious_hex = hex::encode(serialize_tx(&malicious_tx));
+    // Replacement attempt (commit, reveal, malicious replacement)
     let result_malicious = reg_tester
         .mempool_accept_result(&[
-            context.attach_commit_tx_hex,
-            context.raw_attach_reveal_tx_hex,
+            context.attach_commit_tx_hex.clone(),
+            context.raw_attach_reveal_tx_hex.clone(),
             malicious_hex,
         ])
         .await?;
-
+    assert_eq!(
+        result_malicious.len(),
+        3,
+        "Expected commit, reveal, and replacement attempt"
+    );
+    assert!(result_malicious[0].allowed, "Commit should be allowed");
+    assert!(result_malicious[1].allowed, "Reveal should be allowed");
     assert!(
         !result_malicious[2].allowed,
-        "Malicious transaction should be rejected"
+        "Malicious replacement should be rejected"
     );
-    // Reject reason should indicate signature validation failed
-    // reject-reason: mempool-script-verify-flag-failed (Invalid Schnorr signature)
+
+    // Reject reason should indicate signature validation failed on input 1 (buyer's input)
+    // because buyer's signature covers all outputs (SIGHASH_DEFAULT/ALL) and we changed output 1.
     if let Some(reason) = &result_malicious[2].reject_reason {
         assert!(
             reason.contains("mempool-script-verify-flag-failed")
