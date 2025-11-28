@@ -796,6 +796,73 @@ function deserializeInst(arg0) {
   return retCopy;
   
 }
+let exports0SerializeOpReturnData;
+
+function serializeOpReturnData(arg0) {
+  var ptr0 = utf8Encode(arg0, realloc0, memory0);
+  var len0 = utf8EncodedLen;
+  _debugLog('[iface="serialize-op-return-data", function="serialize-op-return-data"][Instruction::CallWasm] enter', {
+    funcName: 'serialize-op-return-data',
+    paramCount: 2,
+    async: false,
+    postReturn: true,
+  });
+  const _wasm_call_currentTaskID = startCurrentTask(0, false, 'exports0SerializeOpReturnData');
+  const ret = exports0SerializeOpReturnData(ptr0, len0);
+  endCurrentTask(0);
+  var ptr1 = dataView(memory0).getUint32(ret + 0, true);
+  var len1 = dataView(memory0).getUint32(ret + 4, true);
+  var result1 = new Uint8Array(memory0.buffer.slice(ptr1, ptr1 + len1 * 1));
+  _debugLog('[iface="serialize-op-return-data", function="serialize-op-return-data"][Instruction::Return]', {
+    funcName: 'serialize-op-return-data',
+    paramCount: 1,
+    async: false,
+    postReturn: true
+  });
+  const retCopy = result1;
+  
+  let cstate = getOrCreateAsyncState(0);
+  cstate.mayLeave = false;
+  postReturn0(ret);
+  cstate.mayLeave = true;
+  return retCopy;
+  
+}
+let exports0DeserializeOpReturnData;
+
+function deserializeOpReturnData(arg0) {
+  var val0 = arg0;
+  var len0 = val0.byteLength;
+  var ptr0 = realloc0(0, 0, 1, len0 * 1);
+  var src0 = new Uint8Array(val0.buffer || val0, val0.byteOffset, len0 * 1);
+  (new Uint8Array(memory0.buffer, ptr0, len0 * 1)).set(src0);
+  _debugLog('[iface="deserialize-op-return-data", function="deserialize-op-return-data"][Instruction::CallWasm] enter', {
+    funcName: 'deserialize-op-return-data',
+    paramCount: 2,
+    async: false,
+    postReturn: true,
+  });
+  const _wasm_call_currentTaskID = startCurrentTask(0, false, 'exports0DeserializeOpReturnData');
+  const ret = exports0DeserializeOpReturnData(ptr0, len0);
+  endCurrentTask(0);
+  var ptr1 = dataView(memory0).getUint32(ret + 0, true);
+  var len1 = dataView(memory0).getUint32(ret + 4, true);
+  var result1 = utf8Decoder.decode(new Uint8Array(memory0.buffer, ptr1, len1));
+  _debugLog('[iface="deserialize-op-return-data", function="deserialize-op-return-data"][Instruction::Return]', {
+    funcName: 'deserialize-op-return-data',
+    paramCount: 1,
+    async: false,
+    postReturn: true
+  });
+  const retCopy = result1;
+  
+  let cstate = getOrCreateAsyncState(0);
+  cstate.mayLeave = false;
+  postReturn0(ret);
+  cstate.mayLeave = true;
+  return retCopy;
+  
+}
 
 const $init = (() => {
   let gen = (function* _initGenerator () {
@@ -806,6 +873,8 @@ const $init = (() => {
     postReturn0 = exports0['cabi_post_deserialize-inst'];
     exports0SerializeInst = exports0['serialize-inst'];
     exports0DeserializeInst = exports0['deserialize-inst'];
+    exports0SerializeOpReturnData = exports0['serialize-op-return-data'];
+    exports0DeserializeOpReturnData = exports0['deserialize-op-return-data'];
   })();
   let promise, resolve, reject;
   function runNext (value) {
@@ -832,4 +901,4 @@ const $init = (() => {
 
 await $init;
 
-export { deserializeInst, serializeInst,  }
+export { deserializeInst, deserializeOpReturnData, serializeInst, serializeOpReturnData,  }
