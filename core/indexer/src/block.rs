@@ -1,11 +1,10 @@
-use std::collections::HashMap;
-
 use bitcoin::{
     BlockHash, Txid, XOnlyPublicKey,
     opcodes::all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
     script::Instruction,
 };
 use indexer_types::{Inst, deserialize};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -18,7 +17,8 @@ pub struct Transaction {
     pub txid: Txid,
     pub index: i64,
     pub ops: Vec<Op>,
-    pub op_return_data: HashMap<u64, indexer_types::OpReturnData>,
+    #[serde(with = "indexmap::map::serde_seq")]
+    pub op_return_data: IndexMap<u64, indexer_types::OpReturnData>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,8 +103,7 @@ pub fn filter_map((tx_index, tx): (usize, bitcoin::Transaction)) -> Option<Trans
     }
 
     let op_return = tx.output.iter().find(|o| o.script_pubkey.is_op_return());
-    tracing::info!("op_return: {:#?}", op_return);
-    let mut op_return_data = HashMap::new();
+    let mut op_return_data = IndexMap::new();
 
     if let Some(op_return) = op_return {
         let mut op_return_instructions = op_return.script_pubkey.instructions();
@@ -113,12 +112,7 @@ pub fn filter_map((tx_index, tx): (usize, bitcoin::Transaction)) -> Option<Trans
             && let Ok(entries) =
                 deserialize::<Vec<(u64, indexer_types::OpReturnData)>>(data.as_bytes())
         {
-            tracing::info!(
-                "DESRIALIZE! {:#?}",
-                deserialize::<Vec<(u64, indexer_types::OpReturnData)>>(data.as_bytes())
-            );
-            op_return_data = HashMap::from_iter(entries);
-            tracing::info!("op_return_data: {:#?}", op_return_data);
+            op_return_data = IndexMap::from_iter(entries);
         }
     }
 

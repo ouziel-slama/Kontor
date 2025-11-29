@@ -6,7 +6,6 @@ use bitcoin::taproot::TaprootBuilder;
 use indexer::api::compose::{ComposeQuery, InstructionQuery, RevealParticipantQuery, RevealQuery};
 use indexer::bitcoin_client::client::RegtestRpc;
 use indexer::database::types::OpResultId;
-use indexer::reactor::types::Op;
 use indexer::test_utils;
 use indexer_types::{Inst, serialize};
 use testlib::*;
@@ -34,7 +33,7 @@ pub async fn test_compose_token_attach_and_detach(
     let (internal_key, _parity) = keypair.x_only_public_key();
     let (out_point, utxo_for_output) = identity.next_funding_utxo;
 
-    let mut buyer_identity = reg_tester.identity().await?;
+    let buyer_identity = reg_tester.identity().await?;
 
     let attach_inst = Inst::Call {
         gas_limit: 50_000,
@@ -258,9 +257,6 @@ pub async fn test_compose_token_attach_and_detach(
         .map_err(|e| e.unwrap().into_owned().into());
     let transfer = detach_result?;
 
-    println!("UTXO ID: {}", utxo_id);
-    println!("BUYER KEY: {}", buyer_identity.x_only_public_key());
-    println!("SELLER KEY: {:?}", internal_key.to_string());
     assert_eq!(transfer.src, utxo_id);
     assert_eq!(transfer.dst, buyer_identity.x_only_public_key().to_string());
 
