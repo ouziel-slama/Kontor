@@ -461,5 +461,6 @@ async fn test_compose_regtest() -> Result<()> {
     test_compose_param_bounds_and_fee_rate(&mut reg_tester.clone()).await?;
     test_reveal_with_op_return_mempool_accept(&mut reg_tester.clone()).await?;
     test_compose_attach_and_detach(&mut reg_tester.clone()).await?;
+
     Ok(())
 }

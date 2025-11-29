@@ -335,21 +335,21 @@ pub async fn test_compose_reveal_op_return_size_validation(
         .commit_tx(build_dummy_tx(vec![], vec![commit_prevout.clone()]))
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![participant.clone()])
-        .op_return_data(vec![1u8; 77])
+        .op_return_data(vec![1u8; 80])
         .envelope(546)
         .build();
     let ok = compose_reveal(ok_inputs);
-    assert!(ok.is_ok(), "77-byte OP_RETURN payload should be accepted");
+    assert!(ok.is_ok(), "80-byte OP_RETURN payload should be accepted");
 
     let err_inputs = RevealInputs::builder()
         .commit_tx(build_dummy_tx(vec![], vec![commit_prevout.clone()]))
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .participants(vec![participant])
-        .op_return_data(vec![2u8; 78])
+        .op_return_data(vec![2u8; 81])
         .envelope(546)
         .build();
     let err = compose_reveal(err_inputs);
-    assert!(err.is_err(), "78-byte OP_RETURN payload should be rejected");
+    assert!(err.is_err(), "81-byte OP_RETURN payload should be rejected");
     let msg = err.err().unwrap().to_string();
     assert!(
         msg.contains("OP_RETURN data exceeds 80 bytes"),
