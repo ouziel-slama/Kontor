@@ -8,7 +8,7 @@ use bitcoin::Psbt;
 use indexer::api::compose::{ComposeInputs, InstructionInputs};
 use indexer::test_utils;
 use indexer::witness_data::TokenBalance;
-use indexer_types::serialize;
+use indexer_types::{OpReturnData, serialize};
 
 use testlib::*;
 use tracing::info;
@@ -147,6 +147,9 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
         .unwrap();
     let chained_tap_script = chained_pair.tap_script.clone();
 
+    let transfer_data = OpReturnData::PubKey(internal_key);
+    let transfer_bytes = serialize(&transfer_data)?;
+
     let chained_reveal_tx = compose_reveal(
         RevealInputs::builder()
             .commit_tx(reveal_tx.clone())
@@ -164,6 +167,7 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
                     .build(),
             ])
             .envelope(546)
+            .op_return_data(transfer_bytes)
             .build(),
     )?;
 
@@ -219,6 +223,12 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
         &keypair,
         0,
     )?;
+    println!("commit_tx:!!!!!!!!!!!!!!!!!!!!!!!!!!! {:#?}", commit_tx);
+    println!("reveal_tx:!!!!!!!!!!!!!!!!!!!!!!!!!!! {:#?}", reveal_tx);
+    println!(
+        "chained_reveal_tx:!!!!!!!!!!!!!!!!!!!!!!!!!!! {:#?}",
+        chained_reveal_tx
+    );
 
     let commit_tx_hex = hex::encode(serialize_tx(&commit_tx));
     let reveal_tx_hex = hex::encode(serialize_tx(&reveal_tx));
@@ -233,6 +243,8 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
         3,
         "Expected exactly three transaction results"
     );
+
+    println!("result:!!!!!!!!!!!!!!!!!!!!!!!!!!! {:#?}", result);
 
     assert!(
         result[0].allowed,

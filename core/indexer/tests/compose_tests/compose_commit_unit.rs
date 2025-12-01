@@ -19,20 +19,19 @@ pub async fn test_compose_commit_unique_vout_mapping_even_with_identical_chunks(
     // Two participants with identical script data to force identical tapscripts
     let data = b"same".to_vec();
 
-    let chunks = indexer::api::compose::split_even_chunks(&data, 2).unwrap();
     let inputs = ComposeInputs::builder()
         .instructions(vec![
             InstructionInputs::builder()
                 .address(addr.clone())
                 .x_only_public_key(internal_key)
                 .funding_utxos(vec![utxo1])
-                .script_data(chunks[0].clone())
+                .script_data(data.clone())
                 .build(),
             InstructionInputs::builder()
                 .address(addr.clone())
                 .x_only_public_key(internal_key)
                 .funding_utxos(vec![utxo2])
-                .script_data(chunks[1].clone())
+                .script_data(data.clone())
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())

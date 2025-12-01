@@ -629,8 +629,6 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         output: vec![],
     };
 
-    // Track whether we've already added an OP_RETURN; policy generally allows only one
-    let mut op_return_added = false;
     // Optional OP_RETURN first (keeps vsize expectations stable)
     if let Some(data) = params.op_return_data.clone() {
         if data.len() > MAX_OP_RETURN_BYTES {
@@ -648,7 +646,6 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                 s
             },
         });
-        op_return_added = true;
     }
 
     // Precompute commit tapscripts/control blocks per participant for sizing and PSBT
@@ -723,25 +720,28 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                         script_pubkey: p.address.script_pubkey(),
                     });
                 }
-            } else if v >= MIN_ENVELOPE_SATS {
+                // If v <= envelope, dust is donated to miners
+            } else if v >= params.envelope {
                 reveal_transaction.output.push(TxOut {
                     value: Amount::from_sat(v),
                     script_pubkey: p.address.script_pubkey(),
                 });
-            } else if !op_return_added {
-                // Fallback: add a single OP_RETURN (at most one per tx) to avoid dust outputs
-                reveal_transaction.output.push(TxOut {
-                    value: Amount::from_sat(0),
-                    script_pubkey: {
-                        let mut s = ScriptBuf::new();
-                        s.push_opcode(OP_RETURN);
-                        s.push_slice(b"kon");
-                        s
-                    },
-                });
-                op_return_added = true;
             }
+            // If v < envelope, dust is donated to miners
         }
+    }
+
+    // If no outputs after all calculations, add a minimal OP_RETURN to avoid invalid tx
+    if reveal_transaction.output.is_empty() {
+        reveal_transaction.output.push(TxOut {
+            value: Amount::from_sat(0),
+            script_pubkey: {
+                let mut s = ScriptBuf::new();
+                s.push_opcode(OP_RETURN);
+                s.push_slice(b"kon");
+                s
+            },
+        });
     }
 
     // Now that reveal_transaction is finalized, build PSBT and set metadata
@@ -927,23 +927,6 @@ pub fn estimate_fee_with_dummy_key_witness(tx: &Transaction, fee_rate: FeeRate) 
     }
     let vb = tx_vbytes_est(&t);
     fee_rate.fee_vb(vb).map(|a| a.to_sat())
-}
-
-pub fn split_even_chunks(data: &[u8], parts: usize) -> Result<Vec<Vec<u8>>> {
-    if parts == 0 {
-        return Err(anyhow!("parts must be > 0"));
-    }
-    let total = data.len();
-    let base = total / parts;
-    let rem = total % parts;
-    let mut chunks = Vec::with_capacity(parts);
-    let mut off = 0usize;
-    for i in 0..parts {
-        let take = base + if i < rem { 1 } else { 0 };
-        chunks.push(data[off..off + take].to_vec());
-        off += take;
-    }
-    Ok(chunks)
 }
 
 async fn get_utxos(bitcoin_client: &Client, utxo_ids: String) -> Result<Vec<(OutPoint, TxOut)>> {
