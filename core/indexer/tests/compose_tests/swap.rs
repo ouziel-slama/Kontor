@@ -85,23 +85,28 @@ async fn setup_swap_test(params: SwapTestParams) -> Result<SwapTestContext> {
     let serialized_detach_data = serialize(&chained_instructions)?;
 
     let compose_params = ComposeInputs::builder()
-        .instructions(vec![InstructionInputs {
-            address: seller_address.clone(),
-            x_only_public_key: seller_internal_key,
-            funding_utxos: vec![(seller_out_point, seller_utxo_for_output.clone())],
-            script_data: serialized_instruction,
-        }])
+        .instructions(vec![
+            InstructionInputs::builder()
+                .address(seller_address.clone())
+                .x_only_public_key(seller_internal_key)
+                .funding_utxos(vec![(seller_out_point, seller_utxo_for_output.clone())])
+                .script_data(serialized_instruction)
+                .chained_script_data(serialized_detach_data.clone())
+                .build(),
+        ])
         .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())
-        .chained_script_data(serialized_detach_data.clone())
         .envelope(546)
         .build();
 
     let compose_outputs = compose(compose_params)?;
     let mut attach_commit_tx = compose_outputs.commit_transaction;
     let mut attach_reveal_tx = compose_outputs.reveal_transaction;
-    let attach_tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
+    let attach_tap_script = compose_outputs.per_participant[0]
+        .commit_tap_script_pair
+        .tap_script
+        .clone();
     let detach_tap_script = compose_outputs.per_participant[0]
-        .chained
+        .chained_tap_script_pair
         .as_ref()
         .unwrap()
         .tap_script
@@ -209,6 +214,7 @@ async fn setup_swap_test(params: SwapTestParams) -> Result<SwapTestContext> {
             },
             commit_prevout: attach_reveal_tx.output[0].clone(),
             commit_script_data: serialized_detach_data,
+            chained_script_data: None,
         }])
         .op_return_data(transfer_bytes)
         .envelope(546)

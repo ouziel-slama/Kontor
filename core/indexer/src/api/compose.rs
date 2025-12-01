@@ -26,17 +26,18 @@ use crate::bitcoin_client::Client;
 
 // Hardening limits
 const MAX_PARTICIPANTS: usize = 1000;
-const MAX_SCRIPT_BYTES: usize = 387 * 1024; // 16 KiB
+const MAX_SCRIPT_BYTES: usize = 387 * 1024; // 387 KiB
 const MAX_OP_RETURN_BYTES: usize = 80; // Standard policy
 const MIN_ENVELOPE_SATS: u64 = 330; // P2TR dust floor
 const MAX_UTXOS_PER_PARTICIPANT: usize = 64; // Hard cap per participant
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Builder)]
 pub struct InstructionQuery {
     pub address: String,
     pub x_only_public_key: String,
     pub funding_utxo_ids: String,
     pub script_data: Inst,
+    pub chained_script_data: Option<Inst>,
 }
 
 #[derive(Serialize, Deserialize, Builder)]
@@ -44,7 +45,6 @@ pub struct ComposeQuery {
     pub instructions: Vec<InstructionQuery>,
     pub sat_per_vbyte: u64,
     pub envelope: Option<u64>,
-    pub chained_script_data: Option<Inst>,
 }
 
 #[derive(Serialize, Builder, Clone)]
@@ -53,6 +53,7 @@ pub struct InstructionInputs {
     pub x_only_public_key: XOnlyPublicKey,
     pub funding_utxos: Vec<(OutPoint, TxOut)>,
     pub script_data: Vec<u8>,
+    pub chained_script_data: Option<Vec<u8>>,
 }
 
 #[derive(Serialize, Builder)]
@@ -60,7 +61,6 @@ pub struct ComposeInputs {
     pub instructions: Vec<InstructionInputs>,
     pub fee_rate: FeeRate,
     pub envelope: u64,
-    pub chained_script_data: Option<Vec<u8>>,
 }
 
 impl ComposeInputs {
@@ -120,11 +120,24 @@ impl ComposeInputs {
                 if script_data.is_empty() || script_data.len() > MAX_SCRIPT_BYTES {
                     return Err(anyhow!("script data size invalid"));
                 }
+
+                let chained_script_data_bytes = match instruction_query.chained_script_data.as_ref()
+                {
+                    Some(inst) => {
+                        let bytes = serialize(inst)?;
+                        if bytes.is_empty() || bytes.len() > MAX_SCRIPT_BYTES {
+                            return Err(anyhow!("chained script data size invalid"));
+                        }
+                        Some(bytes)
+                    }
+                    None => None,
+                };
                 Ok(InstructionInputs {
                     address,
                     x_only_public_key,
                     funding_utxos,
                     script_data,
+                    chained_script_data: chained_script_data_bytes,
                 })
             }))
             .await?;
@@ -132,16 +145,6 @@ impl ComposeInputs {
         let fee_rate =
             FeeRate::from_sat_per_vb(query.sat_per_vbyte).ok_or(anyhow!("Invalid fee rate"))?;
 
-        let chained_script_data_bytes = match query.chained_script_data.as_ref() {
-            Some(inst) => {
-                let bytes = serialize(inst)?;
-                if bytes.is_empty() || bytes.len() > MAX_SCRIPT_BYTES {
-                    return Err(anyhow!("chained script data size invalid"));
-                }
-                Some(bytes)
-            }
-            None => None,
-        };
         let envelope = query
             .envelope
             .unwrap_or(MIN_ENVELOPE_SATS)
@@ -151,7 +154,6 @@ impl ComposeInputs {
             instructions,
             fee_rate,
             envelope,
-            chained_script_data: chained_script_data_bytes,
         })
     }
 }
@@ -177,8 +179,8 @@ pub struct ParticipantScripts {
     pub index: u32,
     pub address: String,
     pub x_only_public_key: String,
-    pub commit: TapScriptPair,
-    pub chained: Option<TapScriptPair>,
+    pub commit_tap_script_pair: TapScriptPair,
+    pub chained_tap_script_pair: Option<TapScriptPair>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Builder)]
@@ -218,13 +220,14 @@ pub struct CommitOutputs {
     pub reveal_inputs: RevealInputs,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Builder)]
 pub struct RevealParticipantQuery {
     pub address: String,
     pub x_only_public_key: String,
     pub commit_vout: u32,
     pub commit_script_data: Vec<u8>,
     pub envelope: Option<u64>,
+    pub chained_script_data: Option<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -234,16 +237,16 @@ pub struct RevealQuery {
     pub participants: Vec<RevealParticipantQuery>,
     pub op_return_data: Option<Vec<u8>>,
     pub envelope: Option<u64>,
-    pub chained_script_data: Option<Vec<u8>>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Builder)]
 pub struct RevealParticipantInputs {
     pub address: Address,
     pub x_only_public_key: XOnlyPublicKey,
     pub commit_outpoint: OutPoint,
     pub commit_prevout: TxOut,
     pub commit_script_data: Vec<u8>,
+    pub chained_script_data: Option<Vec<u8>>,
 }
 
 #[derive(Builder, Serialize, Clone)]
@@ -253,7 +256,6 @@ pub struct RevealInputs {
     pub participants: Vec<RevealParticipantInputs>,
     pub op_return_data: Option<Vec<u8>>,
     pub envelope: u64,
-    pub chained_script_data: Option<Vec<u8>>,
 }
 
 impl RevealInputs {
@@ -296,6 +298,7 @@ impl RevealInputs {
                 commit_outpoint,
                 commit_prevout,
                 commit_script_data,
+                chained_script_data: p.chained_script_data.clone(),
             });
         }
 
@@ -305,7 +308,6 @@ impl RevealInputs {
             .envelope
             .unwrap_or(MIN_ENVELOPE_SATS)
             .max(MIN_ENVELOPE_SATS);
-        let chained_script_data = query.chained_script_data.clone();
 
         Ok(Self {
             commit_tx,
@@ -313,7 +315,6 @@ impl RevealInputs {
             participants: participants_inputs,
             op_return_data,
             envelope,
-            chained_script_data,
         })
     }
 }
@@ -339,8 +340,7 @@ pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
     })?;
 
     // Build the reveal tx using reveal_inputs prepared during commit (inject chained data now)
-    let mut reveal_inputs = commit_outputs.reveal_inputs.clone();
-    reveal_inputs.chained_script_data = params.chained_script_data.clone();
+    let reveal_inputs = commit_outputs.reveal_inputs.clone();
     let reveal_outputs = compose_reveal(reveal_inputs)?;
 
     // Build the final outputs
@@ -360,8 +360,11 @@ pub fn compose(params: ComposeInputs) -> Result<ComposeOutputs> {
                     index: idx as u32,
                     address: instructions_clone[idx].address.to_string(),
                     x_only_public_key: instructions_clone[idx].x_only_public_key.to_string(),
-                    commit: commit_pair,
-                    chained: reveal_outputs.per_participant_chained_tap.get(idx).cloned(),
+                    commit_tap_script_pair: commit_pair,
+                    chained_tap_script_pair: reveal_outputs
+                        .per_participant_chained_tap
+                        .get(idx)
+                        .cloned(),
                 })
                 .collect(),
         )
@@ -396,12 +399,14 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         let (tap_script, tap_info, script_spendable_address) =
             build_tap_script_and_script_address(instruction.x_only_public_key, chunk.clone())?;
 
-        // Estimate reveal fee using helper
+        // Estimate reveal fee (includes extra output fee if chained)
+        let has_chained = instruction.chained_script_data.is_some();
         let reveal_fee = estimate_reveal_fee_for_address(
             &tap_script,
             &tap_info,
             instruction.address.script_pubkey().len(),
             params.fee_rate,
+            has_chained,
         )?;
 
         // Script output must cover envelope + reveal fee
@@ -589,6 +594,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
             commit_outpoint,
             commit_prevout,
             commit_script_data: pair.script_data_chunk.clone(),
+            chained_script_data: instruction.chained_script_data.clone(),
         });
     }
     let reveal_inputs = RevealInputs::builder()
@@ -658,17 +664,13 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
         commit_scripts.push((tap_script, ScriptBuf::from_bytes(control_block)));
     }
 
-    // If chained_script_data is present, split it evenly across participants and add per-owner chained outputs
+    // For each participant with chained_script_data, add per-owner chained outputs
     let mut per_participant_chained_tap: Vec<TapScriptPair> =
         Vec::with_capacity(params.participants.len());
-    if let Some(chained) = params.chained_script_data.clone() {
-        let n = params.participants.len();
-        let chunks = split_even_chunks(&chained, n)?;
-        for (i, p) in params.participants.iter().enumerate() {
-            let chunk = chunks[i].clone();
-
+    for p in params.participants.iter() {
+        if let Some(chained) = p.chained_script_data.clone() {
             let (ch_tap, ch_info, ch_addr) =
-                build_tap_script_and_script_address(p.x_only_public_key, chunk.clone())?;
+                build_tap_script_and_script_address(p.x_only_public_key, chained.clone())?;
             // Per-owner chained output at envelope value
             reveal_transaction.output.push(TxOut {
                 value: Amount::from_sat(params.envelope),
@@ -688,7 +690,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
             per_participant_chained_tap.push(TapScriptPair {
                 tap_script: ch_tap,
                 tap_leaf_script: tap_leaf,
-                script_data_chunk: chunk,
+                script_data_chunk: chained.clone(),
             });
         }
     }
@@ -696,7 +698,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
     // For each owner, compute standalone change using single-input sizing with fixed witness shape
     for (i, p) in params.participants.iter().enumerate() {
         let mut owner_outputs: Vec<TxOut> = Vec::new();
-        if params.chained_script_data.is_some() {
+        if p.chained_script_data.is_some() {
             // One P2TR chained output at envelope
             owner_outputs.push(TxOut {
                 value: Amount::from_sat(params.envelope),
@@ -714,7 +716,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
             control_block,
             params.fee_rate,
         ) {
-            if params.chained_script_data.is_some() {
+            if p.chained_script_data.is_some() {
                 if v > params.envelope {
                     reveal_transaction.output.push(TxOut {
                         value: Amount::from_sat(v),
@@ -879,15 +881,22 @@ pub fn estimate_reveal_fee_for_address(
     tap_info: &TaprootSpendInfo,
     recipient_spk_len: usize,
     fee_rate: FeeRate,
+    has_chained_output: bool,
 ) -> Result<u64> {
     let cb = tap_info
         .control_block(&(tap_script.clone(), LeafVersion::TapScript))
         .ok_or(anyhow!("failed to create control block"))?;
+    // If chained output present, include an additional P2TR output (34 bytes)
+    let output_spk_lens: Vec<usize> = if has_chained_output {
+        vec![recipient_spk_len, 34]
+    } else {
+        vec![recipient_spk_len]
+    };
     let vb = script_spend_vbytes(
         1,
         tap_script,
         &ScriptBuf::from_bytes(cb.serialize()),
-        &[recipient_spk_len],
+        &output_spk_lens,
     );
     fee_rate
         .fee_vb(vb)

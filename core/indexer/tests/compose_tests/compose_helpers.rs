@@ -288,15 +288,17 @@ pub async fn test_estimate_reveal_fee_for_address_monotonic_and_envelope_invaria
         build_tap_script_and_script_address(xonly, data).expect("build tapscript");
 
     let fee_rate = FeeRate::from_sat_per_vb(5).unwrap();
-    let fee_small = estimate_reveal_fee_for_address(&tap_script, &tap_info, 22, fee_rate).unwrap();
-    let fee_large = estimate_reveal_fee_for_address(&tap_script, &tap_info, 34, fee_rate).unwrap();
+    let fee_small =
+        estimate_reveal_fee_for_address(&tap_script, &tap_info, 22, fee_rate, false).unwrap();
+    let fee_large =
+        estimate_reveal_fee_for_address(&tap_script, &tap_info, 34, fee_rate, false).unwrap();
     assert!(fee_large >= fee_small);
 
     // Changing envelope value should not affect fee
     let fee_env_small =
-        estimate_reveal_fee_for_address(&tap_script, &tap_info, 34, fee_rate).unwrap();
+        estimate_reveal_fee_for_address(&tap_script, &tap_info, 34, fee_rate, false).unwrap();
     let fee_env_large =
-        estimate_reveal_fee_for_address(&tap_script, &tap_info, 34, fee_rate).unwrap();
+        estimate_reveal_fee_for_address(&tap_script, &tap_info, 34, fee_rate, false).unwrap();
     assert_eq!(fee_env_small, fee_env_large);
     Ok(())
 }
@@ -315,19 +317,19 @@ pub async fn test_compose_reveal_op_return_size_validation(
         value: Amount::from_sat(10_000),
         script_pubkey: script_addr.script_pubkey(),
     };
-    let participant = RevealParticipantInputs {
-        address: script_addr.clone(),
-        x_only_public_key: xonly,
-        commit_outpoint: OutPoint {
+    let participant = RevealParticipantInputs::builder()
+        .address(script_addr.clone())
+        .x_only_public_key(xonly)
+        .commit_outpoint(OutPoint {
             txid: Txid::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000003",
             )
             .unwrap(),
             vout: 0,
-        },
-        commit_prevout: commit_prevout.clone(),
-        commit_script_data: commit_data,
-    };
+        })
+        .commit_prevout(commit_prevout.clone())
+        .commit_script_data(commit_data)
+        .build();
 
     // With single-push OP_RETURN, total payload includes the tag ("kon").
     // So max user data length is 80 - 3 = 77 bytes.

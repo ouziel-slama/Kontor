@@ -127,34 +127,42 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
             x_only_public_key: internal_key,
             funding_utxos: vec![(out_point, utxo_for_output.clone())],
             script_data: b"Hello, world!".to_vec(),
+            chained_script_data: Some(serialized_token_balance.clone()),
         }])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
-        .chained_script_data(serialized_token_balance.clone())
         .build();
 
     let compose_outputs = compose(compose_params)?;
 
     let mut commit_tx = compose_outputs.commit_transaction;
-    let tap_script = compose_outputs.per_participant[0].commit.tap_script.clone();
+    let tap_script = compose_outputs.per_participant[0]
+        .commit_tap_script_pair
+        .tap_script
+        .clone();
     let mut reveal_tx = compose_outputs.reveal_transaction;
-    let chained_pair = compose_outputs.per_participant[0].chained.clone().unwrap();
+    let chained_pair = compose_outputs.per_participant[0]
+        .chained_tap_script_pair
+        .clone()
+        .unwrap();
     let chained_tap_script = chained_pair.tap_script.clone();
 
     let chained_reveal_tx = compose_reveal(
         RevealInputs::builder()
             .commit_tx(reveal_tx.clone())
             .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
-            .participants(vec![RevealParticipantInputs {
-                address: seller_address.clone(),
-                x_only_public_key: internal_key,
-                commit_outpoint: OutPoint {
-                    txid: reveal_tx.compute_txid(),
-                    vout: 0,
-                },
-                commit_prevout: reveal_tx.output[0].clone(),
-                commit_script_data: chained_pair.script_data_chunk.clone(),
-            }])
+            .participants(vec![
+                RevealParticipantInputs::builder()
+                    .address(seller_address.clone())
+                    .x_only_public_key(internal_key)
+                    .commit_outpoint(OutPoint {
+                        txid: reveal_tx.compute_txid(),
+                        vout: 0,
+                    })
+                    .commit_prevout(reveal_tx.output[0].clone())
+                    .commit_script_data(chained_pair.script_data_chunk.clone())
+                    .build(),
+            ])
             .envelope(546)
             .build(),
     )?;
@@ -225,9 +233,22 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
         3,
         "Expected exactly three transaction results"
     );
-    assert!(result[0].allowed, "Commit transaction was rejected");
-    assert!(result[1].allowed, "Reveal transaction was rejected");
-    assert!(result[2].allowed, "Chained reveal transaction was rejected");
+
+    assert!(
+        result[0].allowed,
+        "Commit transaction was rejected: {:?}",
+        result[0].reject_reason
+    );
+    assert!(
+        result[1].allowed,
+        "Reveal transaction was rejected: {:?}",
+        result[1].reject_reason
+    );
+    assert!(
+        result[2].allowed,
+        "Chained reveal transaction was rejected: {:?}",
+        result[2].reject_reason
+    );
 
     Ok(())
 }
@@ -241,12 +262,13 @@ async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(
 
     let mut instructions = Vec::new();
     for n in nodes.iter() {
-        instructions.push(indexer::api::compose::InstructionInputs {
-            address: n.address.clone(),
-            x_only_public_key: n.internal_key,
-            funding_utxos: vec![n.next_funding_utxo.clone()],
-            script_data: b"hello-world".to_vec(),
-        });
+        let instruction = indexer::api::compose::InstructionInputs::builder()
+            .address(n.address.clone())
+            .x_only_public_key(n.internal_key)
+            .funding_utxos(vec![(n.next_funding_utxo.clone())])
+            .script_data(b"hello-world".to_vec())
+            .build();
+        instructions.push(instruction);
     }
 
     let params = ComposeInputs::builder()
