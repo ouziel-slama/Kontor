@@ -32,6 +32,7 @@ const MAX_OP_RETURN_BYTES: usize = 80; // Standard policy
 const MIN_ENVELOPE_SATS: u64 = 330; // P2TR dust floor
 const MAX_UTXOS_PER_PARTICIPANT: usize = 64; // Hard cap per participant
 const P2TR_OUTPUT_SIZE: usize = 34; // P2TR script pubkey size in bytes
+const PROTOCOL_TAG: &[u8; 3] = b"kon"; // Protocol envelope marker
 
 #[derive(Serialize, Deserialize, Clone, Builder)]
 pub struct InstructionQuery {
@@ -225,8 +226,7 @@ pub struct RevealParticipantQuery {
     pub address: String,
     pub x_only_public_key: String,
     pub commit_vout: u32,
-    pub commit_script_data: Vec<u8>, // do we want this to be the pair?
-    pub envelope: Option<u64>,
+    pub commit_script_data: Vec<u8>,
     pub chained_script_data: Option<Vec<u8>>,
 }
 
@@ -300,21 +300,13 @@ impl RevealInputs {
                 .cloned()
                 .ok_or_else(|| anyhow!("commit vout {} out of bounds", commit_outpoint.vout))?;
 
-            // Build TapScriptPair from raw commit_script_data : TODO: should this be passed in or derived
+            // Build TapScriptPair from raw commit_script_data
             let (tap_script, _, _, control_block) = build_tap_script_and_script_address(
                 x_only_public_key,
                 p.commit_script_data.clone(),
             )?;
-            let tap_leaf = TapLeafScript {
-                leaf_version: LeafVersion::TapScript,
-                script: tap_script.clone(),
-                control_block: ScriptBuf::from_bytes(control_block.serialize()),
-            };
-            let commit_tap_script_pair = TapScriptPair {
-                tap_script,
-                tap_leaf_script: tap_leaf,
-                script_data_chunk: p.commit_script_data.clone(),
-            };
+            let commit_tap_script_pair =
+                build_tap_script_pair(tap_script, &control_block, p.commit_script_data.clone());
 
             participants_inputs.push(RevealParticipantInputs {
                 address,
@@ -460,7 +452,8 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
             params.fee_rate,
             params.envelope,
             &instruction.address,
-        )?;
+        )
+        .map_err(|e| anyhow!("participant {}: {}", i, e))?;
         let selected_sum: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
 
         // Append selected inputs to the PSBT
@@ -496,15 +489,7 @@ pub fn compose_commit(params: CommitInputs) -> Result<CommitOutputs> {
         }
 
         // Build TapScriptPair for reveal
-        let tap_script_pair = TapScriptPair {
-            tap_script: tap_script.clone(),
-            tap_leaf_script: TapLeafScript {
-                leaf_version: LeafVersion::TapScript,
-                script: tap_script,
-                control_block: ScriptBuf::from_bytes(control_block.serialize()),
-            },
-            script_data_chunk: inst_script_data,
-        };
+        let tap_script_pair = build_tap_script_pair(tap_script, &control_block, inst_script_data);
 
         participant_data.push(PendingParticipant {
             address: instruction.address.clone(),
@@ -632,15 +617,11 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
                 script_pubkey: ch_addr.script_pubkey(),
             });
             psbt.outputs.push(bitcoin::psbt::Output::default());
-            Some(TapScriptPair {
-                tap_script: ch_tap.clone(),
-                tap_leaf_script: TapLeafScript {
-                    leaf_version: LeafVersion::TapScript,
-                    script: ch_tap,
-                    control_block: ScriptBuf::from_bytes(ch_control_block.serialize()),
-                },
-                script_data_chunk: chained.clone(),
-            })
+            Some(build_tap_script_pair(
+                ch_tap,
+                &ch_control_block,
+                chained.clone(),
+            ))
         } else {
             None
         };
@@ -676,7 +657,7 @@ pub fn compose_reveal(params: RevealInputs) -> Result<RevealOutputs> {
             script_pubkey: {
                 let mut s = ScriptBuf::new();
                 s.push_opcode(OP_RETURN);
-                s.push_slice(b"kon");
+                s.push_slice(PROTOCOL_TAG);
                 s
             },
         });
@@ -707,7 +688,7 @@ pub fn build_tap_script_and_script_address(
         .push_opcode(OP_CHECKSIG)
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
-        .push_slice(b"kon")
+        .push_slice(PROTOCOL_TAG)
         .push_opcode(OP_0);
 
     const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
@@ -741,6 +722,23 @@ pub fn build_tap_script_and_script_address(
         script_spendable_address,
         control_block,
     ))
+}
+
+/// Build a TapScriptPair from a tap script, control block, and script data.
+fn build_tap_script_pair(
+    tap_script: ScriptBuf,
+    control_block: &ControlBlock,
+    script_data: Vec<u8>,
+) -> TapScriptPair {
+    TapScriptPair {
+        tap_script: tap_script.clone(),
+        tap_leaf_script: TapLeafScript {
+            leaf_version: LeafVersion::TapScript,
+            script: tap_script,
+            control_block: ScriptBuf::from_bytes(control_block.serialize()),
+        },
+        script_data_chunk: script_data,
+    }
 }
 
 // ============================================================================
@@ -831,11 +829,6 @@ pub fn estimate_reveal_fees_delta(
     Ok(fees)
 }
 
-/// Calculate transaction virtual size (vbytes) accounting for witness discount.
-fn tx_vsize(tx: &Transaction) -> u64 {
-    tx.vsize() as u64
-}
-
 /// Estimate fee for a tx assuming key-spend inputs (64-byte signature witnesses).
 pub fn estimate_key_spend_fee(tx: &Transaction, fee_rate: FeeRate) -> Option<u64> {
     let mut dummy = tx.clone();
@@ -863,11 +856,12 @@ pub fn select_utxos_for_commit(
     change_address: &Address,
 ) -> Result<(Vec<(OutPoint, TxOut)>, u64)> {
     if utxos.is_empty() {
-        return Err(anyhow!("No UTXOs provided"));
+        return Err(anyhow!("no UTXOs provided"));
     }
 
     let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
     let mut selected_sum: u64 = 0;
+    let mut last_required: u64 = 0;
 
     for (outpoint, txout) in utxos {
         selected_sum += txout.value.to_sat();
@@ -887,16 +881,30 @@ pub fn select_utxos_for_commit(
             return Ok((selected, fee_with_change));
         }
 
-        // Check if we can afford script output + fee (no change, or sub-dust change)
+        // Check if we can afford script output + fee (no change scenario)
         let required_no_change = script_output_value.saturating_add(fee_no_change);
 
         if selected_sum >= required_no_change {
-            // Change would be < envelope, so no change output - use lower fee
-            return Ok((selected, fee_no_change));
+            // Calculate what change would actually be if we used fee_no_change
+            let change = selected_sum - required_no_change;
+
+            if change < envelope {
+                // Change is sub-dust and won't be added - fee_no_change is correct
+                return Ok((selected, fee_no_change));
+            }
+            // Edge case: change >= envelope but we can't afford fee_with_change.
+            // Using fee_no_change would be wrong because a change output WILL be added.
+            // Continue selecting more UTXOs until we can afford fee_with_change.
         }
+
+        last_required = required_with_change;
     }
 
-    Err(anyhow!("Insufficient funds"))
+    Err(anyhow!(
+        "insufficient funds: have {} sats, need {} sats",
+        selected_sum,
+        last_required
+    ))
 }
 
 /// Estimate commit fees for a participant with and without change output.
@@ -911,7 +919,7 @@ fn estimate_participant_commit_fees(
     change_address: &Address,
     fee_rate: FeeRate,
 ) -> Result<(u64, u64)> {
-    let base_vb = tx_vsize(base_tx);
+    let base_vb = base_tx.vsize() as u64;
 
     // Build temp tx with this participant's inputs (with dummy witnesses) and outputs
     let mut temp_tx = base_tx.clone();
@@ -940,7 +948,7 @@ fn estimate_participant_commit_fees(
         script_pubkey: change_address.script_pubkey(),
     });
 
-    let vb_with_change = tx_vsize(&temp_tx);
+    let vb_with_change = temp_tx.vsize() as u64;
     let delta_with_change = vb_with_change.saturating_sub(base_vb);
     let fee_with_change = fee_rate
         .fee_vb(delta_with_change)
@@ -949,7 +957,7 @@ fn estimate_participant_commit_fees(
 
     // Remove change output and recalculate
     temp_tx.output.pop();
-    let vb_no_change = tx_vsize(&temp_tx);
+    let vb_no_change = temp_tx.vsize() as u64;
     let delta_no_change = vb_no_change.saturating_sub(base_vb);
     let fee_no_change = fee_rate
         .fee_vb(delta_no_change)

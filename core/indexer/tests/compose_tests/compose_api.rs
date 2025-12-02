@@ -923,7 +923,6 @@ pub async fn test_compose_attach_and_detach(reg_tester: &mut RegTester) -> Resul
             x_only_public_key: internal_key.to_string(),
             commit_vout: 0,
             commit_script_data: chained_script_data_bytes,
-            envelope: None,
             chained_script_data: None,
         }],
         op_return_data: Some(serialize(&OpReturnData::PubKey(internal_key))?),
