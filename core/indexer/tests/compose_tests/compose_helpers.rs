@@ -7,7 +7,7 @@ use bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Txid};
 use indexer::api::compose::{
     RevealFeeEstimateInput, RevealInputs, RevealParticipantInputs, TapLeafScript, TapScriptPair,
     build_tap_script_and_script_address, compose_reveal, estimate_key_spend_fee,
-    estimate_reveal_fees_delta,
+    estimate_participant_commit_fees, estimate_reveal_fees_delta, select_utxos_for_commit,
 };
 use std::str::FromStr;
 use testlib::RegTester;
@@ -74,7 +74,8 @@ pub fn test_estimate_reveal_fees_delta_fee_rate_scaling() {
     let fee_rate_1 = FeeRate::from_sat_per_vb(5).unwrap();
     let fee_rate_2 = FeeRate::from_sat_per_vb(10).unwrap();
 
-    let fees_1 = estimate_reveal_fees_delta(&[input.clone()], fee_rate_1, false, 330).unwrap();
+    let fees_1 =
+        estimate_reveal_fees_delta(std::slice::from_ref(&input), fee_rate_1, false, 330).unwrap();
     let fees_2 = estimate_reveal_fees_delta(&[input], fee_rate_2, false, 330).unwrap();
 
     // Fee at 10 sat/vb should be exactly 2x fee at 5 sat/vb
@@ -137,7 +138,7 @@ pub fn test_estimate_reveal_fees_delta_op_return_is_base_overhead() {
     let input = make_reveal_fee_input(100, false);
 
     let fees_without_op_return =
-        estimate_reveal_fees_delta(&[input.clone()], fee_rate, false, 330).unwrap();
+        estimate_reveal_fees_delta(std::slice::from_ref(&input), fee_rate, false, 330).unwrap();
     let fees_with_op_return = estimate_reveal_fees_delta(&[input], fee_rate, true, 330).unwrap();
 
     // Per-participant fees should be the same - OP_RETURN is base overhead
@@ -226,7 +227,7 @@ pub fn test_estimate_reveal_fees_delta_envelope_value_does_not_affect_fee() {
     let input = make_reveal_fee_input(100, false);
 
     let fees_small_envelope =
-        estimate_reveal_fees_delta(&[input.clone()], fee_rate, false, 330).unwrap();
+        estimate_reveal_fees_delta(std::slice::from_ref(&input), fee_rate, false, 330).unwrap();
     let fees_large_envelope =
         estimate_reveal_fees_delta(&[input], fee_rate, false, 100_000).unwrap();
 
@@ -487,11 +488,7 @@ pub fn test_estimate_key_spend_fee_multiple_inputs_scales_linearly() {
     let delta_2_to_3 = fee_3 - fee_2;
 
     // Deltas should be similar (within 10% of each other)
-    let diff = if delta_1_to_2 > delta_2_to_3 {
-        delta_1_to_2 - delta_2_to_3
-    } else {
-        delta_2_to_3 - delta_1_to_2
-    };
+    let diff = delta_1_to_2.abs_diff(delta_2_to_3);
     assert!(
         diff <= delta_1_to_2 / 10 + 1,
         "Input fee deltas should be consistent: {} vs {}",
@@ -661,7 +658,7 @@ pub fn test_estimate_key_spend_fee_signature_size_is_64_bytes() {
     // vsize = ceil(270 / 4) = 68 vbytes
     // Fee at 1 sat/vb = 68 sats
     assert!(
-        fee >= 65 && fee <= 75,
+        (65..=75).contains(&fee),
         "Single input no output vsize should be ~68: fee={}",
         fee
     );
@@ -891,5 +888,914 @@ pub async fn test_compose_reveal_op_return_size_validation(
         "unexpected error: {}",
         msg
     );
+    Ok(())
+}
+
+// ============================================================================
+// estimate_participant_commit_fees tests
+// ============================================================================
+
+/// Helper to create a base transaction with given inputs/outputs.
+fn make_base_tx(num_inputs: usize, num_outputs: usize) -> Transaction {
+    let inputs: Vec<TxIn> = (0..num_inputs)
+        .map(|i| TxIn {
+            previous_output: OutPoint {
+                txid: Txid::from_str(
+                    "0000000000000000000000000000000000000000000000000000000000000001",
+                )
+                .unwrap(),
+                vout: i as u32,
+            },
+            ..Default::default()
+        })
+        .collect();
+
+    let outputs: Vec<TxOut> = (0..num_outputs)
+        .map(|_| TxOut {
+            value: Amount::from_sat(1000),
+            script_pubkey: ScriptBuf::from_bytes(vec![0u8; 34]), // P2TR output size
+        })
+        .collect();
+
+    Transaction {
+        version: Version(2),
+        lock_time: LockTime::ZERO,
+        input: inputs,
+        output: outputs,
+    }
+}
+
+/// Helper to create UTXOs for testing.
+fn make_utxos(count: usize) -> Vec<(OutPoint, TxOut)> {
+    (0..count)
+        .map(|i| {
+            (
+                OutPoint {
+                    txid: Txid::from_str(
+                        "0000000000000000000000000000000000000000000000000000000000000002",
+                    )
+                    .unwrap(),
+                    vout: i as u32,
+                },
+                TxOut {
+                    value: Amount::from_sat(10_000),
+                    script_pubkey: ScriptBuf::from_bytes(vec![0u8; 34]),
+                },
+            )
+        })
+        .collect()
+}
+
+pub fn test_estimate_participant_commit_fees_empty_utxos() {
+    // Empty UTXOs should still work - adds only outputs, no inputs
+    let base_tx = make_base_tx(0, 0);
+    let utxos: Vec<(OutPoint, TxOut)> = vec![];
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let result = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate);
+
+    assert!(result.is_ok(), "Should succeed with empty UTXOs");
+    let (fee_with_change, fee_no_change) = result.unwrap();
+
+    // With no inputs, only outputs are added:
+    // - Script output: 43 vbytes (8 value + 1 varint + 34 script)
+    // - Change output: 43 vbytes
+    // fee_with_change should be ~860 sats, fee_no_change should be ~430 sats
+    assert!(
+        fee_with_change > fee_no_change,
+        "Fee with change should be higher: {} vs {}",
+        fee_with_change,
+        fee_no_change
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_single_utxo() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos(1);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let (fee_with_change, fee_no_change) =
+        estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    // Single input + 2 outputs (with change) vs single input + 1 output
+    // Input: ~57 vbytes (41 non-witness + 64 witness at 1/4 weight)
+    // Script output: 43 vbytes
+    // Change output: 43 vbytes
+    assert!(
+        fee_with_change > 0 && fee_no_change > 0,
+        "Fees should be non-zero"
+    );
+    assert!(
+        fee_with_change > fee_no_change,
+        "Fee with change should be higher: {} vs {}",
+        fee_with_change,
+        fee_no_change
+    );
+
+    // Difference should be one output worth (~43 vbytes * 10 = 430 sats)
+    let diff = fee_with_change - fee_no_change;
+    assert!(
+        (400..=500).contains(&diff),
+        "Change output should add ~430 sats: got {}",
+        diff
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_multiple_utxos() {
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let utxos_1 = make_utxos(1);
+    let utxos_3 = make_utxos(3);
+
+    let (fee_1_with, fee_1_no) =
+        estimate_participant_commit_fees(&base_tx, &utxos_1, fee_rate).unwrap();
+    let (fee_3_with, fee_3_no) =
+        estimate_participant_commit_fees(&base_tx, &utxos_3, fee_rate).unwrap();
+
+    // More UTXOs = more inputs = higher fees
+    assert!(
+        fee_3_with > fee_1_with,
+        "3 UTXOs should cost more than 1: {} vs {}",
+        fee_3_with,
+        fee_1_with
+    );
+    assert!(
+        fee_3_no > fee_1_no,
+        "3 UTXOs (no change) should cost more than 1: {} vs {}",
+        fee_3_no,
+        fee_1_no
+    );
+
+    // Each additional input adds ~57 vbytes = 570 sats at 10 sat/vb
+    // 2 additional inputs = ~1140 sats
+    let diff_with = fee_3_with - fee_1_with;
+    let diff_no = fee_3_no - fee_1_no;
+    assert!(
+        (1000..=1300).contains(&diff_with),
+        "2 additional inputs should add ~1140 sats (with change): got {}",
+        diff_with
+    );
+    assert!(
+        (1000..=1300).contains(&diff_no),
+        "2 additional inputs should add ~1140 sats (no change): got {}",
+        diff_no
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_fee_rate_scaling() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos(1);
+
+    let fee_rate_5 = FeeRate::from_sat_per_vb(5).unwrap();
+    let fee_rate_10 = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let (fee_5_with, fee_5_no) =
+        estimate_participant_commit_fees(&base_tx, &utxos, fee_rate_5).unwrap();
+    let (fee_10_with, fee_10_no) =
+        estimate_participant_commit_fees(&base_tx, &utxos, fee_rate_10).unwrap();
+
+    // Double fee rate = exactly double fees
+    assert_eq!(
+        fee_10_with,
+        fee_5_with * 2,
+        "Double fee rate should double fee (with change): {} vs {}",
+        fee_10_with,
+        fee_5_with * 2
+    );
+    assert_eq!(
+        fee_10_no,
+        fee_5_no * 2,
+        "Double fee rate should double fee (no change): {} vs {}",
+        fee_10_no,
+        fee_5_no * 2
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_with_existing_base_tx() {
+    // Base tx already has inputs/outputs - delta should only include new stuff
+    let base_tx = make_base_tx(2, 2);
+    let utxos = make_utxos(1);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let (fee_with, fee_no) = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    // Should only charge for delta (1 input + script output + optional change)
+    // Not for the existing 2 inputs + 2 outputs in base_tx
+    // Delta: 1 input (~57) + script output (43) + change output (43) = ~143 vbytes = 1430 sats
+    assert!(
+        (1300..=1600).contains(&fee_with),
+        "Delta with change should be ~1430 sats: got {}",
+        fee_with
+    );
+    // Delta: 1 input (~57) + script output (43) = ~100 vbytes = 1000 sats
+    assert!(
+        (900..=1100).contains(&fee_no),
+        "Delta without change should be ~1000 sats: got {}",
+        fee_no
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_deterministic() {
+    let base_tx = make_base_tx(1, 1);
+    let utxos = make_utxos(2);
+    let fee_rate = FeeRate::from_sat_per_vb(7).unwrap();
+
+    let result1 = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+    let result2 = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    assert_eq!(result1, result2, "Same inputs should produce same outputs");
+}
+
+pub fn test_estimate_participant_commit_fees_does_not_modify_base_tx() {
+    let base_tx = make_base_tx(1, 1);
+    let base_tx_clone = base_tx.clone();
+    let utxos = make_utxos(2);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let _ = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate);
+
+    // Original base_tx should be unchanged
+    assert_eq!(
+        base_tx.input.len(),
+        base_tx_clone.input.len(),
+        "Base tx inputs should be unchanged"
+    );
+    assert_eq!(
+        base_tx.output.len(),
+        base_tx_clone.output.len(),
+        "Base tx outputs should be unchanged"
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_minimum_fee_rate() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos(1);
+    let fee_rate = FeeRate::from_sat_per_vb(1).unwrap();
+
+    let (fee_with, fee_no) = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    assert!(
+        fee_with > 0,
+        "Fee should be non-zero even at 1 sat/vb: {}",
+        fee_with
+    );
+    assert!(
+        fee_no > 0,
+        "Fee (no change) should be non-zero even at 1 sat/vb: {}",
+        fee_no
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_high_fee_rate() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos(1);
+    let fee_rate = FeeRate::from_sat_per_vb(500).unwrap();
+
+    let (fee_with, fee_no) = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    // At 500 sat/vb:
+    // ~143 vbytes (with change) = 71,500 sats
+    // ~100 vbytes (no change) = 50,000 sats
+    assert!(
+        fee_with > 50_000,
+        "High fee rate should result in high fee: {}",
+        fee_with
+    );
+    assert!(
+        fee_no > 40_000,
+        "High fee rate (no change) should result in high fee: {}",
+        fee_no
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_many_utxos() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos(10);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let (fee_with, fee_no) = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    // 10 inputs at ~57 vbytes each = 570 vbytes
+    // + script output (43) + change output (43) = 656 vbytes = 6560 sats
+    assert!(
+        (6000..=7500).contains(&fee_with),
+        "10 inputs + 2 outputs should be ~6500 sats: got {}",
+        fee_with
+    );
+    // Without change: 570 + 43 = 613 vbytes = 6130 sats
+    assert!(
+        (5500..=7000).contains(&fee_no),
+        "10 inputs + 1 output should be ~6100 sats: got {}",
+        fee_no
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_change_output_difference() {
+    // Verify the exact difference between with/without change
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    for num_utxos in [1, 2, 5, 10] {
+        let utxos = make_utxos(num_utxos);
+        let (fee_with, fee_no) =
+            estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+        // Difference should always be exactly one P2TR output (43 vbytes = 430 sats)
+        let diff = fee_with - fee_no;
+        assert!(
+            (400..=480).contains(&diff),
+            "With {} UTXOs, change output diff should be ~430 sats: got {}",
+            num_utxos,
+            diff
+        );
+    }
+}
+
+pub fn test_estimate_participant_commit_fees_input_vsize_delta() {
+    // Verify each input adds approximately 57-58 vbytes
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(1).unwrap(); // 1 sat/vb for easy math
+
+    let utxos_1 = make_utxos(1);
+    let utxos_2 = make_utxos(2);
+    let utxos_3 = make_utxos(3);
+
+    let (_, fee_1) = estimate_participant_commit_fees(&base_tx, &utxos_1, fee_rate).unwrap();
+    let (_, fee_2) = estimate_participant_commit_fees(&base_tx, &utxos_2, fee_rate).unwrap();
+    let (_, fee_3) = estimate_participant_commit_fees(&base_tx, &utxos_3, fee_rate).unwrap();
+
+    // At 1 sat/vb, fee = vsize
+    let delta_1_to_2 = fee_2 - fee_1;
+    let delta_2_to_3 = fee_3 - fee_2;
+
+    // Each input should add ~57-58 vbytes
+    assert!(
+        (55..=62).contains(&delta_1_to_2),
+        "Input vsize delta should be ~57: got {}",
+        delta_1_to_2
+    );
+    assert!(
+        (55..=62).contains(&delta_2_to_3),
+        "Input vsize delta should be ~57: got {}",
+        delta_2_to_3
+    );
+}
+
+pub fn test_estimate_participant_commit_fees_output_vsize() {
+    // Verify outputs are 43 vbytes each (P2TR)
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos(1);
+    let fee_rate = FeeRate::from_sat_per_vb(1).unwrap(); // 1 sat/vb for easy math
+
+    let (fee_with, fee_no) = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate).unwrap();
+
+    // Difference is exactly the change output
+    let change_output_vsize = fee_with - fee_no;
+    assert!(
+        (40..=48).contains(&change_output_vsize),
+        "P2TR output should be ~43 vbytes: got {}",
+        change_output_vsize
+    );
+}
+
+pub async fn test_estimate_participant_commit_fees_with_real_utxos(
+    reg_tester: &mut RegTester,
+) -> Result<()> {
+    info!("test_estimate_participant_commit_fees_with_real_utxos");
+
+    let identity = reg_tester.identity().await?;
+    let (outpoint, prevout) = identity.next_funding_utxo;
+
+    let base_tx = make_base_tx(0, 0);
+    let utxos = vec![(outpoint, prevout)];
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let result = estimate_participant_commit_fees(&base_tx, &utxos, fee_rate);
+    assert!(result.is_ok(), "Should work with real UTXOs");
+
+    let (fee_with, fee_no) = result.unwrap();
+    assert!(fee_with > 0);
+    assert!(fee_no > 0);
+    assert!(fee_with > fee_no);
+
+    Ok(())
+}
+
+// ============================================================================
+// select_utxos_for_commit tests
+// ============================================================================
+
+/// Helper to create UTXOs with specific values for selection testing.
+fn make_utxos_with_values(values: &[u64]) -> Vec<(OutPoint, TxOut)> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, &value)| {
+            (
+                OutPoint {
+                    txid: Txid::from_str(
+                        "0000000000000000000000000000000000000000000000000000000000000099",
+                    )
+                    .unwrap(),
+                    vout: i as u32,
+                },
+                TxOut {
+                    value: Amount::from_sat(value),
+                    script_pubkey: ScriptBuf::from_bytes(vec![0u8; 34]),
+                },
+            )
+        })
+        .collect()
+}
+
+pub fn test_select_utxos_for_commit_empty_utxos_errors() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos: Vec<(OutPoint, TxOut)> = vec![];
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let result = select_utxos_for_commit(&base_tx, utxos, 1000, fee_rate, 330);
+
+    assert!(result.is_err(), "Empty UTXOs should error");
+    let err_msg = result.err().unwrap().to_string();
+    assert!(
+        err_msg.contains("no UTXOs provided"),
+        "Error should mention no UTXOs: {}",
+        err_msg
+    );
+}
+
+pub fn test_select_utxos_for_commit_single_utxo_sufficient() {
+    let base_tx = make_base_tx(0, 0);
+    // Single large UTXO that can cover script output + fee + change
+    let utxos = make_utxos_with_values(&[100_000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+    let envelope = 330;
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_ok(), "Should succeed with sufficient UTXO");
+    let (selected, fee) = result.unwrap();
+    assert_eq!(selected.len(), 1, "Should select the single UTXO");
+    assert!(fee > 0, "Fee should be non-zero");
+
+    // Verify we can afford everything
+    let total_value: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    assert!(
+        total_value >= script_output + fee + envelope,
+        "Should have enough for script output + fee + change"
+    );
+}
+
+pub fn test_select_utxos_for_commit_single_utxo_insufficient() {
+    let base_tx = make_base_tx(0, 0);
+    // Single small UTXO that cannot cover script output
+    let utxos = make_utxos_with_values(&[500]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 10_000;
+    let envelope = 330;
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_err(), "Should fail with insufficient UTXO");
+    let err_msg = result.err().unwrap().to_string();
+    assert!(
+        err_msg.contains("Insufficient funds"),
+        "Error should mention insufficient funds: {}",
+        err_msg
+    );
+}
+
+pub fn test_select_utxos_for_commit_multiple_utxos_selects_minimum() {
+    let base_tx = make_base_tx(0, 0);
+    // Multiple UTXOs - should select minimum needed
+    let utxos = make_utxos_with_values(&[1000, 2000, 3000, 50_000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+    let envelope = 330;
+
+    let result =
+        select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, envelope);
+
+    assert!(result.is_ok(), "Should succeed");
+    let (selected, fee) = result.unwrap();
+
+    // Should not need all UTXOs
+    assert!(
+        selected.len() < utxos.len(),
+        "Should not select all UTXOs: selected {} of {}",
+        selected.len(),
+        utxos.len()
+    );
+
+    // Verify we have enough
+    let total: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    assert!(
+        total >= script_output + fee,
+        "Total {} should cover script {} + fee {}",
+        total,
+        script_output,
+        fee
+    );
+}
+
+pub fn test_select_utxos_for_commit_selects_in_order() {
+    let base_tx = make_base_tx(0, 0);
+    // UTXOs in specific order - selection should be in order provided
+    let utxos = make_utxos_with_values(&[5000, 6000, 7000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+    let envelope = 330;
+
+    let result =
+        select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, envelope);
+
+    assert!(result.is_ok(), "Should succeed");
+    let (selected, _) = result.unwrap();
+
+    // First UTXO (5000 sats) should be enough for script (1000) + fee (~1400) + envelope (330)
+    // Total needed: ~2730, so 5000 should be sufficient
+    if selected.len() == 1 {
+        assert_eq!(
+            selected[0].0.vout, 0,
+            "Should select first UTXO if sufficient"
+        );
+    }
+}
+
+pub fn test_select_utxos_for_commit_change_above_dust() {
+    let base_tx = make_base_tx(0, 0);
+    // UTXO value chosen so change will be well above dust
+    let utxos = make_utxos_with_values(&[100_000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+    let envelope = 330;
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_ok());
+    let (selected, fee) = result.unwrap();
+    let total: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    let change = total - script_output - fee;
+
+    // Change should be well above dust threshold
+    assert!(
+        change >= envelope,
+        "Change {} should be >= envelope {}",
+        change,
+        envelope
+    );
+
+    // Fee should include change output since change >= envelope
+    // At 10 sat/vb, 1 input + 2 outputs (script + change) = ~143 vbytes = ~1430 sats
+    assert!(
+        (1200..=1700).contains(&fee),
+        "Fee with change should be ~1430: got {}",
+        fee
+    );
+}
+
+pub fn test_select_utxos_for_commit_change_below_dust() {
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    // We need to craft the UTXO value so that:
+    // 1. It's enough to cover script_output + fee_no_change
+    // 2. But the leftover (change) is < envelope
+    //
+    // fee_no_change for 1 input, 1 output at 10 sat/vb:
+    // ~100 vbytes = ~1000 sats
+    // So if script_output = 1000, we need UTXO > 2000 but change < 330
+    // UTXO = 2300 gives us: 2300 - 1000 - 1000 = 300 change (below 330)
+
+    let utxos = make_utxos_with_values(&[2300]);
+    let script_output = 1000;
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_ok());
+    let (selected, fee) = result.unwrap();
+    let total: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    let change = total - script_output - fee;
+
+    // Change should be below dust (no change output will be created)
+    assert!(
+        change < envelope,
+        "Change {} should be < envelope {} (dust scenario)",
+        change,
+        envelope
+    );
+
+    // Fee should NOT include change output since change < envelope
+    // At 10 sat/vb, 1 input + 1 output = ~100 vbytes = ~1000 sats
+    assert!(
+        (800..=1200).contains(&fee),
+        "Fee without change should be ~1000: got {}",
+        fee
+    );
+}
+
+pub fn test_select_utxos_for_commit_fee_rate_affects_selection() {
+    let base_tx = make_base_tx(0, 0);
+    // UTXOs that might be sufficient at low fee rate but not at high
+    let utxos = make_utxos_with_values(&[2000, 3000, 4000]);
+    let script_output = 1000;
+    let envelope = 330;
+
+    let fee_rate_low = FeeRate::from_sat_per_vb(2).unwrap();
+    let fee_rate_high = FeeRate::from_sat_per_vb(50).unwrap();
+
+    let result_low = select_utxos_for_commit(
+        &base_tx,
+        utxos.clone(),
+        script_output,
+        fee_rate_low,
+        envelope,
+    );
+    let result_high = select_utxos_for_commit(
+        &base_tx,
+        utxos.clone(),
+        script_output,
+        fee_rate_high,
+        envelope,
+    );
+
+    assert!(result_low.is_ok(), "Should succeed at low fee rate");
+
+    let (selected_low, fee_low) = result_low.unwrap();
+
+    // High fee rate needs more UTXOs (if it succeeds) or higher fee
+    if let Ok((selected_high, fee_high)) = result_high {
+        assert!(
+            fee_high > fee_low,
+            "Higher fee rate should result in higher fee"
+        );
+        // May need more UTXOs at high fee rate
+        assert!(
+            selected_high.len() >= selected_low.len(),
+            "High fee rate may need more UTXOs"
+        );
+    }
+    // It's also valid for high fee rate to fail if UTXOs are insufficient
+}
+
+pub fn test_select_utxos_for_commit_script_output_value_affects_selection() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos_with_values(&[5000, 10000, 15000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let result_small = select_utxos_for_commit(&base_tx, utxos.clone(), 1000, fee_rate, envelope);
+    let result_large = select_utxos_for_commit(&base_tx, utxos.clone(), 20000, fee_rate, envelope);
+
+    assert!(result_small.is_ok(), "Small script output should succeed");
+    let (selected_small, _) = result_small.unwrap();
+
+    // Large script output needs more UTXOs
+    if let Ok((selected_large, _)) = result_large {
+        assert!(
+            selected_large.len() >= selected_small.len(),
+            "Larger script output may need more UTXOs"
+        );
+    }
+    // Large script output might fail if sum of UTXOs < required
+}
+
+pub fn test_select_utxos_for_commit_with_existing_base_tx() {
+    // Base tx already has inputs/outputs - delta fees should be calculated correctly
+    let base_tx = make_base_tx(2, 2);
+    let utxos = make_utxos_with_values(&[50_000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+    let envelope = 330;
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_ok(), "Should succeed with existing base tx");
+    let (selected, fee) = result.unwrap();
+    assert_eq!(selected.len(), 1);
+
+    // Fee should be for delta only (1 new input + 2 new outputs)
+    // Not for the entire tx including existing inputs/outputs
+    assert!(
+        (1200..=1700).contains(&fee),
+        "Delta fee should be ~1430: got {}",
+        fee
+    );
+}
+
+pub fn test_select_utxos_for_commit_returns_correct_subset() {
+    let base_tx = make_base_tx(0, 0);
+    // Create UTXOs with distinct values to verify correct subset is returned
+    let utxos = make_utxos_with_values(&[1000, 2000, 3000, 4000, 5000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 2000;
+    let envelope = 330;
+
+    let result =
+        select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, envelope);
+
+    assert!(result.is_ok());
+    let (selected, _) = result.unwrap();
+
+    // Verify selected UTXOs are from the original list (in order)
+    for (i, (selected_op, selected_txo)) in selected.iter().enumerate() {
+        let (orig_op, orig_txo) = &utxos[i];
+        assert_eq!(selected_op, orig_op, "Outpoint should match");
+        assert_eq!(
+            selected_txo.value, orig_txo.value,
+            "TxOut value should match"
+        );
+    }
+}
+
+pub fn test_select_utxos_for_commit_exact_amount_no_change() {
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+    let script_output = 1000;
+
+    // Calculate what we need for exact amount (no change scenario)
+    // 1 input + 1 output (script) = ~100 vbytes = ~1000 sats fee
+    // Total needed: 1000 (script) + 1000 (fee) = 2000 sats
+    // If we have exactly 2000 sats, change = 0 (< envelope)
+
+    let utxos = make_utxos_with_values(&[2000]);
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_ok());
+    let (selected, fee) = result.unwrap();
+    let total: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    let remaining = total - script_output - fee;
+
+    // Should have little to no change
+    assert!(
+        remaining < envelope,
+        "Should have minimal change: {}",
+        remaining
+    );
+}
+
+pub fn test_select_utxos_for_commit_many_small_utxos() {
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+    let script_output = 1000;
+
+    // Many small UTXOs - each one adds fee, so need many to cover
+    let utxos = make_utxos_with_values(&[500, 500, 500, 500, 500, 1000, 1000, 1000, 1000, 10000]);
+
+    let result =
+        select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, envelope);
+
+    assert!(result.is_ok(), "Should eventually have enough");
+    let (selected, fee) = result.unwrap();
+
+    // May need several UTXOs because each input adds ~570 sats of fee
+    // Total available: 500*5 + 1000*4 + 10000 = 16500 sats
+    assert!(!selected.is_empty(), "Should select at least one UTXO");
+
+    let total: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    assert!(
+        total >= script_output + fee,
+        "Total {} should cover script {} + fee {}",
+        total,
+        script_output,
+        fee
+    );
+}
+
+pub fn test_select_utxos_for_commit_envelope_affects_change_threshold() {
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+
+    // Same UTXOs but different envelope values
+    let utxos = make_utxos_with_values(&[3000]);
+
+    let result_low = select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, 100);
+    let result_high =
+        select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, 1000);
+
+    assert!(result_low.is_ok());
+    let (_, fee_low) = result_low.unwrap();
+
+    // Higher envelope means higher dust threshold, might affect whether change is created
+    // This affects which fee is returned (fee_with_change vs fee_no_change)
+    if let Ok((_, fee_high)) = result_high {
+        // Fees might differ based on whether change output is included
+        // fee_with_change > fee_no_change because change output adds ~43 vbytes
+        // Different envelope values may result in different change scenarios
+        assert!(fee_low > 0 && fee_high > 0);
+    }
+}
+
+pub fn test_select_utxos_for_commit_deterministic() {
+    let base_tx = make_base_tx(0, 0);
+    let utxos = make_utxos_with_values(&[5000, 10000, 15000]);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 2000;
+    let envelope = 330;
+
+    let result1 =
+        select_utxos_for_commit(&base_tx, utxos.clone(), script_output, fee_rate, envelope);
+    let result2 = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result1.is_ok() && result2.is_ok());
+    let (selected1, fee1) = result1.unwrap();
+    let (selected2, fee2) = result2.unwrap();
+
+    assert_eq!(selected1.len(), selected2.len(), "Should select same count");
+    assert_eq!(fee1, fee2, "Fees should be identical");
+}
+
+pub fn test_select_utxos_for_commit_insufficient_with_fees() {
+    // UTXOs sum might cover script output but not when fees are included
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(100).unwrap(); // Very high fee rate
+    let envelope = 330;
+    let script_output = 5000;
+
+    // At 100 sat/vb, 1 input + 1 output = ~100 vbytes = ~10,000 sats fee
+    // Total needed: 5000 + 10000 = 15000 sats minimum
+    // But we only have 12000 sats
+    let utxos = make_utxos_with_values(&[4000, 4000, 4000]);
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    // This should fail because total (12000) < script_output (5000) + fee (~15000+ with 3 inputs)
+    assert!(
+        result.is_err(),
+        "Should fail when UTXOs can't cover script + fees"
+    );
+}
+
+pub fn test_select_utxos_for_commit_edge_case_change_equals_envelope() {
+    let base_tx = make_base_tx(0, 0);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+    let script_output = 1000;
+
+    // We want change to be exactly at envelope boundary
+    // This is tricky because we need: total - script - fee_with_change = envelope
+    // At 10 sat/vb with 1 input + 2 outputs: fee ~1430 sats
+    // So: total = 1000 + 1430 + 330 = 2760
+
+    let utxos = make_utxos_with_values(&[2800]); // Slightly above to ensure success
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    assert!(result.is_ok());
+    let (selected, fee) = result.unwrap();
+    let total: u64 = selected.iter().map(|(_, txo)| txo.value.to_sat()).sum();
+    let change = total - script_output - fee;
+
+    // Change should be >= envelope (boundary case)
+    assert!(
+        change >= envelope,
+        "Change {} should be >= envelope {} at boundary",
+        change,
+        envelope
+    );
+}
+
+pub async fn test_select_utxos_for_commit_with_real_utxo(reg_tester: &mut RegTester) -> Result<()> {
+    info!("test_select_utxos_for_commit_with_real_utxo");
+
+    let identity = reg_tester.identity().await?;
+    let (outpoint, prevout) = identity.next_funding_utxo;
+
+    let base_tx = make_base_tx(0, 0);
+    let utxos = vec![(outpoint, prevout.clone())];
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let script_output = 1000;
+    let envelope = 330;
+
+    let result = select_utxos_for_commit(&base_tx, utxos, script_output, fee_rate, envelope);
+
+    // Real UTXO from regtest should have enough value
+    assert!(
+        result.is_ok(),
+        "Should succeed with real UTXO: {:?}",
+        result.err()
+    );
+    let (selected, fee) = result.unwrap();
+
+    assert_eq!(selected.len(), 1);
+    assert!(fee > 0);
+
+    let total = prevout.value.to_sat();
+    assert!(
+        total >= script_output + fee + envelope,
+        "Real UTXO should have enough: {} >= {} + {} + {}",
+        total,
+        script_output,
+        fee,
+        envelope
+    );
+
     Ok(())
 }

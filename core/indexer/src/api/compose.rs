@@ -892,7 +892,7 @@ pub fn select_utxos_for_commit(
 /// participant adds to the commit transaction.
 ///
 /// Returns (fee_with_change, fee_without_change).
-fn estimate_participant_commit_fees(
+pub fn estimate_participant_commit_fees(
     base_tx: &Transaction,
     selected_utxos: &[(OutPoint, TxOut)],
     fee_rate: FeeRate,
