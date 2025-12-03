@@ -43,7 +43,7 @@ pub async fn test_compose(reg_tester: &mut RegTester) -> Result<()> {
                 .address(seller_address.to_string())
                 .x_only_public_key(internal_key.to_string())
                 .funding_utxo_ids(format!("{}:{}", out_point.txid, out_point.vout))
-                .script_data(instruction.clone())
+                .instruction(instruction.clone())
                 .build(),
         ])
         .sat_per_vbyte(2)
@@ -180,8 +180,8 @@ pub async fn test_compose_all_fields(reg_tester: &mut RegTester) -> Result<()> {
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
-            script_data: instruction.clone(),
-            chained_script_data: Some(chained_instructions.clone()),
+            instruction: instruction.clone(),
+            chained_instruction: Some(chained_instructions.clone()),
         }])
         .sat_per_vbyte(2)
         .envelope(600)
@@ -382,15 +382,15 @@ pub async fn test_compose_duplicate_address_and_duplicate_utxo(
                 address: seller_address.to_string(),
                 x_only_public_key: internal_key.to_string(),
                 funding_utxo_ids: format!("{}:{}", out_point1.txid, out_point1.vout).to_string(),
-                script_data: instruction.clone(),
-                chained_script_data: None,
+                instruction: instruction.clone(),
+                chained_instruction: None,
             },
             InstructionQuery {
                 address: seller_address.to_string(),
                 x_only_public_key: internal_key.to_string(),
                 funding_utxo_ids: format!("{}:{}", out_point1.txid, out_point1.vout).to_string(),
-                script_data: instruction.clone(),
-                chained_script_data: None,
+                instruction: instruction.clone(),
+                chained_instruction: None,
             },
         ])
         .sat_per_vbyte(2)
@@ -413,8 +413,8 @@ pub async fn test_compose_duplicate_address_and_duplicate_utxo(
                 "{}:{},{}:{}",
                 out_point1.txid, out_point1.vout, out_point1.txid, out_point1.vout
             ),
-            script_data: instruction,
-            chained_script_data: None,
+            instruction,
+            chained_instruction: None,
         }])
         .sat_per_vbyte(2)
         .build();
@@ -436,7 +436,7 @@ pub async fn test_compose_param_bounds_and_fee_rate(reg_tester: &mut RegTester) 
     let (internal_key, _parity) = keypair.x_only_public_key();
     let (out_point, _utxo_for_output) = identity.next_funding_utxo;
 
-    // Oversized script_data
+    // Oversized instruction
     let oversized_inst = Inst::Publish {
         gas_limit: 50_000,
         name: "oversized".to_string(),
@@ -447,8 +447,8 @@ pub async fn test_compose_param_bounds_and_fee_rate(reg_tester: &mut RegTester) 
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout).to_string(),
-            script_data: oversized_inst,
-            chained_script_data: None,
+            instruction: oversized_inst,
+            chained_instruction: None,
         }])
         .sat_per_vbyte(2)
         .build();
@@ -458,7 +458,7 @@ pub async fn test_compose_param_bounds_and_fee_rate(reg_tester: &mut RegTester) 
         Err(e) => assert!(e.to_string().contains("script data size invalid")),
     }
 
-    // Oversized chained_script_data
+    // Oversized chained_instruction
     let chained_oversized_inst = Inst::Publish {
         gas_limit: 50_000,
         name: "chain-oversized".to_string(),
@@ -469,12 +469,12 @@ pub async fn test_compose_param_bounds_and_fee_rate(reg_tester: &mut RegTester) 
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
-            script_data: Inst::Publish {
+            instruction: Inst::Publish {
                 gas_limit: 50_000,
                 name: "chain-oversized".to_string(),
                 bytes: b"x".to_vec(),
             },
-            chained_script_data: Some(chained_oversized_inst),
+            chained_instruction: Some(chained_oversized_inst),
         }])
         .sat_per_vbyte(2)
         .build();
@@ -490,12 +490,12 @@ pub async fn test_compose_param_bounds_and_fee_rate(reg_tester: &mut RegTester) 
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
-            script_data: Inst::Publish {
+            instruction: Inst::Publish {
                 gas_limit: 50_000,
                 name: "fee-rate".to_string(),
                 bytes: b"x".to_vec(),
             },
-            chained_script_data: None,
+            chained_instruction: None,
         }])
         .sat_per_vbyte(0)
         .build();
@@ -523,8 +523,8 @@ pub async fn test_reveal_with_op_return_mempool_accept(reg_tester: &mut RegTeste
             address: seller_address.clone(),
             x_only_public_key: internal_key,
             funding_utxos: vec![(out_point, utxo_for_output.clone())],
-            script_data: b"Hello, world!".to_vec(),
-            chained_script_data: None,
+            instruction: b"Hello, world!".to_vec(),
+            chained_instruction: None,
         }])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
@@ -634,8 +634,8 @@ pub async fn test_compose_nonexistent_utxo(reg_tester: &mut RegTester) -> Result
             // Ensure a guaranteed-nonexistent txid in regtest
             funding_utxo_ids: "0000000000000000000000000000000000000000000000000000000000000001:0"
                 .to_string(),
-            script_data: instruction,
-            chained_script_data: None,
+            instruction: instruction,
+            chained_instruction: None,
         }])
         .sat_per_vbyte(2)
         .build();
@@ -676,8 +676,8 @@ pub async fn test_compose_invalid_address(reg_tester: &mut RegTester) -> Result<
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
-            script_data: instruction,
-            chained_script_data: None,
+            instruction: instruction,
+            chained_instruction: None,
         }])
         .sat_per_vbyte(2)
         .build();
@@ -714,8 +714,8 @@ pub async fn test_compose_insufficient_funds(reg_tester: &mut RegTester) -> Resu
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
-            script_data: instruction,
-            chained_script_data: None,
+            instruction: instruction,
+            chained_instruction: None,
         }])
         .sat_per_vbyte(4)
         .envelope(5_000_000_001)
@@ -767,8 +767,8 @@ pub async fn test_compose_attach_and_detach(reg_tester: &mut RegTester) -> Resul
             address: seller_address.to_string(),
             x_only_public_key: internal_key.to_string(),
             funding_utxo_ids: format!("{}:{}", out_point.txid, out_point.vout),
-            script_data: instruction.clone(),
-            chained_script_data: Some(chained_instructions.clone()),
+            instruction: instruction.clone(),
+            chained_instruction: Some(chained_instructions.clone()),
         }])
         .sat_per_vbyte(2)
         .envelope(600)
@@ -923,7 +923,7 @@ pub async fn test_compose_attach_and_detach(reg_tester: &mut RegTester) -> Resul
             x_only_public_key: internal_key.to_string(),
             commit_vout: 0,
             commit_script_data: chained_script_data_bytes,
-            chained_script_data: None,
+            chained_instruction: None,
         }],
         op_return_data: Some(serialize(&OpReturnData::PubKey(internal_key))?),
         envelope: None,

@@ -6,8 +6,8 @@ use bitcoin::transaction::{Transaction, TxIn, TxOut, Version};
 use bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Txid};
 use indexer::api::compose::{
     RevealInputs, RevealParticipantInputs, TapLeafScript, build_tap_script_and_script_address,
-    compose_reveal, estimate_key_spend_fee, estimate_participant_commit_fees,
-    select_utxos_for_commit,
+    calculate_op_return_fee_per_participant, calculate_reveal_fee_delta, compose_reveal,
+    estimate_key_spend_fee, estimate_participant_commit_fees, select_utxos_for_commit,
 };
 use std::str::FromStr;
 use testlib::RegTester;
@@ -731,12 +731,13 @@ pub async fn test_build_tap_script_and_script_address_multi_push_and_structure(
     let (xonly, _parity) = keypair.x_only_public_key();
     // 600 bytes ensures > 520, triggering multiple pushes
     let data = vec![7u8; 600];
-    let (tap_script, tap_info, script_addr, _control_block) =
+    let (tap_script, script_addr, control_block) =
         build_tap_script_and_script_address(xonly, data.clone()).expect("build tapscript");
-    // Control block should be derivable
-    let _cb = tap_info
-        .control_block(&(tap_script.clone(), LeafVersion::TapScript))
-        .expect("control block");
+    // Control block should have been returned and be valid
+    assert!(
+        !control_block.serialize().is_empty(),
+        "Control block should be non-empty"
+    );
     // Script address should be P2TR-like spk length 34
     assert_eq!(script_addr.script_pubkey().len(), 34);
 
@@ -785,7 +786,7 @@ pub async fn test_build_tap_script_chunk_boundaries_push_count(
     let (xonly, _parity) = keypair.x_only_public_key();
     for &len in &[520usize, 521usize, 1040usize, 1041usize] {
         let data = vec![0xABu8; len];
-        let (tap_script, _info, _addr, _control_block) =
+        let (tap_script, _addr, _control_block) =
             build_tap_script_and_script_address(xonly, data.clone()).expect("build tapscript");
         let instr = tap_script
             .instructions()
@@ -812,7 +813,7 @@ pub async fn test_build_tap_script_address_type_is_p2tr(reg_tester: &mut RegTest
     let keypair = identity.keypair;
     let (xonly, _parity) = keypair.x_only_public_key();
     let data = b"abc".to_vec();
-    let (_tap, _info, addr, _control_block) =
+    let (_tap, addr, _control_block) =
         build_tap_script_and_script_address(xonly, data).expect("build tapscript");
     assert_eq!(addr.address_type(), Some(bitcoin::AddressType::P2tr));
     Ok(())
@@ -826,7 +827,7 @@ pub async fn test_compose_reveal_op_return_size_validation(
     let keypair = identity.keypair;
     let (xonly, _parity) = keypair.x_only_public_key();
     let commit_data = b"data".to_vec();
-    let (tap_script, _tap_info, script_addr, control_block) =
+    let (tap_script, script_addr, control_block) =
         build_tap_script_and_script_address(xonly, commit_data.clone()).expect("build");
     let commit_prevout = bitcoin::TxOut {
         value: Amount::from_sat(10_000),
@@ -1794,4 +1795,719 @@ pub async fn test_select_utxos_for_commit_with_real_utxo(reg_tester: &mut RegTes
     );
 
     Ok(())
+}
+
+// ============================================================================
+// calculate_reveal_fee_delta tests
+// ============================================================================
+
+/// Helper to create a dummy tap script of given size.
+fn make_dummy_tap_script(size: usize) -> ScriptBuf {
+    ScriptBuf::from_bytes(vec![0u8; size])
+}
+
+/// Helper to create a dummy control block of given size.
+fn make_dummy_control_block(size: usize) -> Vec<u8> {
+    vec![0u8; size]
+}
+
+/// Helper to create a fresh empty transaction for delta calculations.
+fn make_empty_dummy_tx() -> Transaction {
+    Transaction {
+        version: Version(2),
+        lock_time: LockTime::ZERO,
+        input: vec![],
+        output: vec![],
+    }
+}
+
+pub fn test_calculate_reveal_fee_delta_single_participant_no_chained() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let fee = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    assert!(fee > 0, "Fee should be non-zero");
+
+    // Verify dummy tx was modified
+    assert_eq!(dummy_tx.input.len(), 1, "Should have added 1 input");
+    assert_eq!(
+        dummy_tx.output.len(),
+        1,
+        "Should have added 1 output (change only, no chained)"
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_single_participant_with_chained() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let fee = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        true,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    assert!(fee > 0, "Fee should be non-zero");
+
+    // Verify dummy tx was modified
+    assert_eq!(dummy_tx.input.len(), 1, "Should have added 1 input");
+    assert_eq!(
+        dummy_tx.output.len(),
+        2,
+        "Should have added 2 outputs (chained + change)"
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_chained_adds_output_fee() {
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let mut dummy_no_chained = make_empty_dummy_tx();
+    let fee_no_chained = calculate_reveal_fee_delta(
+        &mut dummy_no_chained,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    let mut dummy_with_chained = make_empty_dummy_tx();
+    let fee_with_chained = calculate_reveal_fee_delta(
+        &mut dummy_with_chained,
+        &tap_script,
+        &control_block,
+        true,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    assert!(
+        fee_with_chained > fee_no_chained,
+        "Chained should cost more: {} vs {}",
+        fee_with_chained,
+        fee_no_chained
+    );
+
+    // Difference should be one P2TR output (~43 vbytes = 430 sats at 10 sat/vb)
+    let diff = fee_with_chained - fee_no_chained;
+    assert!(
+        (400..=500).contains(&diff),
+        "Chained output should add ~430 sats: got {}",
+        diff
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_fee_rate_scaling() {
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let envelope = 330;
+
+    let mut dummy_5 = make_empty_dummy_tx();
+    let fee_rate_5 = FeeRate::from_sat_per_vb(5).unwrap();
+    let fee_5 = calculate_reveal_fee_delta(
+        &mut dummy_5,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate_5,
+        envelope,
+    )
+    .unwrap();
+
+    let mut dummy_10 = make_empty_dummy_tx();
+    let fee_rate_10 = FeeRate::from_sat_per_vb(10).unwrap();
+    let fee_10 = calculate_reveal_fee_delta(
+        &mut dummy_10,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate_10,
+        envelope,
+    )
+    .unwrap();
+
+    // Double fee rate = exactly double the fee
+    assert_eq!(
+        fee_10,
+        fee_5 * 2,
+        "Doubling fee rate should double fee: {} vs {}",
+        fee_10,
+        fee_5 * 2
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_larger_script_higher_fee() {
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let mut dummy_small = make_empty_dummy_tx();
+    let small_script = make_dummy_tap_script(50);
+    let fee_small = calculate_reveal_fee_delta(
+        &mut dummy_small,
+        &small_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    let mut dummy_large = make_empty_dummy_tx();
+    let large_script = make_dummy_tap_script(500);
+    let fee_large = calculate_reveal_fee_delta(
+        &mut dummy_large,
+        &large_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    assert!(
+        fee_large > fee_small,
+        "Larger script should cost more: {} vs {}",
+        fee_large,
+        fee_small
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_larger_control_block_higher_fee() {
+    let tap_script = make_dummy_tap_script(100);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let mut dummy_small = make_empty_dummy_tx();
+    let small_cb = make_dummy_control_block(33); // minimal
+    let fee_small = calculate_reveal_fee_delta(
+        &mut dummy_small,
+        &tap_script,
+        &small_cb,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    let mut dummy_large = make_empty_dummy_tx();
+    let large_cb = make_dummy_control_block(65); // deeper merkle tree
+    let fee_large = calculate_reveal_fee_delta(
+        &mut dummy_large,
+        &tap_script,
+        &large_cb,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    assert!(
+        fee_large > fee_small,
+        "Larger control block should cost more: {} vs {}",
+        fee_large,
+        fee_small
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_envelope_does_not_affect_fee() {
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let mut dummy_small_env = make_empty_dummy_tx();
+    let fee_small_env = calculate_reveal_fee_delta(
+        &mut dummy_small_env,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    let mut dummy_large_env = make_empty_dummy_tx();
+    let fee_large_env = calculate_reveal_fee_delta(
+        &mut dummy_large_env,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        100_000,
+    )
+    .unwrap();
+
+    // Envelope value affects output amount, not vsize, so fees should be identical
+    assert_eq!(
+        fee_small_env, fee_large_env,
+        "Envelope value should not affect fee: {} vs {}",
+        fee_small_env, fee_large_env
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_modifies_dummy_tx() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    assert_eq!(dummy_tx.input.len(), 0);
+    assert_eq!(dummy_tx.output.len(), 0);
+
+    let _ = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        true,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    assert_eq!(dummy_tx.input.len(), 1, "Should have added input");
+    assert_eq!(
+        dummy_tx.output.len(),
+        2,
+        "Should have added chained + change outputs"
+    );
+
+    // Call again for second participant
+    let _ = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    assert_eq!(dummy_tx.input.len(), 2, "Should have 2 inputs now");
+    assert_eq!(
+        dummy_tx.output.len(),
+        3,
+        "Should have 3 outputs now (2 + 1 change)"
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_multiple_participants_sequential() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    // First participant
+    let fee1 = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    // Second participant with same script
+    let fee2 = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    // Third participant
+    let fee3 = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    // All fees should be positive
+    assert!(fee1 > 0 && fee2 > 0 && fee3 > 0);
+
+    // With same script/control_block, sequential deltas should be similar
+    // (slight variation possible due to varint encoding changes)
+    let diff_1_2 = fee1.abs_diff(fee2);
+    let diff_2_3 = fee2.abs_diff(fee3);
+    assert!(
+        diff_1_2 <= 50 && diff_2_3 <= 50,
+        "Sequential fees should be similar: {} {} {}",
+        fee1,
+        fee2,
+        fee3
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_deterministic() {
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let envelope = 330;
+
+    let mut dummy1 = make_empty_dummy_tx();
+    let fee1 = calculate_reveal_fee_delta(
+        &mut dummy1,
+        &tap_script,
+        &control_block,
+        true,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    let mut dummy2 = make_empty_dummy_tx();
+    let fee2 = calculate_reveal_fee_delta(
+        &mut dummy2,
+        &tap_script,
+        &control_block,
+        true,
+        fee_rate,
+        envelope,
+    )
+    .unwrap();
+
+    assert_eq!(fee1, fee2, "Same inputs should produce same fee");
+}
+
+pub fn test_calculate_reveal_fee_delta_minimum_fee_rate() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(1).unwrap();
+
+    let fee = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    assert!(fee > 0, "Even at 1 sat/vb, fee should be non-zero: {}", fee);
+}
+
+pub fn test_calculate_reveal_fee_delta_high_fee_rate() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(500).unwrap();
+
+    let fee = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    // At 500 sat/vb, even a small participant should cost tens of thousands of sats
+    assert!(
+        fee > 30_000,
+        "High fee rate should result in high fee: {}",
+        fee
+    );
+}
+
+pub fn test_calculate_reveal_fee_delta_very_large_script() {
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(10_000); // 10KB script
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    // 10KB script in witness (1/4 weight discount) = ~2500 vbytes
+    // Plus input overhead + output
+    // At 10 sat/vb, expect > 25,000 sats
+    assert!(fee > 20_000, "Large script should have high fee: {}", fee);
+}
+
+pub fn test_calculate_reveal_fee_delta_witness_structure() {
+    // Verify the witness has correct structure: [signature, tap_script, control_block]
+    let mut dummy_tx = make_empty_dummy_tx();
+    let tap_script = make_dummy_tap_script(100);
+    let control_block = make_dummy_control_block(33);
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let _ = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block,
+        false,
+        fee_rate,
+        330,
+    )
+    .unwrap();
+
+    let witness = &dummy_tx.input[0].witness;
+    assert_eq!(witness.len(), 3, "Witness should have 3 elements");
+
+    // First element is signature (64 bytes for Schnorr)
+    assert_eq!(witness[0].len(), 64, "Signature should be 64 bytes");
+
+    // Second element is tap script
+    assert_eq!(witness[1].len(), 100, "Tap script should match input size");
+
+    // Third element is control block
+    assert_eq!(
+        witness[2].len(),
+        33,
+        "Control block should match input size"
+    );
+}
+
+pub async fn test_calculate_reveal_fee_delta_with_real_tap_script(
+    reg_tester: &mut RegTester,
+) -> Result<()> {
+    info!("test_calculate_reveal_fee_delta_with_real_tap_script");
+
+    let identity = reg_tester.identity().await?;
+    let keypair = identity.keypair;
+    let (xonly, _parity) = keypair.x_only_public_key();
+
+    // Build a real tap script
+    let data = b"test data for reveal".to_vec();
+    let (tap_script, _, control_block) =
+        build_tap_script_and_script_address(xonly, data).expect("build tapscript");
+
+    let mut dummy_tx = make_empty_dummy_tx();
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee = calculate_reveal_fee_delta(
+        &mut dummy_tx,
+        &tap_script,
+        &control_block.serialize(),
+        false,
+        fee_rate,
+        330,
+    )?;
+
+    assert!(fee > 0, "Fee should be non-zero with real tap script");
+
+    // Verify witness structure with real data
+    let witness = &dummy_tx.input[0].witness;
+    assert_eq!(witness.len(), 3);
+    assert_eq!(witness[0].len(), 64); // signature
+    assert_eq!(witness[1].len(), tap_script.len()); // tap script
+    assert_eq!(witness[2].len(), control_block.serialize().len()); // control block
+
+    Ok(())
+}
+
+// ============================================================================
+// calculate_op_return_fee_per_participant tests
+// ============================================================================
+
+pub fn test_calculate_op_return_fee_per_participant_no_op_return() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    // has_op_return = false should return 0
+    let fee = calculate_op_return_fee_per_participant(false, 3, fee_rate).unwrap();
+
+    assert_eq!(fee, 0, "No OP_RETURN should return 0 fee");
+}
+
+pub fn test_calculate_op_return_fee_per_participant_zero_participants() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    // num_participants = 0 should return 0
+    let fee = calculate_op_return_fee_per_participant(true, 0, fee_rate).unwrap();
+
+    assert_eq!(fee, 0, "Zero participants should return 0 fee");
+}
+
+pub fn test_calculate_op_return_fee_per_participant_single_participant() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 1, fee_rate).unwrap();
+
+    // OP_RETURN vsize = 9 + 80 = 89 vbytes
+    // At 10 sat/vb = 890 sats
+    assert_eq!(
+        fee, 890,
+        "Single participant should pay full fee: got {}",
+        fee
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_two_participants() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 2, fee_rate).unwrap();
+
+    // Total = 890 sats, split 2 ways = 445 each
+    assert_eq!(
+        fee, 445,
+        "Two participants should split evenly: got {}",
+        fee
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_three_participants_rounds_up() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 3, fee_rate).unwrap();
+
+    // Total = 890 sats, split 3 ways = 296.67 -> rounds up to 297
+    assert_eq!(fee, 297, "Three participants should round up: got {}", fee);
+}
+
+pub fn test_calculate_op_return_fee_per_participant_many_participants() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 100, fee_rate).unwrap();
+
+    // Total = 890 sats, split 100 ways = 8.9 -> rounds up to 9
+    assert_eq!(
+        fee, 9,
+        "100 participants should get ~9 sats each: got {}",
+        fee
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_fee_rate_scaling() {
+    // Double fee rate = double the per-participant fee
+    let fee_rate_5 = FeeRate::from_sat_per_vb(5).unwrap();
+    let fee_rate_10 = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee_5 = calculate_op_return_fee_per_participant(true, 1, fee_rate_5).unwrap();
+    let fee_10 = calculate_op_return_fee_per_participant(true, 1, fee_rate_10).unwrap();
+
+    assert_eq!(
+        fee_10,
+        fee_5 * 2,
+        "Double fee rate should double fee: {} vs {}",
+        fee_10,
+        fee_5 * 2
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_deterministic() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    let fee1 = calculate_op_return_fee_per_participant(true, 5, fee_rate).unwrap();
+    let fee2 = calculate_op_return_fee_per_participant(true, 5, fee_rate).unwrap();
+
+    assert_eq!(fee1, fee2, "Same inputs should produce same output");
+}
+
+pub fn test_calculate_op_return_fee_per_participant_round_up_ensures_coverage() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    // Total = 890 sats
+    // With 7 participants: 890 / 7 = 127.14 -> rounds up to 128
+    // 128 * 7 = 896 >= 890 (covers the full fee)
+    let fee = calculate_op_return_fee_per_participant(true, 7, fee_rate).unwrap();
+    let total_collected = fee * 7;
+
+    assert!(
+        total_collected >= 890,
+        "Round-up should ensure full coverage: {} * 7 = {} >= 890",
+        fee,
+        total_collected
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_minimum_fee_rate() {
+    let fee_rate = FeeRate::from_sat_per_vb(1).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 1, fee_rate).unwrap();
+
+    // At 1 sat/vb, 89 vbytes = 89 sats
+    assert_eq!(fee, 89, "At 1 sat/vb, fee should be 89 sats: got {}", fee);
+}
+
+pub fn test_calculate_op_return_fee_per_participant_high_fee_rate() {
+    let fee_rate = FeeRate::from_sat_per_vb(500).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 1, fee_rate).unwrap();
+
+    // At 500 sat/vb, 89 vbytes = 44,500 sats
+    assert_eq!(
+        fee, 44_500,
+        "At 500 sat/vb, fee should be 44,500 sats: got {}",
+        fee
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_vsize_is_89_bytes() {
+    // Verify the constant vsize calculation: 9 + MAX_OP_RETURN_BYTES (80) = 89
+    let fee_rate = FeeRate::from_sat_per_vb(1).unwrap();
+
+    let fee = calculate_op_return_fee_per_participant(true, 1, fee_rate).unwrap();
+
+    // At 1 sat/vb, fee = vsize
+    assert_eq!(fee, 89, "OP_RETURN vsize should be 89 bytes: got {}", fee);
+}
+
+pub fn test_calculate_op_return_fee_per_participant_large_participant_count() {
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    // With 1000 participants, each should pay very little
+    let fee = calculate_op_return_fee_per_participant(true, 1000, fee_rate).unwrap();
+
+    // Total = 890, split 1000 ways = 0.89 -> rounds up to 1
+    assert_eq!(
+        fee, 1,
+        "1000 participants should each pay 1 sat: got {}",
+        fee
+    );
+}
+
+pub fn test_calculate_op_return_fee_per_participant_exact_division() {
+    // Find a case where division is exact
+    let fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+
+    // Total = 890 sats
+    // 890 / 2 = 445 (exact)
+    let fee = calculate_op_return_fee_per_participant(true, 2, fee_rate).unwrap();
+
+    assert_eq!(fee, 445, "Exact division should work: got {}", fee);
+
+    // Verify: 445 * 2 = 890 (exactly covers)
+    assert_eq!(fee * 2, 890, "Should exactly cover the fee");
 }

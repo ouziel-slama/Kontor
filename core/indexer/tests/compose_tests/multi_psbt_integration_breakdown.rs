@@ -64,7 +64,7 @@ pub async fn test_portal_coordinated_compose_flow(reg_tester: &mut RegTester) ->
                 .address(n.address.clone())
                 .x_only_public_key(n.internal_key)
                 .funding_utxos(vec![n.next_funding_utxo.clone()])
-                .script_data(
+                .instruction(
                     serialize(&Inst::Publish {
                         gas_limit: 50_000,
                         name: "test".to_string(),

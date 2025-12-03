@@ -90,8 +90,8 @@ async fn setup_swap_test(params: SwapTestParams) -> Result<SwapTestContext> {
                 .address(seller_address.clone())
                 .x_only_public_key(seller_internal_key)
                 .funding_utxos(vec![(seller_out_point, seller_utxo_for_output.clone())])
-                .script_data(serialized_instruction)
-                .chained_script_data(serialized_detach_data.clone())
+                .instruction(serialized_instruction)
+                .chained_instruction(serialized_detach_data.clone())
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())

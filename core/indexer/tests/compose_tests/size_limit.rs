@@ -34,7 +34,7 @@ pub async fn test_compose_progressive_size_limit_testnet(reg_tester: &mut RegTes
                     .address(seller_address.clone())
                     .x_only_public_key(internal_key)
                     .funding_utxos(available_utxos.clone())
-                    .script_data(data)
+                    .instruction(data)
                     .build(),
             ])
             .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())

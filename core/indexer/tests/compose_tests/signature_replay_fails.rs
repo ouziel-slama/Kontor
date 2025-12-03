@@ -49,7 +49,7 @@ pub async fn test_signature_replay_fails(reg_tester: &mut RegTester) -> Result<(
                 .address(seller_address.clone())
                 .x_only_public_key(seller_internal_key)
                 .funding_utxos(vec![(out_point, utxo_for_output.clone())])
-                .script_data(serialized_token_balance.clone())
+                .instruction(serialized_token_balance.clone())
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())
@@ -116,7 +116,7 @@ pub async fn test_signature_replay_fails(reg_tester: &mut RegTester) -> Result<(
                 .address(seller_address.clone())
                 .x_only_public_key(seller_internal_key)
                 .funding_utxos(vec![(buyer_out_point, buyer_utxo_for_output.clone())])
-                .script_data(serialized_token_balance)
+                .instruction(serialized_token_balance)
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(5).unwrap())
@@ -203,8 +203,8 @@ pub async fn test_psbt_signature_replay_fails(reg_tester: &mut RegTester) -> Res
                 .address(seller_address.clone())
                 .x_only_public_key(seller_internal_key)
                 .funding_utxos(vec![(seller_out_point, seller_utxo_for_output.clone())])
-                .script_data(serialized_token_balance)
-                .chained_script_data(serialized_detach_data.clone())
+                .instruction(serialized_token_balance)
+                .chained_instruction(serialized_detach_data.clone())
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())

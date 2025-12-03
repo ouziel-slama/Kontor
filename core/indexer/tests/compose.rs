@@ -32,6 +32,35 @@ use compose_tests::compose_helpers::{
     test_build_tap_script_and_script_address_empty_data_errs,
     test_build_tap_script_and_script_address_multi_push_and_structure,
     test_build_tap_script_chunk_boundaries_push_count,
+    test_calculate_op_return_fee_per_participant_deterministic,
+    test_calculate_op_return_fee_per_participant_exact_division,
+    test_calculate_op_return_fee_per_participant_fee_rate_scaling,
+    test_calculate_op_return_fee_per_participant_high_fee_rate,
+    test_calculate_op_return_fee_per_participant_large_participant_count,
+    test_calculate_op_return_fee_per_participant_many_participants,
+    test_calculate_op_return_fee_per_participant_minimum_fee_rate,
+    test_calculate_op_return_fee_per_participant_no_op_return,
+    test_calculate_op_return_fee_per_participant_round_up_ensures_coverage,
+    test_calculate_op_return_fee_per_participant_single_participant,
+    test_calculate_op_return_fee_per_participant_three_participants_rounds_up,
+    test_calculate_op_return_fee_per_participant_two_participants,
+    test_calculate_op_return_fee_per_participant_vsize_is_89_bytes,
+    test_calculate_op_return_fee_per_participant_zero_participants,
+    test_calculate_reveal_fee_delta_chained_adds_output_fee,
+    test_calculate_reveal_fee_delta_deterministic,
+    test_calculate_reveal_fee_delta_envelope_does_not_affect_fee,
+    test_calculate_reveal_fee_delta_fee_rate_scaling,
+    test_calculate_reveal_fee_delta_high_fee_rate,
+    test_calculate_reveal_fee_delta_larger_control_block_higher_fee,
+    test_calculate_reveal_fee_delta_larger_script_higher_fee,
+    test_calculate_reveal_fee_delta_minimum_fee_rate,
+    test_calculate_reveal_fee_delta_modifies_dummy_tx,
+    test_calculate_reveal_fee_delta_multiple_participants_sequential,
+    test_calculate_reveal_fee_delta_single_participant_no_chained,
+    test_calculate_reveal_fee_delta_single_participant_with_chained,
+    test_calculate_reveal_fee_delta_very_large_script,
+    test_calculate_reveal_fee_delta_with_real_tap_script,
+    test_calculate_reveal_fee_delta_witness_structure,
     test_compose_reveal_op_return_size_validation, test_estimate_key_spend_fee_deterministic,
     test_estimate_key_spend_fee_does_not_modify_original_tx, test_estimate_key_spend_fee_empty_tx,
     test_estimate_key_spend_fee_fee_rate_scaling, test_estimate_key_spend_fee_high_fee_rate,
@@ -161,8 +190,8 @@ async fn test_commit_reveal_chained_reveal(reg_tester: &mut RegTester) -> Result
             address: seller_address.clone(),
             x_only_public_key: internal_key,
             funding_utxos: vec![(out_point, utxo_for_output.clone())],
-            script_data: b"Hello, world!".to_vec(),
-            chained_script_data: Some(serialized_token_balance.clone()),
+            instruction: b"Hello, world!".to_vec(),
+            chained_instruction: Some(serialized_token_balance.clone()),
         }])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
         .envelope(546)
@@ -320,7 +349,7 @@ async fn test_compose_end_to_end_mapping_and_reveal_psbt_hex_decodes(
             .address(n.address.clone())
             .x_only_public_key(n.internal_key)
             .funding_utxos(vec![(n.next_funding_utxo.clone())])
-            .script_data(b"hello-world".to_vec())
+            .instruction(b"hello-world".to_vec())
             .build();
         instructions.push(instruction);
     }
@@ -467,6 +496,39 @@ async fn test_compose_regtest() -> Result<()> {
     test_select_utxos_for_commit_insufficient_with_fees();
     test_select_utxos_for_commit_edge_case_change_equals_envelope();
     test_select_utxos_for_commit_with_real_utxo(&mut reg_tester.clone()).await?;
+
+    info!("calculate_reveal_fee_delta");
+    test_calculate_reveal_fee_delta_single_participant_no_chained();
+    test_calculate_reveal_fee_delta_single_participant_with_chained();
+    test_calculate_reveal_fee_delta_chained_adds_output_fee();
+    test_calculate_reveal_fee_delta_fee_rate_scaling();
+    test_calculate_reveal_fee_delta_larger_script_higher_fee();
+    test_calculate_reveal_fee_delta_larger_control_block_higher_fee();
+    test_calculate_reveal_fee_delta_envelope_does_not_affect_fee();
+    test_calculate_reveal_fee_delta_modifies_dummy_tx();
+    test_calculate_reveal_fee_delta_multiple_participants_sequential();
+    test_calculate_reveal_fee_delta_deterministic();
+    test_calculate_reveal_fee_delta_minimum_fee_rate();
+    test_calculate_reveal_fee_delta_high_fee_rate();
+    test_calculate_reveal_fee_delta_very_large_script();
+    test_calculate_reveal_fee_delta_witness_structure();
+    test_calculate_reveal_fee_delta_with_real_tap_script(&mut reg_tester.clone()).await?;
+
+    info!("calculate_op_return_fee_per_participant");
+    test_calculate_op_return_fee_per_participant_no_op_return();
+    test_calculate_op_return_fee_per_participant_zero_participants();
+    test_calculate_op_return_fee_per_participant_single_participant();
+    test_calculate_op_return_fee_per_participant_two_participants();
+    test_calculate_op_return_fee_per_participant_three_participants_rounds_up();
+    test_calculate_op_return_fee_per_participant_many_participants();
+    test_calculate_op_return_fee_per_participant_fee_rate_scaling();
+    test_calculate_op_return_fee_per_participant_deterministic();
+    test_calculate_op_return_fee_per_participant_round_up_ensures_coverage();
+    test_calculate_op_return_fee_per_participant_minimum_fee_rate();
+    test_calculate_op_return_fee_per_participant_high_fee_rate();
+    test_calculate_op_return_fee_per_participant_vsize_is_89_bytes();
+    test_calculate_op_return_fee_per_participant_large_participant_count();
+    test_calculate_op_return_fee_per_participant_exact_division();
 
     info!("legacy_taproot_envelope");
     test_legacy_taproot_envelope_psbt_inscription(&mut reg_tester.clone()).await?;

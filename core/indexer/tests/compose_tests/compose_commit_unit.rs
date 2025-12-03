@@ -25,13 +25,13 @@ pub async fn test_compose_commit_unique_vout_mapping_even_with_identical_chunks(
                 .address(addr.clone())
                 .x_only_public_key(internal_key)
                 .funding_utxos(vec![utxo1])
-                .script_data(data.clone())
+                .instruction(data.clone())
                 .build(),
             InstructionInputs::builder()
                 .address(addr.clone())
                 .x_only_public_key(internal_key)
                 .funding_utxos(vec![utxo2])
-                .script_data(data.clone())
+                .instruction(data.clone())
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())
@@ -69,7 +69,7 @@ pub async fn test_compose_commit_psbt_inputs_have_metadata(
                 .address(addr.clone())
                 .x_only_public_key(internal_key)
                 .funding_utxos(vec![next_funding_utxo])
-                .script_data(b"x".to_vec())
+                .instruction(b"x".to_vec())
                 .build(),
         ])
         .fee_rate(FeeRate::from_sat_per_vb(2).unwrap())

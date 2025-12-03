@@ -36,7 +36,7 @@ pub async fn test_commit_reveal(reg_tester: &mut RegTester) -> Result<()> {
         .address(seller_address.clone())
         .x_only_public_key(internal_key)
         .funding_utxos(vec![(out_point, utxo_for_output.clone())])
-        .script_data(serialized_token_balance)
+        .instruction(serialized_token_balance)
         .build();
     let compose_params = ComposeInputs::builder()
         .instructions(vec![instruction])

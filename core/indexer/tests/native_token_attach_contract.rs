@@ -72,8 +72,8 @@ pub async fn test_compose_token_attach_and_detach(
                 .address(seller_address.to_string())
                 .x_only_public_key(internal_key.to_string())
                 .funding_utxo_ids(format!("{}:{}", out_point.txid, out_point.vout))
-                .script_data(attach_inst.clone())
-                .chained_script_data(detach_inst.clone())
+                .instruction(attach_inst.clone())
+                .chained_instruction(detach_inst.clone())
                 .build(),
         ])
         .sat_per_vbyte(2)
