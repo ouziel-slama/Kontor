@@ -11,135 +11,173 @@ All responses are wrapped in the `ResultResponse<T>` type. If a response is an e
 ### Root
 
 #### GET `/`
-**Response**: `Info`
 
 Returns indexer status, current height, version and availability.
 
+Response: `Info`
+
+
 #### GET `/stop`
-**Response**: `Info`
 
 Gracefully shuts down the indexer (cancels the main task). Returns the same info as `/`.
+
+Response: `Info`
+
 
 ### Blocks
 
 #### GET `/blocks`
-**Query Parameters** (`BlockQuery`):
+
+Query Parameters (`BlockQuery`):
 - `cursor?: number` – cursor-based pagination
 - `offset?: number` – offset-based pagination (mutually exclusive with cursor)
 - `limit?: number` (default: implementation-defined)
 - `order?: "asc" | "desc"` (default: desc)
 - `relevant?: boolean` – only blocks containing indexed transactions
 
-**Response**: `PaginatedResponse<BlockRow>`
+Response: `PaginatedResponse<BlockRow>`
+
 
 #### GET `/blocks/latest`
-**Response**: `BlockRow`
 
 Latest indexed block.
 
+Response: `BlockRow`
+
+
 #### GET `/blocks/:height_or_hash`
-**Path Param**: `height_or_hash` – block height (as number string) or block hash (hex)
 
-**Response**: `BlockRow`  
+Path Param: `height_or_hash` – block height (as number string) or block hash (hex)
 
-**404** if not found
+Response: `BlockRow`  
+
+`404` if not found
+
 
 #### GET `/blocks/:height/transactions`
-**Path Param**: `height` – block height
 
-**Response**: `PaginatedResponse<TransactionRow>`
+Path Param: `height` – block height
+
+Response: `PaginatedResponse<TransactionRow>`
+
 
 ### Transactions
 
 #### GET `/transactions`
-**Query Parameters** (`TransactionQuery`):
+
+Query Parameters (`TransactionQuery`):
 - same pagination fields as `BlockQuery`
 - `height?: number`
 - `contract?: string` – filter by contract address
 
-**Response**: `PaginatedResponse<TransactionRow>`
+Response: `PaginatedResponse<TransactionRow>`
+
 
 #### GET `/transactions/:txid`
-**Response**: `TransactionRow`  
 
-**404** if not indexed
+Response: `TransactionRow`  
+
+`404` if not indexed
+
 
 #### GET `/transactions/:txid/inspect`
+
 Parses the transaction and returns every detected op with its execution result (if any).
 
-**Response**: `OpWithResult[]`
+Response: `OpWithResult[]`
+
 
 #### POST `/transactions/inspect`
-**Request Body**: `TransactionHex`
 
-Inspects an arbitrary transaction hex (does **not** need to be indexed).
+Inspects an arbitrary transaction hex (does *not* need to be indexed).
 
-**Response**: `OpWithResult[]`
+Request Body: `TransactionHex`
+
+Response: `OpWithResult[]`
+
 
 ### Compose Helpers
 
 #### POST `/transactions/compose`
-**Request Body**: `ComposeQuery`
-
-**Response**: `ComposeOutputs`
 
 Full compose (commit + reveal) in one call.
 
-#### POST `/transactions/compose/commit`
-**Request Body**: `ComposeQuery`
+Request Body: `ComposeQuery`
 
-**Response**: `CommitOutputs`
+Response: `ComposeOutputs`
+
+
+#### POST `/transactions/compose/commit`
 
 Only the commit phase (for 2-step reveals).
 
-#### POST `/transactions/compose/reveal`
-**Request Body**: `RevealQuery`
+Request Body: `ComposeQuery`
 
-**Response**: `RevealOutputs`
+Response: `CommitOutputs`
+
+
+#### POST `/transactions/compose/reveal`
 
 Only the reveal phase (when you already have a commit).
+
+Request Body: `RevealQuery`
+
+Response: `RevealOutputs`
+
 
 ### Contracts
 
 #### GET `/contracts`
-**Response**: `ContractListRow[]`
 
 List all deployed contracts.
 
+Response: `ContractListRow[]`
+
+
 #### GET `/contracts/:address`
-**Path Param**: `address` – contract address (as string)
 
-**Response**: `ContractResponse`
+Path Param: `address` – contract address (as string)
 
-**404** if contract not found  
+Response: `ContractResponse`
 
-**503** if indexer runtime is not available
+`404` if contract not found  
+
+`503` if indexer runtime is not available
+
 
 #### POST `/contracts/:address`
-**Path Param**: `address` – contract address  
-**Request Body**: `ViewExpr`
 
 Execute a read-only view expression against the contract state.
 
-**Response**: `ViewResult`
+Path Param: `address` – contract address  
 
-**503** if indexer runtime is not available
+Request Body: `ViewExpr`
+
+Response: `ViewResult`
+
+`503` if indexer runtime is not available
+
 
 ### Results (Contract Execution Results)
 
 #### GET `/results`
-**Query Parameters** (`ResultQuery`):
+
+Query Parameters (`ResultQuery`):
 - same pagination fields as others
 - `height?`: number
 - `start_height?`: number (mutually exclusive with height)
 - `contract?`: string
 - `func?`: string (requires contract)
 
-**Response**: `PaginatedResponse<ResultRow>`
+Response: `PaginatedResponse<ResultRow>`
+
 
 #### GET `/results/:id`
-**Path Param**: `id` – txid_inputIndex_opIndex (e.g. a94a8f..._0_0)
-**Response**: `ResultRow | null
+
+Path Param: `id` – txid_inputIndex_opIndex (e.g. a94a8f..._0_0)
+
+Response: `ResultRow | null`
+
 
 ## WebSocket
 
@@ -147,5 +185,6 @@ Base URL: `/ws`
 
 Upon connection, the client will be subscribed to indexer events (see `WsResponse`).
 
-**Request**: `WsRequest`
-**Response**: `WsResponse`
+Request: `WsRequest`
+
+Response: `WsResponse`
