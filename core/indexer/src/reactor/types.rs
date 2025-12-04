@@ -1,19 +1,19 @@
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
+use ts_rs::TS;
 
 use crate::runtime::{ContractAddress, kontor::built_in::context::OpReturnData, wit::Signer};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct OpMetadata {
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub previous_output: bitcoin::OutPoint,
     pub input_index: i64,
     pub signer: Signer,
 }
 
 #[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum Op {
     Publish {
         metadata: OpMetadata,
@@ -24,7 +24,7 @@ pub enum Op {
     Call {
         metadata: OpMetadata,
         gas_limit: u64,
-        #[schemars(with = "String")]
+        #[ts(as = "String")]
         #[serde_as(as = "DisplayFromStr")]
         contract: ContractAddress,
         expr: String,

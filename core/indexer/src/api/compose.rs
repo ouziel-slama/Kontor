@@ -21,9 +21,9 @@ use bitcoin::hashes::Hash;
 use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
 use indexer_types::{Inst, serialize};
 use rand::{rng, seq::SliceRandom};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, str::FromStr};
+use ts_rs::TS;
 
 use crate::bitcoin_client::Client;
 
@@ -163,19 +163,19 @@ impl ComposeInputs {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
 pub struct TapLeafScript {
-    #[schemars(with = "u64")]
+    #[ts(as = "u64")]
     #[serde(rename = "leafVersion")]
     pub leaf_version: LeafVersion,
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub script: ScriptBuf,
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     #[serde(rename = "controlBlock")]
     pub control_block: ScriptBuf,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
 pub struct ParticipantScripts {
     pub address: String,
     pub x_only_public_key: String,
@@ -183,13 +183,13 @@ pub struct ParticipantScripts {
     pub chained_tap_leaf_script: Option<TapLeafScript>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Builder, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Builder, TS)]
 pub struct ComposeOutputs {
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub commit_transaction: Transaction,
     pub commit_transaction_hex: String,
     pub commit_psbt_hex: String,
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub reveal_transaction: Transaction,
     pub reveal_transaction_hex: String,
     pub reveal_psbt_hex: String,
@@ -213,9 +213,9 @@ impl From<ComposeInputs> for CommitInputs {
     }
 }
 
-#[derive(Builder, Serialize, Clone, JsonSchema)]
+#[derive(Builder, Serialize, Clone, TS)]
 pub struct CommitOutputs {
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub commit_transaction: Transaction,
     pub commit_transaction_hex: String,
     pub commit_psbt_hex: String,
@@ -240,31 +240,31 @@ pub struct RevealQuery {
     pub envelope: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, TS)]
 pub struct TxOutSchema {
     value: u64,
     script_pubkey: String,
 }
 
-#[derive(Clone, Serialize, Builder, JsonSchema)]
+#[derive(Clone, Serialize, Builder, TS)]
 pub struct RevealParticipantInputs {
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub address: Address,
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub x_only_public_key: XOnlyPublicKey,
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub commit_outpoint: OutPoint,
-    #[schemars(with = "TxOutSchema")]
+    #[ts(as = "TxOutSchema")]
     pub commit_prevout: TxOut,
     pub commit_tap_leaf_script: TapLeafScript,
     pub chained_instruction: Option<Vec<u8>>,
 }
 
-#[derive(Builder, Serialize, Clone, JsonSchema)]
+#[derive(Builder, Serialize, Clone, TS)]
 pub struct RevealInputs {
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub commit_tx: Transaction,
-    #[schemars(with = "u64")]
+    #[ts(as = "u64")]
     pub fee_rate: FeeRate,
     pub participants: Vec<RevealParticipantInputs>,
     pub op_return_data: Option<Vec<u8>>,
@@ -339,9 +339,9 @@ impl RevealInputs {
     }
 }
 
-#[derive(Builder, Serialize, Deserialize, JsonSchema)]
+#[derive(Builder, Serialize, Deserialize, TS)]
 pub struct RevealOutputs {
-    #[schemars(with = "String")]
+    #[ts(as = "String")]
     pub transaction: Transaction,
     pub transaction_hex: String,
     pub psbt_hex: String,

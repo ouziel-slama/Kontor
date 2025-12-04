@@ -61,7 +61,7 @@ rustls-pemfile = "=2.2.0"
 tokio-tungstenite = { version = "=0.28.0", features = ["rustls-tls-webpki-roots"] }
 tracing-stackdriver = "=0.10.0"
 regex = "=1.12.2"
-schemars = { version = "=1.1.0", features = ["preserve_order"] }
+ts-rs = "=11.1.0"
 
 [dev-dependencies]
 testlib = { path = "../testlib" }

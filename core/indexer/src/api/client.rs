@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use reqwest::{Client as HttpClient, ClientBuilder, Response};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::{
     api::{
@@ -38,7 +38,7 @@ impl Client {
         Self::new(format!("http://localhost:{}/api", config.api_port))
     }
 
-    async fn handle_response<T: Serialize + for<'a> Deserialize<'a> + JsonSchema>(
+    async fn handle_response<T: Serialize + for<'a> Deserialize<'a> + TS>(
         res: Response,
     ) -> Result<T> {
         if res.status().is_success() {
