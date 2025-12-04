@@ -1,4 +1,5 @@
 use anyhow::Result;
+use indexer_types::{Block, Transaction};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -12,7 +13,6 @@ use indexer::{
         rpc::{run_fetcher, run_orderer, run_processor, run_producer},
         zmq::process_data_message,
     },
-    block::{Block, Transaction},
     test_utils::new_mock_transaction,
 };
 

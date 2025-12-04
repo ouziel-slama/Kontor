@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use indexer_types::Block;
 use proptest::test_runner::FileFailurePersistence;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -10,7 +11,6 @@ use indexer::{
         events::{Event, ZmqEvent},
         reconciler,
     },
-    block::Block,
     test_utils::{MockBlockchain, gen_random_blocks, new_random_blockchain},
 };
 

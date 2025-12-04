@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use indexer_types::Event;
 use tokio::{
     sync::{
         broadcast::{self},
@@ -7,15 +7,6 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-
-use crate::block::Block;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Event {
-    Processed { block: Block },
-    Rolledback { height: u64 },
-}
 
 #[derive(Debug, Clone)]
 pub struct EventSubscriber {

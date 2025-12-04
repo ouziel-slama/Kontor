@@ -2,6 +2,7 @@ use std::thread;
 
 use anyhow::{Context, Result, anyhow};
 use backon::Retryable;
+use indexer_types::Block;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use scopeguard::defer;
 use tokio::{
@@ -16,7 +17,7 @@ use zmq::Socket;
 use crate::{
     bitcoin_client::client::BitcoinRpc,
     bitcoin_follower::messages::{RAWTX, SEQUENCE},
-    block::{Block, TransactionFilterMap},
+    block::TransactionFilterMap,
     retry::{new_backoff_limited, notify, retry},
 };
 

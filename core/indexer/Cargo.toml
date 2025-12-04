@@ -30,6 +30,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 ts-rs = { workspace = true }
+indexmap = { workspace = true }
 
 backon = { version = "=1.6.0", features = ["tokio-sleep"] }
 base64 = "=0.22.1"
@@ -42,7 +43,6 @@ tracing-subscriber = { version = "=0.3.22", features = ["json"] }
 zmq = "=0.10.0"
 scopeguard = "=1.2.0"
 rayon = "=1.11.0"
-indexmap = { version = "=2.12.1", features = ["serde"] }
 clap = { version = "=4.5.53", features = ["derive", "env"] }
 axum-server = "=0.7.3"
 futures-util = "=0.3.31"

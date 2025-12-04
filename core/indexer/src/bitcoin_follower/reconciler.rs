@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use bitcoin::BlockHash;
+use indexer_types::Block;
 use tokio::{
     select,
     sync::{
@@ -13,7 +14,6 @@ use tracing::{error, info, warn};
 use crate::{
     bitcoin_follower::ctrl::StartMessage,
     bitcoin_follower::{blockchain_info::BlockchainInfo, rpc::BlockFetcher, rpc::MempoolFetcher},
-    block::Block,
 };
 
 use super::events::{BlockId, Event, ZmqEvent};

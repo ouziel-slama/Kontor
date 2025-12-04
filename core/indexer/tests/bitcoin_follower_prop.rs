@@ -1,9 +1,10 @@
+use indexer_types::Block;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::{self, BlockHash, hashes::Hash};
 
-use indexer::{bitcoin_follower::rpc::run_orderer, block::Block};
+use indexer::bitcoin_follower::rpc::run_orderer;
 
 use proptest::prelude::*;
 

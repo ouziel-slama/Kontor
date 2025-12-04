@@ -1,8 +1,9 @@
 use anyhow::Result;
 use bitcoin::{
-    BlockHash, FeeRate, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey, taproot::LeafVersion,
+    BlockHash, FeeRate, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey, taproot::LeafVersion,
 };
 use bon::Builder;
+use indexmap::IndexMap;
 use macros::contract_address;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -155,6 +156,59 @@ pub struct ResultResponse<T: TS> {
     pub result: T,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../../kontor-ts/bindings.d.ts")]
+#[serde(tag = "type")]
+pub enum WsRequest {
+    Subscribe,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../../../kontor-ts/bindings.d.ts")]
+#[serde(tag = "type")]
+pub enum WsResponse {
+    Event { event: Event },
+    Error { error: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../kontor-ts/bindings.d.ts")]
+#[serde(tag = "type")]
+pub enum Event {
+    Processed {
+        block: Block,
+    },
+    Rolledback {
+        #[ts(type = "number")]
+        height: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../kontor-ts/bindings.d.ts")]
+pub struct Transaction {
+    #[ts(type = "string")]
+    pub txid: Txid,
+    #[ts(type = "number")]
+    pub index: i64,
+    pub ops: Vec<Op>,
+    #[ts(type = "Record<number, OpReturnData>")]
+    #[serde(with = "indexmap::map::serde_seq")]
+    pub op_return_data: IndexMap<u64, OpReturnData>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../kontor-ts/bindings.d.ts")]
+pub struct Block {
+    #[ts(type = "number")]
+    pub height: u64,
+    #[ts(type = "string")]
+    pub hash: BlockHash,
+    #[ts(type = "string")]
+    pub prev_hash: BlockHash,
+    pub transactions: Vec<Transaction>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../kontor-ts/bindings.d.ts")]
 pub enum Signer {
@@ -256,6 +310,16 @@ pub struct BlockRow {
     pub hash: BlockHash,
     #[builder(default = false)]
     pub relevant: bool,
+}
+
+impl From<&Block> for BlockRow {
+    fn from(b: &Block) -> Self {
+        Self {
+            height: b.height as i64,
+            hash: b.hash,
+            relevant: !b.transactions.is_empty(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, TS)]

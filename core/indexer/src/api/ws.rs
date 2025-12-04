@@ -9,29 +9,14 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::SinkExt;
-use serde::{Deserialize, Serialize};
+use indexer_types::{Event, WsResponse};
 use tokio::{select, sync::broadcast::Receiver, time::timeout};
 use tower_http::request_id::RequestId;
 use tracing::{Instrument, info, info_span, warn};
 
-use crate::event::Event;
-
 use super::Env;
 
 const MAX_SEND_MILLIS: u64 = 1000;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-pub enum Request {
-    Subscribe,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-pub enum Response {
-    Event { event: Event },
-    Error { error: String },
-}
 
 pub struct SocketState {
     pub receiver: Receiver<Event>,
@@ -58,7 +43,7 @@ pub async fn handle_socket(mut socket: WebSocket, env: Env, addr: SocketAddr, re
                         if timeout(
                             Duration::from_millis(MAX_SEND_MILLIS),
                             socket.send(ws::Message::Text(
-                                serde_json::to_string(&Response::Event { event })
+                                serde_json::to_string(&WsResponse::Event { event })
                                     .expect("Failed to serialize response")
                                     .into(),
                             )),
@@ -94,7 +79,7 @@ pub async fn handle_socket(mut socket: WebSocket, env: Env, addr: SocketAddr, re
                     }
                     Some(Ok(_)) => {
                         info!("Received unsupported message type");
-                        let error = Response::Error {
+                        let error = WsResponse::Error {
                             error: "Requests are not supported".to_string(),
                         };
                         let error_json = serde_json::to_string(&error)
