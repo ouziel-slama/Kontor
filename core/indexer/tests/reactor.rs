@@ -1,4 +1,5 @@
 use anyhow::Result;
+use indexer_types::Block;
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::{BlockHash, hashes::Hash};
@@ -8,7 +9,6 @@ use indexer::{
         ctrl::CtrlChannel,
         events::{BlockId, Event},
     },
-    block::Block,
     database::queries,
     reactor,
     test_utils::{await_block_at_height, new_numbered_blockchain, new_test_db},

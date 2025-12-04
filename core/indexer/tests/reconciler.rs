@@ -1,4 +1,5 @@
 use anyhow::Result;
+use indexer_types::Transaction;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -8,7 +9,6 @@ use indexer::{
         events::{BlockId, Event, ZmqEvent},
         reconciler::{self},
     },
-    block::Transaction,
     test_utils::{
         MockBlockchain, gen_numbered_blocks, new_mock_transaction, new_numbered_blockchain,
     },

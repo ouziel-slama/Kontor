@@ -13,7 +13,7 @@ use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootSpendInfo};
 use bitcoin::{
     BlockHash, Psbt, ScriptBuf, TapLeafHash, TapSighashType, TxOut, Txid, Witness, XOnlyPublicKey,
 };
-use indexer_types::BlockRow;
+use indexer_types::{Block, BlockRow, Transaction};
 use indexmap::IndexMap;
 use libsql::Connection;
 use rand::prelude::*;
@@ -23,8 +23,7 @@ use tempfile::TempDir;
 use tokio::time::{Duration, sleep};
 
 use crate::bitcoin_follower::blockchain_info::BlockchainInfo;
-use crate::block::Transaction;
-use crate::{bitcoin_follower::rpc, block::Block};
+use crate::bitcoin_follower::rpc;
 
 use crate::database::{Reader, Writer, queries};
 

@@ -1,7 +1,7 @@
 pub mod types;
 
 use anyhow::{Result, bail};
-use indexer_types::{BlockRow, Op, TransactionRow};
+use indexer_types::{Block, BlockRow, Event, Op, TransactionRow};
 use tokio::{
     select,
     sync::{
@@ -20,7 +20,6 @@ use crate::{
         ctrl::CtrlChannel,
         events::{BlockId, Event as FollowerEvent},
     },
-    block::Block,
     database::{
         self,
         queries::{
@@ -29,7 +28,6 @@ use crate::{
             set_block_processed,
         },
     },
-    event::Event,
     runtime::{ComponentCache, Runtime, Storage},
     test_utils::new_mock_block_hash,
 };

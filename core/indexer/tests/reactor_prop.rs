@@ -1,4 +1,5 @@
 use anyhow::Result;
+use indexer_types::Block;
 use once_cell::sync::Lazy;
 use proptest::test_runner::FileFailurePersistence;
 use tempfile::TempDir;
@@ -16,7 +17,6 @@ use indexer::{
         ctrl::CtrlChannel,
         events::{BlockId, Event},
     },
-    block::Block,
     database::{self, queries},
     reactor,
     test_utils::{await_block_at_height, gen_random_block, new_mock_block_hash, new_test_db},

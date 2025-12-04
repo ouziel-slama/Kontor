@@ -1,30 +1,12 @@
 use bitcoin::{
-    BlockHash, Txid, XOnlyPublicKey,
+    XOnlyPublicKey,
     opcodes::all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
     script::Instruction,
 };
-use indexer_types::{Inst, Op, OpMetadata, deserialize};
+use indexer_types::{Inst, Op, OpMetadata, Transaction, deserialize};
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
 
 use crate::runtime::wit::Signer;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Transaction {
-    pub txid: Txid,
-    pub index: i64,
-    pub ops: Vec<Op>,
-    #[serde(with = "indexmap::map::serde_seq")]
-    pub op_return_data: IndexMap<u64, indexer_types::OpReturnData>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Block {
-    pub height: u64,
-    pub hash: BlockHash,
-    pub prev_hash: BlockHash,
-    pub transactions: Vec<Transaction>,
-}
 
 pub type TransactionFilterMap = fn((usize, bitcoin::Transaction)) -> Option<Transaction>;
 

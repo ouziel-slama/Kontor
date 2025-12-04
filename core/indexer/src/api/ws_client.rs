@@ -1,15 +1,14 @@
 use anyhow::{Result, anyhow};
 use futures_util::{SinkExt, StreamExt};
+use indexer_types::WsResponse;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
-
-use crate::api::ws::Response;
 
 pub struct WebSocketClient {
     pub stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
 }
 
-pub fn from_message(m: Message) -> Result<Response> {
+pub fn from_message(m: Message) -> Result<WsResponse> {
     let text = m.to_text()?;
     Ok(serde_json::from_str(text)?)
 }
@@ -42,7 +41,7 @@ impl WebSocketClient {
         }
     }
 
-    pub async fn next(&mut self) -> Result<Response> {
+    pub async fn next(&mut self) -> Result<WsResponse> {
         from_message(self.stream.next().await.unwrap()?)
     }
 }

@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
+use indexer_types::{Block, Transaction};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tokio::{
     select,
@@ -21,7 +22,7 @@ use tracing::{error, info};
 
 use crate::{
     bitcoin_client::client::BitcoinRpc,
-    block::{Block, Transaction, TransactionFilterMap},
+    block::TransactionFilterMap,
     retry::{new_backoff_limited, new_backoff_unlimited, retry},
 };
 

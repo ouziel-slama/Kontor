@@ -1,6 +1,5 @@
 use bitcoin::{BlockHash, Txid};
-
-use crate::block::{Block, Transaction};
+use indexer_types::{Block, Transaction};
 
 #[derive(Debug)]
 pub enum ZmqEvent {

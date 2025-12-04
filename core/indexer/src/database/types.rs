@@ -5,7 +5,7 @@ use indexer_types::{BlockRow, ContractListRow, TransactionRow};
 use serde::{Deserialize, Serialize};
 use serde_with::{DefaultOnNull, DisplayFromStr, serde_as};
 
-use crate::{block::Block, runtime::ContractAddress};
+use crate::runtime::ContractAddress;
 
 pub trait HasRowId {
     fn id(&self) -> i64;
@@ -37,16 +37,6 @@ impl std::str::FromStr for OrderDirection {
             "asc" | "ascending" => Ok(OrderDirection::Asc),
             "desc" | "descending" | "" => Ok(OrderDirection::Desc), // empty also defaults
             _ => Err("Invalid order direction".to_string()),
-        }
-    }
-}
-
-impl From<&Block> for BlockRow {
-    fn from(b: &Block) -> Self {
-        Self {
-            height: b.height as i64,
-            hash: b.hash,
-            relevant: !b.transactions.is_empty(),
         }
     }
 }
