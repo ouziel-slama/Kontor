@@ -258,13 +258,13 @@ pub fn generate_functions(
     let mut ret_expr = match &export.result {
         Some(ty) => {
             let rust_type = transformers::wit_type_to_rust_type(resolve, ty, false)?;
-            transformers::wit_type_to_unwrap_expr(
-                resolve,
-                ty,
-                quote! {
-                    stdlib::wasm_wave::from_str::<stdlib::wasm_wave::value::Value>(&stdlib::wave_type::<#rust_type>(), &ret).unwrap()
-                },
-            )?
+            quote! {
+                stdlib::from_wave_value(
+                    stdlib::wasm_wave::from_str::<stdlib::wasm_wave::value::Value>(
+                        &stdlib::wave_type::<#rust_type>(), &ret
+                    ).expect("Failed to parse return wave expression")
+                )
+            }
         }
         None => quote! { () },
     };
