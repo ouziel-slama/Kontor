@@ -2,7 +2,8 @@ pub use crate::{
     logging,
     reg_tester::RegTester,
     runtime::{
-        CheckedArithmetics, numerics as numbers,
+        CheckedArithmetics, FromWaveValue, WaveType, from_wave_expr, from_wave_value,
+        numerics as numbers, to_wave_expr, wave_type,
         wit::{
             Signer,
             kontor::built_in::{
