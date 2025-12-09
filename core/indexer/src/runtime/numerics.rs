@@ -1,4 +1,5 @@
-use std::{cmp::Ordering, sync::LazyLock};
+use core::cmp::Ordering;
+use std::sync::LazyLock;
 
 use anyhow::Result;
 use fastnum::{

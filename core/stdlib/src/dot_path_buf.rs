@@ -1,4 +1,4 @@
-use std::{fmt::Display, ops::Deref, str::FromStr};
+use core::{fmt::Display, ops::Deref, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DotPathBuf {
@@ -74,7 +74,7 @@ impl FromStr for DotPathBuf {
 }
 
 impl Display for DotPathBuf {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.joined)
     }
 }

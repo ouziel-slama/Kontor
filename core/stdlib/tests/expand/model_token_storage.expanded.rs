@@ -4,11 +4,11 @@ struct TokenStorage {
 }
 pub struct TokenStorageModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl TokenStorageModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -30,7 +30,7 @@ impl TokenStorageModel {
 }
 pub struct TokenStorageLedgerModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 #[automatically_derived]
 impl ::core::clone::Clone for TokenStorageLedgerModel {
@@ -58,12 +58,12 @@ impl TokenStorageLedgerModel {
 }
 pub struct TokenStorageWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: TokenStorageModel,
 }
 impl TokenStorageWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
@@ -71,7 +71,7 @@ impl TokenStorageWriteModel {
             base_path: base_path.clone(),
             ctx,
             model: TokenStorageModel::new(
-                std::rc::Rc::new(view_storage),
+                alloc::rc::Rc::new(view_storage),
                 base_path.clone(),
             ),
         }
@@ -88,7 +88,7 @@ impl TokenStorageWriteModel {
         }
     }
 }
-impl std::ops::Deref for TokenStorageWriteModel {
+impl core::ops::Deref for TokenStorageWriteModel {
     type Target = TokenStorageModel;
     fn deref(&self) -> &Self::Target {
         &self.model
@@ -96,7 +96,7 @@ impl std::ops::Deref for TokenStorageWriteModel {
 }
 pub struct TokenStorageLedgerWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
 }
 #[automatically_derived]
 impl ::core::clone::Clone for TokenStorageLedgerWriteModel {

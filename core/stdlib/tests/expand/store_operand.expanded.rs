@@ -4,7 +4,7 @@ pub struct Operand {
 #[automatically_derived]
 impl stdlib::Store<crate::context::ProcStorage> for Operand {
     fn __set(
-        ctx: &std::rc::Rc<crate::context::ProcStorage>,
+        ctx: &alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
         value: Operand,
     ) {

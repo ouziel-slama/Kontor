@@ -12,21 +12,19 @@ impl stdlib::WaveType for Operand {
 #[automatically_derived]
 impl stdlib::FromWaveValue for Operand {
     fn from_wave_value(value_: stdlib::wasm_wave::value::Value) -> Self {
-        let mut record = stdlib::wasm_wave::wasm::WasmValue::unwrap_record(&value_)
-            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut y = None;
+        for (key_, val_) in stdlib::wasm_wave::wasm::WasmValue::unwrap_record(&value_) {
+            match key_.as_ref() {
+                "y" => y = Some(val_.into_owned()),
+                key_ => {
+                    ::core::panicking::panic_fmt(
+                        format_args!("Unknown field: {0}", key_),
+                    );
+                }
+            }
+        }
         Operand {
-            y: stdlib::from_wave_value(
-                record
-                    .remove("y")
-                    .expect(
-                        &::alloc::__export::must_use({
-                            ::alloc::fmt::format(
-                                format_args!("Missing \'{0}\' field", "y"),
-                            )
-                        }),
-                    )
-                    .into_owned(),
-            ),
+            y: stdlib::from_wave_value(y.unwrap()),
         }
     }
 }

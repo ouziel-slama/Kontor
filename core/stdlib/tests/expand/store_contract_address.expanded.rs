@@ -6,7 +6,7 @@ struct ContractAddress {
 #[automatically_derived]
 impl stdlib::Store<crate::context::ProcStorage> for ContractAddress {
     fn __set(
-        ctx: &std::rc::Rc<crate::context::ProcStorage>,
+        ctx: &alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
         value: ContractAddress,
     ) {

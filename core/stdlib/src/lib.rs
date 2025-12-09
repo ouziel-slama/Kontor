@@ -1,3 +1,5 @@
+extern crate alloc;
+
 mod dot_path_buf;
 mod storage_interface;
 mod wave_interfaces;

@@ -6,7 +6,7 @@ enum Error {
 #[automatically_derived]
 impl stdlib::Store<crate::context::ProcStorage> for Error {
     fn __set(
-        ctx: &std::rc::Rc<crate::context::ProcStorage>,
+        ctx: &alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
         value: Error,
     ) {

@@ -4,11 +4,11 @@ struct FibValue {
 }
 pub struct FibValueModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl FibValueModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -25,19 +25,22 @@ impl FibValueModel {
 }
 pub struct FibValueWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: FibValueModel,
 }
 impl FibValueWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
         Self {
             base_path: base_path.clone(),
             ctx,
-            model: FibValueModel::new(std::rc::Rc::new(view_storage), base_path.clone()),
+            model: FibValueModel::new(
+                alloc::rc::Rc::new(view_storage),
+                base_path.clone(),
+            ),
         }
     }
     pub fn value(&self) -> u64 {
@@ -62,7 +65,7 @@ impl FibValueWriteModel {
         FibValue { value: self.value() }
     }
 }
-impl std::ops::Deref for FibValueWriteModel {
+impl core::ops::Deref for FibValueWriteModel {
     type Target = FibValueModel;
     fn deref(&self) -> &Self::Target {
         &self.model
@@ -73,11 +76,11 @@ struct FibStorage {
 }
 pub struct FibStorageModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl FibStorageModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -99,7 +102,7 @@ impl FibStorageModel {
 }
 pub struct FibStorageCacheModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 #[automatically_derived]
 impl ::core::clone::Clone for FibStorageCacheModel {
@@ -129,12 +132,12 @@ impl FibStorageCacheModel {
 }
 pub struct FibStorageWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: FibStorageModel,
 }
 impl FibStorageWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
@@ -142,7 +145,7 @@ impl FibStorageWriteModel {
             base_path: base_path.clone(),
             ctx,
             model: FibStorageModel::new(
-                std::rc::Rc::new(view_storage),
+                alloc::rc::Rc::new(view_storage),
                 base_path.clone(),
             ),
         }
@@ -159,7 +162,7 @@ impl FibStorageWriteModel {
         }
     }
 }
-impl std::ops::Deref for FibStorageWriteModel {
+impl core::ops::Deref for FibStorageWriteModel {
     type Target = FibStorageModel;
     fn deref(&self) -> &Self::Target {
         &self.model
@@ -167,7 +170,7 @@ impl std::ops::Deref for FibStorageWriteModel {
 }
 pub struct FibStorageCacheWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
 }
 #[automatically_derived]
 impl ::core::clone::Clone for FibStorageCacheWriteModel {

@@ -18,45 +18,25 @@ impl stdlib::WaveType for ContractAddress {
 #[automatically_derived]
 impl stdlib::FromWaveValue for ContractAddress {
     fn from_wave_value(value_: stdlib::wasm_wave::value::Value) -> Self {
-        let mut record = stdlib::wasm_wave::wasm::WasmValue::unwrap_record(&value_)
-            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut name = None;
+        let mut height = None;
+        let mut tx_index = None;
+        for (key_, val_) in stdlib::wasm_wave::wasm::WasmValue::unwrap_record(&value_) {
+            match key_.as_ref() {
+                "name" => name = Some(val_.into_owned()),
+                "height" => height = Some(val_.into_owned()),
+                "tx-index" => tx_index = Some(val_.into_owned()),
+                key_ => {
+                    ::core::panicking::panic_fmt(
+                        format_args!("Unknown field: {0}", key_),
+                    );
+                }
+            }
+        }
         ContractAddress {
-            name: stdlib::from_wave_value(
-                record
-                    .remove("name")
-                    .expect(
-                        &::alloc::__export::must_use({
-                            ::alloc::fmt::format(
-                                format_args!("Missing \'{0}\' field", "name"),
-                            )
-                        }),
-                    )
-                    .into_owned(),
-            ),
-            height: stdlib::from_wave_value(
-                record
-                    .remove("height")
-                    .expect(
-                        &::alloc::__export::must_use({
-                            ::alloc::fmt::format(
-                                format_args!("Missing \'{0}\' field", "height"),
-                            )
-                        }),
-                    )
-                    .into_owned(),
-            ),
-            tx_index: stdlib::from_wave_value(
-                record
-                    .remove("tx-index")
-                    .expect(
-                        &::alloc::__export::must_use({
-                            ::alloc::fmt::format(
-                                format_args!("Missing \'{0}\' field", "tx-index"),
-                            )
-                        }),
-                    )
-                    .into_owned(),
-            ),
+            name: stdlib::from_wave_value(name.unwrap()),
+            height: stdlib::from_wave_value(height.unwrap()),
+            tx_index: stdlib::from_wave_value(tx_index.unwrap()),
         }
     }
 }

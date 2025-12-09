@@ -6,11 +6,11 @@ pub struct ContractAddress {
 }
 pub struct ContractAddressModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl ContractAddressModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -37,12 +37,12 @@ impl ContractAddressModel {
 }
 pub struct ContractAddressWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: ContractAddressModel,
 }
 impl ContractAddressWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
@@ -50,7 +50,7 @@ impl ContractAddressWriteModel {
             base_path: base_path.clone(),
             ctx,
             model: ContractAddressModel::new(
-                std::rc::Rc::new(view_storage),
+                alloc::rc::Rc::new(view_storage),
                 base_path.clone(),
             ),
         }
@@ -117,7 +117,7 @@ impl ContractAddressWriteModel {
         }
     }
 }
-impl std::ops::Deref for ContractAddressWriteModel {
+impl core::ops::Deref for ContractAddressWriteModel {
     type Target = ContractAddressModel;
     fn deref(&self) -> &Self::Target {
         &self.model
