@@ -13,7 +13,7 @@ pub enum OpModel {
 }
 impl OpModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         ctx.__extend_path_with_match(&base_path, &["id", "sum", "mul", "div"])
@@ -53,7 +53,7 @@ pub enum OpWriteModel {
 }
 impl OpWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         ctx.__extend_path_with_match(&base_path, &["id", "sum", "mul", "div"])

@@ -149,6 +149,8 @@ pub fn import(
 
     quote! {
         #mod_keyword #module_name {
+            extern crate alloc;
+
             #supers
 
             #(#type_streams)*
@@ -252,9 +254,9 @@ pub fn generate_functions(
 
     let fn_name_kebab = fn_name.to_string().to_kebab_case();
     let expr = if expr_parts.is_empty() {
-        quote! { format!("{}()", #fn_name_kebab) }
+        quote! { alloc::format!("{}()", #fn_name_kebab) }
     } else {
-        quote! { format!("{}({})", #fn_name_kebab, [#(#expr_parts),*].join(", ")) }
+        quote! { alloc::format!("{}({})", #fn_name_kebab, [#(#expr_parts),*].join(", ")) }
     };
 
     let mut ret_expr = match &export.result {

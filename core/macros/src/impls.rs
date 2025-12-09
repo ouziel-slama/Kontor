@@ -43,28 +43,28 @@ pub fn generate(config: Config) -> TokenStream {
         #[automatically_derived]
         impl From<core::num::ParseIntError> for kontor::built_in::error::Error {
             fn from(err: core::num::ParseIntError) -> Self {
-                kontor::built_in::error::Error::Message(format!("Parse integer error: {:?}", err))
+                kontor::built_in::error::Error::Message(alloc::format!("Parse integer error: {:?}", err))
             }
         }
 
         #[automatically_derived]
         impl From<core::num::TryFromIntError> for kontor::built_in::error::Error {
             fn from(err: core::num::TryFromIntError) -> Self {
-                kontor::built_in::error::Error::Message(format!("Try from integer error: {:?}", err))
+                kontor::built_in::error::Error::Message(alloc::format!("Try from integer error: {:?}", err))
             }
         }
 
         #[automatically_derived]
         impl From<core::str::Utf8Error> for kontor::built_in::error::Error {
             fn from(err: core::str::Utf8Error) -> Self {
-                kontor::built_in::error::Error::Message(format!("UTF-8 parse error: {:?}", err))
+                kontor::built_in::error::Error::Message(alloc::format!("UTF-8 parse error: {:?}", err))
             }
         }
 
         #[automatically_derived]
         impl From<core::char::ParseCharError> for kontor::built_in::error::Error {
             fn from(err: core::char::ParseCharError) -> Self {
-                kontor::built_in::error::Error::Message(format!("Parse char error: {:?}", err))
+                kontor::built_in::error::Error::Message(alloc::format!("Parse char error: {:?}", err))
             }
         }
 
@@ -76,8 +76,8 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::fmt::Display for kontor::built_in::numbers::Integer {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl core::fmt::Display for kontor::built_in::numbers::Integer {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 let s = #numerics_mod_name::integer_to_string(*self);
                 write!(f, "{}", s)
             }
@@ -131,7 +131,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Add for kontor::built_in::numbers::Integer {
+        impl core::ops::Add for kontor::built_in::numbers::Integer {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
@@ -140,7 +140,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Sub for kontor::built_in::numbers::Integer {
+        impl core::ops::Sub for kontor::built_in::numbers::Integer {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
@@ -149,7 +149,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Mul for kontor::built_in::numbers::Integer {
+        impl core::ops::Mul for kontor::built_in::numbers::Integer {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self {
@@ -158,7 +158,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Div for kontor::built_in::numbers::Integer {
+        impl core::ops::Div for kontor::built_in::numbers::Integer {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self {
@@ -168,18 +168,18 @@ pub fn generate(config: Config) -> TokenStream {
 
         #[automatically_derived]
         impl PartialOrd for kontor::built_in::numbers::Integer {
-            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
                 Some(self.cmp(other))
             }
         }
 
         #[automatically_derived]
         impl Ord for kontor::built_in::numbers::Integer {
-            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
                 match #numerics_mod_name::cmp_integer(*self, *other) {
-                    kontor::built_in::numbers::Ordering::Less => std::cmp::Ordering::Less,
-                    kontor::built_in::numbers::Ordering::Equal => std::cmp::Ordering::Equal,
-                    kontor::built_in::numbers::Ordering::Greater => std::cmp::Ordering::Greater,
+                    kontor::built_in::numbers::Ordering::Less => core::cmp::Ordering::Less,
+                    kontor::built_in::numbers::Ordering::Equal => core::cmp::Ordering::Equal,
+                    kontor::built_in::numbers::Ordering::Greater => core::cmp::Ordering::Greater,
                 }
             }
         }
@@ -245,8 +245,8 @@ pub fn generate(config: Config) -> TokenStream {
 
 
         #[automatically_derived]
-        impl std::fmt::Display for kontor::built_in::numbers::Decimal {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl core::fmt::Display for kontor::built_in::numbers::Decimal {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 let s = #numerics_mod_name::decimal_to_string(*self);
                 write!(f, "{}", s)
             }
@@ -266,7 +266,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Add for kontor::built_in::numbers::Decimal {
+        impl core::ops::Add for kontor::built_in::numbers::Decimal {
             type Output = Self;
 
             fn add(self, other: Self) -> Self::Output {
@@ -275,7 +275,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Sub for kontor::built_in::numbers::Decimal {
+        impl core::ops::Sub for kontor::built_in::numbers::Decimal {
             type Output = Self;
 
             fn sub(self, other: Self) -> Self::Output {
@@ -284,7 +284,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Mul for kontor::built_in::numbers::Decimal {
+        impl core::ops::Mul for kontor::built_in::numbers::Decimal {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self {
@@ -293,7 +293,7 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[automatically_derived]
-        impl std::ops::Div for kontor::built_in::numbers::Decimal {
+        impl core::ops::Div for kontor::built_in::numbers::Decimal {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self {
@@ -304,18 +304,18 @@ pub fn generate(config: Config) -> TokenStream {
 
         #[automatically_derived]
         impl PartialOrd for kontor::built_in::numbers::Decimal {
-            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
                 Some(self.cmp(other))
             }
         }
 
         #[automatically_derived]
         impl Ord for kontor::built_in::numbers::Decimal {
-            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
                 match #numerics_mod_name::cmp_decimal(*self, *other) {
-                    kontor::built_in::numbers::Ordering::Less => std::cmp::Ordering::Less,
-                    kontor::built_in::numbers::Ordering::Equal => std::cmp::Ordering::Equal,
-                    kontor::built_in::numbers::Ordering::Greater => std::cmp::Ordering::Greater,
+                    kontor::built_in::numbers::Ordering::Less => core::cmp::Ordering::Less,
+                    kontor::built_in::numbers::Ordering::Equal => core::cmp::Ordering::Equal,
+                    kontor::built_in::numbers::Ordering::Greater => core::cmp::Ordering::Greater,
                 }
             }
         }

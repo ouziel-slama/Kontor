@@ -5,7 +5,7 @@ struct ProxyStorage {
 #[automatically_derived]
 impl stdlib::Store<crate::context::ProcStorage> for ProxyStorage {
     fn __set(
-        ctx: &std::rc::Rc<crate::context::ProcStorage>,
+        ctx: &alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
         value: ProxyStorage,
     ) {
@@ -14,11 +14,11 @@ impl stdlib::Store<crate::context::ProcStorage> for ProxyStorage {
 }
 pub struct ProxyStorageModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl ProxyStorageModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -37,12 +37,12 @@ impl ProxyStorageModel {
 }
 pub struct ProxyStorageWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: ProxyStorageModel,
 }
 impl ProxyStorageWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
@@ -50,7 +50,7 @@ impl ProxyStorageWriteModel {
             base_path: base_path.clone(),
             ctx,
             model: ProxyStorageModel::new(
-                std::rc::Rc::new(view_storage),
+                alloc::rc::Rc::new(view_storage),
                 base_path.clone(),
             ),
         }
@@ -82,7 +82,7 @@ impl ProxyStorageWriteModel {
         }
     }
 }
-impl std::ops::Deref for ProxyStorageWriteModel {
+impl core::ops::Deref for ProxyStorageWriteModel {
     type Target = ProxyStorageModel;
     fn deref(&self) -> &Self::Target {
         &self.model
@@ -90,16 +90,19 @@ impl std::ops::Deref for ProxyStorageWriteModel {
 }
 impl ProxyStorage {
     pub fn init(self, ctx: &crate::ProcContext) {
-        std::rc::Rc::new(ctx.storage()).__set(stdlib::DotPathBuf::new(), self)
+        alloc::rc::Rc::new(ctx.storage()).__set(stdlib::DotPathBuf::new(), self)
     }
 }
 impl crate::ProcContext {
     pub fn model(&self) -> ProxyStorageWriteModel {
-        ProxyStorageWriteModel::new(std::rc::Rc::new(self.storage()), DotPathBuf::new())
+        ProxyStorageWriteModel::new(
+            alloc::rc::Rc::new(self.storage()),
+            DotPathBuf::new(),
+        )
     }
 }
 impl crate::ViewContext {
     pub fn model(&self) -> ProxyStorageModel {
-        ProxyStorageModel::new(std::rc::Rc::new(self.storage()), DotPathBuf::new())
+        ProxyStorageModel::new(alloc::rc::Rc::new(self.storage()), DotPathBuf::new())
     }
 }

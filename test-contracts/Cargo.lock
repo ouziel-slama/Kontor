@@ -409,7 +409,6 @@ dependencies = [
  "indexmap",
  "logos",
  "thiserror",
- "wit-parser",
 ]
 
 [[package]]

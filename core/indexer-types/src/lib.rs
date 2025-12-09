@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use anyhow::Result;
 use bitcoin::{
     BlockHash, FeeRate, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey, taproot::LeafVersion,

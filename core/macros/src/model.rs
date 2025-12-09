@@ -59,7 +59,7 @@ pub fn generate_struct(
                         #[derive(Clone)]
                         pub struct #field_model_name {
                             pub base_path: stdlib::DotPathBuf,
-                            ctx: std::rc::Rc<#context_param>,
+                            ctx: alloc::rc::Rc<#context_param>,
                         }
 
                         impl #field_model_name {
@@ -229,7 +229,7 @@ pub fn generate_struct(
 
             let proc_assigns = if write {
                 quote! {
-                    model: #read_only_model_name::new(std::rc::Rc::new(view_storage), base_path.clone()),
+                    model: #read_only_model_name::new(alloc::rc::Rc::new(view_storage), base_path.clone()),
                 }
             } else {
                 quote! {}
@@ -237,7 +237,7 @@ pub fn generate_struct(
 
             let proc_impls = if write {
                 quote! {
-                    impl std::ops::Deref for #model_name {
+                    impl core::ops::Deref for #model_name {
                         type Target = #read_only_model_name;
 
                         fn deref(&self) -> &Self::Target {
@@ -252,12 +252,12 @@ pub fn generate_struct(
             let result = quote! {
                 pub struct #model_name {
                     pub base_path: stdlib::DotPathBuf,
-                    ctx: std::rc::Rc<#context_param>,
+                    ctx: alloc::rc::Rc<#context_param>,
                     #proc_props
                 }
 
                 impl #model_name {
-                    pub fn new(ctx: std::rc::Rc<#context_param>, base_path: stdlib::DotPathBuf) -> Self {
+                    pub fn new(ctx: alloc::rc::Rc<#context_param>, base_path: stdlib::DotPathBuf) -> Self {
                         #proc_prelude
                         Self {
                             base_path: base_path.clone(),
@@ -392,7 +392,7 @@ pub fn generate_enum(data_enum: &DataEnum, type_name: &Ident, write: bool) -> Re
         }
 
         impl #model_name {
-            pub fn new(ctx: std::rc::Rc<#context_param>, base_path: stdlib::DotPathBuf) -> Self {
+            pub fn new(ctx: alloc::rc::Rc<#context_param>, base_path: stdlib::DotPathBuf) -> Self {
                 ctx.__extend_path_with_match(&base_path, &[#(#variant_names),*])
                     .map(|path| match path {
                         #(#new_arms,)*

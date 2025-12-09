@@ -7,7 +7,7 @@ pub enum ErrorModel {
 }
 impl ErrorModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         ctx.__extend_path_with_match(&base_path, &["message"])
@@ -34,7 +34,7 @@ pub enum ErrorWriteModel {
 }
 impl ErrorWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         ctx.__extend_path_with_match(&base_path, &["message"])

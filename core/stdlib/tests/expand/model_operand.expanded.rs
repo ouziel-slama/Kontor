@@ -4,11 +4,11 @@ pub struct Operand {
 }
 pub struct OperandModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl OperandModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -25,19 +25,19 @@ impl OperandModel {
 }
 pub struct OperandWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: OperandModel,
 }
 impl OperandWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
         Self {
             base_path: base_path.clone(),
             ctx,
-            model: OperandModel::new(std::rc::Rc::new(view_storage), base_path.clone()),
+            model: OperandModel::new(alloc::rc::Rc::new(view_storage), base_path.clone()),
         }
     }
     pub fn y(&self) -> u64 {
@@ -62,7 +62,7 @@ impl OperandWriteModel {
         Operand { y: self.y() }
     }
 }
-impl std::ops::Deref for OperandWriteModel {
+impl core::ops::Deref for OperandWriteModel {
     type Target = OperandModel;
     fn deref(&self) -> &Self::Target {
         &self.model

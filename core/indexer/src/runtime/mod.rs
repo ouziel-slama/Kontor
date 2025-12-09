@@ -1,3 +1,5 @@
+extern crate alloc;
+
 mod component_cache;
 pub mod counter;
 pub mod fuel;

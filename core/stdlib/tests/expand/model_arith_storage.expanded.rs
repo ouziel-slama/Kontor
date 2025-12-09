@@ -4,11 +4,11 @@ struct ArithStorage {
 }
 pub struct ArithStorageModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl ArithStorageModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -32,12 +32,12 @@ impl ArithStorageModel {
 }
 pub struct ArithStorageWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: ArithStorageModel,
 }
 impl ArithStorageWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
@@ -45,7 +45,7 @@ impl ArithStorageWriteModel {
             base_path: base_path.clone(),
             ctx,
             model: ArithStorageModel::new(
-                std::rc::Rc::new(view_storage),
+                alloc::rc::Rc::new(view_storage),
                 base_path.clone(),
             ),
         }
@@ -67,7 +67,7 @@ impl ArithStorageWriteModel {
         }
     }
 }
-impl std::ops::Deref for ArithStorageWriteModel {
+impl core::ops::Deref for ArithStorageWriteModel {
     type Target = ArithStorageModel;
     fn deref(&self) -> &Self::Target {
         &self.model

@@ -4,11 +4,11 @@ struct ProxyStorage {
 }
 pub struct ProxyStorageModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ViewStorage>,
+    ctx: alloc::rc::Rc<crate::context::ViewStorage>,
 }
 impl ProxyStorageModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ViewStorage>,
+        ctx: alloc::rc::Rc<crate::context::ViewStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         Self {
@@ -27,12 +27,12 @@ impl ProxyStorageModel {
 }
 pub struct ProxyStorageWriteModel {
     pub base_path: stdlib::DotPathBuf,
-    ctx: std::rc::Rc<crate::context::ProcStorage>,
+    ctx: alloc::rc::Rc<crate::context::ProcStorage>,
     model: ProxyStorageModel,
 }
 impl ProxyStorageWriteModel {
     pub fn new(
-        ctx: std::rc::Rc<crate::context::ProcStorage>,
+        ctx: alloc::rc::Rc<crate::context::ProcStorage>,
         base_path: stdlib::DotPathBuf,
     ) -> Self {
         let view_storage = ctx.view_storage();
@@ -40,7 +40,7 @@ impl ProxyStorageWriteModel {
             base_path: base_path.clone(),
             ctx,
             model: ProxyStorageModel::new(
-                std::rc::Rc::new(view_storage),
+                alloc::rc::Rc::new(view_storage),
                 base_path.clone(),
             ),
         }
@@ -72,7 +72,7 @@ impl ProxyStorageWriteModel {
         }
     }
 }
-impl std::ops::Deref for ProxyStorageWriteModel {
+impl core::ops::Deref for ProxyStorageWriteModel {
     type Target = ProxyStorageModel;
     fn deref(&self) -> &Self::Target {
         &self.model
