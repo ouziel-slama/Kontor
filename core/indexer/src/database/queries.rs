@@ -936,7 +936,7 @@ pub async fn select_all_file_ledger_entries(
 ) -> Result<Vec<FileLedgerEntryRow>, Error> {
     let mut rows = conn
         .query(
-            r#"SELECT id, file_id, root, tree_depth, height, tx_index
+            r#"SELECT id, file_id, root, tree_depth, height
             FROM file_ledger_entries
             ORDER BY id ASC"#,
             params![],
@@ -960,15 +960,13 @@ pub async fn insert_file_ledger_entry(
         (file_id, 
         root, 
         tree_depth, 
-        height, 
-        tx_index) 
-        VALUES (?, ?, ?, ?, ?)"#,
+        height) 
+        VALUES (?, ?, ?, ?)"#,
         params![
             entry.file_id.clone(),
             entry.root.clone(),
             entry.tree_depth,
             entry.height,
-            entry.tx_index,
         ],
     )
     .await?;

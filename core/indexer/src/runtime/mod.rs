@@ -249,7 +249,6 @@ impl Runtime {
             expr,
             self.storage.input_index
         );
-        // set dirty to false here (as part of prepare call)
         let (
             mut store,
             contract_id,
@@ -555,6 +554,10 @@ impl Runtime {
                 .rollback()
                 .await
                 .expect("Failed to rollback storage after failure to extract expression");
+            self.file_ledger
+                .resync_from_db(&self.storage)
+                .await
+                .expect("Failed to resync file ledger after rollback");
         } else if let Ok(expr) = &result
             && expr.starts_with("err(")
         {
@@ -562,6 +565,10 @@ impl Runtime {
                 .rollback()
                 .await
                 .expect("Failed to rollback storage after Err returning call");
+            self.file_ledger
+                .resync_from_db(&self.storage)
+                .await
+                .expect("Failed to resync file ledger after rollback");
         } else {
             self.storage
                 .commit()

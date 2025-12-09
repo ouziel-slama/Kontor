@@ -279,7 +279,6 @@ pub struct FileLedgerEntryRow {
     pub root: Vec<u8>,
     pub tree_depth: i64,
     pub height: i64,
-    pub tx_index: i64,
 }
 
 impl FileLedgerEntryRow {

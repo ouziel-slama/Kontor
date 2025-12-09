@@ -33,10 +33,11 @@ impl FileLedger {
     /// Rebuild the ledger from database on startup.
     pub async fn rebuild_from_db(storage: &Storage) -> Result<Self> {
         let ledger = Self::new();
-        let mut inner = ledger.inner.lock().await;
-        Self::load_entries_into_ledger(&mut inner, storage).await?;
+        {
+            let mut inner = ledger.inner.lock().await;
+            Self::load_entries_into_ledger(&mut inner, storage).await?;
+        }
         tracing::info!("Rebuilt FileLedger from database");
-        drop(inner);
         Ok(ledger)
     }
 
@@ -45,13 +46,15 @@ impl FileLedger {
     /// Call this after a rollback to re-sync the in-memory state with the DB.
     /// Only rebuilds if the ledger has been modified (dirty flag is true).
     pub async fn resync_from_db(&self, storage: &Storage) -> Result<()> {
+        // Hold lock for entire operation
+        let mut inner = self.inner.lock().await;
+
         // Skip rebuild if ledger hasn't been modified
         if !self.dirty.load(Ordering::SeqCst) {
             tracing::info!("FileLedger not dirty, skipping resync");
             return Ok(());
         }
 
-        let mut inner = self.inner.lock().await;
         *inner = CryptoFileLedger::new();
         Self::load_entries_into_ledger(&mut inner, storage).await?;
 
@@ -78,6 +81,9 @@ impl FileLedger {
     }
 
     /// Add a file to the ledger and persist to database.
+    ///
+    /// Holds the lock for the entire operation to ensure the in-memory ledger
+    /// and database stay in sync even with concurrent calls.
     pub async fn add_file(
         &self,
         storage: &Storage,
@@ -85,24 +91,23 @@ impl FileLedger {
         root: Vec<u8>,
         tree_depth: i64,
     ) -> Result<()> {
+        // Hold lock for entire operation to ensure ordering consistency
+        let mut inner = self.inner.lock().await;
+
         let row: FileLedgerEntryRow = FileLedgerEntryRow::builder()
             .file_id(file_id)
             .root(root)
             .tree_depth(tree_depth)
             .height(storage.height)
-            .tx_index(storage.tx_index)
             .build();
 
         // Convert to get the FieldElement root for the crypto ledger
         let entry: CryptoFileLedgerEntry = (&row).try_into()?;
 
         // Add to inner FileLedger
-        {
-            let mut inner = self.inner.lock().await;
-            inner
-                .add_file(entry.file_id.clone(), entry.root, entry.tree_depth as usize)
-                .map_err(|e| anyhow!("Failed to add file to ledger: {:?}", e))?;
-        }
+        inner
+            .add_file(entry.file_id.clone(), entry.root, entry.tree_depth as usize)
+            .map_err(|e| anyhow!("Failed to add file to ledger: {:?}", e))?;
 
         // Persist to database
         storage.insert_file_ledger_entry(row).await?;

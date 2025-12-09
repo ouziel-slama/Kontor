@@ -78,7 +78,6 @@ CREATE TABLE IF NOT EXISTS file_ledger_entries (
   root BLOB NOT NULL,
   tree_depth INTEGER NOT NULL,
   height INTEGER NOT NULL,
-  tx_index INTEGER NOT NULL,
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE
 );
 
