@@ -29,7 +29,6 @@ pub use types::default_val_for_type;
 pub use wit::Root;
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use wit::kontor::*;
 
@@ -505,7 +504,7 @@ impl Runtime {
 
         self.stack.push(contract_id).await?;
         self.storage.savepoint().await?;
-        self.file_ledger.dirty.store(false, Ordering::SeqCst);
+        self.file_ledger.clear_dirty().await;
 
         Ok((
             store,
@@ -549,22 +548,11 @@ impl Runtime {
             }
         };
 
-        if result.is_err() {
+        if result.is_err() || matches!(&result, Ok(expr) if expr.starts_with("err(")) {
             self.storage
                 .rollback()
                 .await
                 .expect("Failed to rollback storage after failure to extract expression");
-            self.file_ledger
-                .resync_from_db(&self.storage)
-                .await
-                .expect("Failed to resync file ledger after rollback");
-        } else if let Ok(expr) = &result
-            && expr.starts_with("err(")
-        {
-            self.storage
-                .rollback()
-                .await
-                .expect("Failed to rollback storage after Err returning call");
             self.file_ledger
                 .resync_from_db(&self.storage)
                 .await
