@@ -655,7 +655,6 @@ async fn test_file_ledger_entry_operations() -> Result<()> {
         .root(root.clone())
         .tree_depth(tree_depth)
         .height(height)
-        .tx_index(tx.tx_index)
         .build();
 
     let id1 = insert_file_ledger_entry(&conn, &entry1).await?;
@@ -669,7 +668,6 @@ async fn test_file_ledger_entry_operations() -> Result<()> {
     assert_eq!(entries[0].root, root);
     assert_eq!(entries[0].tree_depth, tree_depth);
     assert_eq!(entries[0].height, height);
-    assert_eq!(entries[0].tx_index, tx.tx_index);
 
     // Insert another file ledger entry at a different height
     let height2 = 800001;
@@ -694,7 +692,6 @@ async fn test_file_ledger_entry_operations() -> Result<()> {
         .root(root2.clone())
         .tree_depth(tree_depth2)
         .height(height2)
-        .tx_index(tx2.tx_index)
         .build();
 
     let id2 = insert_file_ledger_entry(&conn, &entry2).await?;
