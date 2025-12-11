@@ -105,6 +105,7 @@ pub trait RuntimeImpl: Send {
 pub struct RuntimeLocal {
     runtime: IndexerRuntime,
     _db_dir: TempDir,
+    _db_name: String,
 }
 
 impl RuntimeLocal {
@@ -161,7 +162,7 @@ impl RuntimeLocal {
     }
 
     pub async fn new() -> Result<Self> {
-        let (_, writer, _db_dir) = new_test_db().await?;
+        let (_, writer, (_db_dir, _db_name)) = new_test_db().await?;
         let conn = writer.connection();
         insert_processed_block(
             &conn,
@@ -183,12 +184,16 @@ impl RuntimeLocal {
         .await?;
         let storage = Storage::builder().height(0).tx_index(0).conn(conn).build();
         let component_cache = ComponentCache::new();
-        let mut runtime = IndexerRuntime::new(storage, component_cache).await?;
+        let mut runtime = IndexerRuntime::new(component_cache, storage).await?;
         runtime.publish_native_contracts().await?;
         runtime
             .set_context(1, 1, 0, 0, new_mock_transaction(0).txid, None, None)
             .await;
-        Ok(Self { runtime, _db_dir })
+        Ok(Self {
+            runtime,
+            _db_dir,
+            _db_name,
+        })
     }
 }
 
