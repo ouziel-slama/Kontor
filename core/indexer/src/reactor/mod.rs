@@ -46,11 +46,7 @@ struct Reactor {
     option_last_hash: Option<BlockHash>,
 }
 
-pub async fn block_handler(runtime: &mut Runtime, block: &Block, simulate: bool) -> Result<()> {
-    if simulate {
-        runtime.storage.savepoint().await?;
-    }
-
+pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
     insert_block(&runtime.storage.conn, block.into()).await?;
 
     for t in &block.transactions {
@@ -89,7 +85,7 @@ pub async fn block_handler(runtime: &mut Runtime, block: &Block, simulate: bool)
                 } => {
                     runtime.set_gas_limit(*gas_limit);
                     let result = runtime.publish(&metadata.signer, name, bytes).await;
-                    if !simulate && result.is_err() {
+                    if result.is_err() {
                         warn!("Publish operation failed: {:?}", result);
                     }
                 }
@@ -103,13 +99,13 @@ pub async fn block_handler(runtime: &mut Runtime, block: &Block, simulate: bool)
                     let result = runtime
                         .execute(Some(&metadata.signer), &(contract.into()), expr)
                         .await;
-                    if !simulate && result.is_err() {
+                    if result.is_err() {
                         warn!("Call operation failed: {:?}", result);
                     }
                 }
                 Op::Issuance { metadata, .. } => {
                     let result = runtime.issuance(&metadata.signer).await;
-                    if !simulate && result.is_err() {
+                    if result.is_err() {
                         warn!("Issuance operation failed: {:?}", result);
                     }
                 }
@@ -118,10 +114,6 @@ pub async fn block_handler(runtime: &mut Runtime, block: &Block, simulate: bool)
     }
 
     set_block_processed(&runtime.storage.conn, block.height as i64).await?;
-
-    if simulate {
-        runtime.storage.rollback().await?;
-    }
 
     Ok(())
 }
@@ -305,7 +297,7 @@ impl Reactor {
 
         info!("# Block Kontor Transactions: {}", block.transactions.len());
 
-        block_handler(&mut self.runtime, &block, false).await?;
+        block_handler(&mut self.runtime, &block).await?;
 
         if !block.transactions.is_empty()
             && let Some(tx) = &self.event_tx

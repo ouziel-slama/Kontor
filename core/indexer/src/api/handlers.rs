@@ -6,9 +6,9 @@ use axum::{
 };
 use bitcoin::consensus::encode;
 use indexer_types::{
-    BlockRow, CommitOutputs, ComposeOutputs, ComposeQuery, ContractListRow, ContractResponse, Info,
-    OpWithResult, PaginatedResponse, ResultRow, RevealOutputs, RevealQuery, TransactionHex,
-    TransactionRow, ViewExpr, ViewResult,
+    Block, BlockRow, CommitOutputs, ComposeOutputs, ComposeQuery, ContractListRow,
+    ContractResponse, Info, OpWithResult, PaginatedResponse, ResultRow, RevealOutputs, RevealQuery,
+    TransactionHex, TransactionRow, ViewExpr, ViewResult,
 };
 use libsql::Connection;
 
@@ -24,7 +24,9 @@ use crate::{
         },
         types::{BlockQuery, ContractResultPublicRow, OpResultId, ResultQuery, TransactionQuery},
     },
+    reactor,
     runtime::ContractAddress,
+    test_utils::new_mock_block_hash,
 };
 
 use super::{
@@ -206,6 +208,39 @@ pub async fn get_transaction_inspect(
     let btx = env.bitcoin.get_raw_transaction(&txid).await?;
     let conn = env.reader.connection().await?;
     inspect(&conn, btx).await
+}
+
+pub async fn post_simulate(
+    State(env): State<Env>,
+    Json(TransactionHex { hex }): Json<TransactionHex>,
+) -> Result<Vec<OpWithResult>> {
+    let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
+        .map_err(|e| HttpError::BadRequest(e.to_string()))?;
+    let tx = filter_map((0, btx.clone()))
+        .ok_or(HttpError::BadRequest("Invalid transaction".to_string()))?;
+    let mut runtime = env.runtime_pool.get().await?;
+    runtime.storage.savepoint().await?;
+    let block_row = select_block_latest(&runtime.storage.conn).await?;
+    let height = block_row.as_ref().map_or(1, |row| row.height as u64 + 1);
+    reactor::block_handler(
+        &mut runtime,
+        &Block {
+            height,
+            hash: new_mock_block_hash(height as u32),
+            prev_hash: block_row
+                .as_ref()
+                .map_or(new_mock_block_hash(0), |row| row.hash),
+            transactions: vec![tx],
+        },
+    )
+    .await?;
+    let result = inspect(&runtime.storage.conn, btx).await;
+    runtime
+        .storage
+        .rollback()
+        .await
+        .expect("Failed to rollback");
+    result
 }
 
 pub async fn post_contract(
