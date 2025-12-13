@@ -18,7 +18,7 @@ use indexer::{
 use indexer_types::{BlockRow, PaginatedResponse, TransactionRow};
 use libsql::params;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,6 +98,7 @@ async fn create_test_app() -> Result<Router> {
     insert_transaction(&conn, tx2).await?;
     insert_transaction(&conn, tx3).await?;
 
+    let (simulate_tx, _) = mpsc::channel(10);
     let env = Env {
         bitcoin: Client::new("".to_string(), "".to_string(), "".to_string())?,
         config: Config::new_na(),
@@ -106,6 +107,7 @@ async fn create_test_app() -> Result<Router> {
         event_subscriber: EventSubscriber::new(),
         runtime_pool: runtime::pool::new(db_dir.path().to_path_buf(), db_name).await?,
         reader,
+        simulate_tx,
     };
 
     Ok(Router::new()

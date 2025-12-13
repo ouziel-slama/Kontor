@@ -249,6 +249,7 @@ proptest! {
                 ctrl,
                 None,
                 None,
+                None,
             );
 
             let start = ctrl_rx.recv().await.unwrap();

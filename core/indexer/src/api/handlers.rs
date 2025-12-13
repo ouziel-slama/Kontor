@@ -6,15 +6,14 @@ use axum::{
 };
 use bitcoin::consensus::encode;
 use indexer_types::{
-    Block, BlockRow, CommitOutputs, ComposeOutputs, ComposeQuery, ContractListRow,
-    ContractResponse, Info, OpWithResult, PaginatedResponse, ResultRow, RevealOutputs, RevealQuery,
-    TransactionHex, TransactionRow, ViewExpr, ViewResult,
+    BlockRow, CommitOutputs, ComposeOutputs, ComposeQuery, ContractListRow, ContractResponse, Info,
+    OpWithResult, PaginatedResponse, ResultRow, RevealOutputs, RevealQuery, TransactionHex,
+    TransactionRow, ViewExpr, ViewResult,
 };
-use libsql::Connection;
 
 use crate::{
     api::compose::reveal_inputs_from_query,
-    block::filter_map,
+    block::inspect,
     built_info,
     database::{
         queries::{
@@ -24,9 +23,7 @@ use crate::{
         },
         types::{BlockQuery, ContractResultPublicRow, OpResultId, ResultQuery, TransactionQuery},
     },
-    reactor,
     runtime::ContractAddress,
-    test_utils::new_mock_block_hash,
 };
 
 use super::{
@@ -173,22 +170,6 @@ pub async fn get_transaction(
     }
 }
 
-async fn inspect(conn: &Connection, btx: bitcoin::Transaction) -> Result<Vec<OpWithResult>> {
-    let mut ops = Vec::new();
-    if let Some(tx) = filter_map((0, btx)) {
-        for op in tx.ops {
-            let id = OpResultId::builder()
-                .txid(tx.txid.to_string())
-                .input_index(op.metadata().input_index)
-                .op_index(0)
-                .build();
-            let result = get_op_result(conn, &id).await?.map(Into::into);
-            ops.push(OpWithResult { op, result });
-        }
-    }
-    Ok(ops.into())
-}
-
 pub async fn post_transaction_hex_inspect(
     State(env): State<Env>,
     Json(TransactionHex { hex }): Json<TransactionHex>,
@@ -196,7 +177,7 @@ pub async fn post_transaction_hex_inspect(
     let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
         .map_err(|e| HttpError::BadRequest(e.to_string()))?;
     let conn = env.reader.connection().await?;
-    inspect(&conn, btx).await
+    Ok(inspect(&conn, btx).await?.into())
 }
 
 pub async fn get_transaction_inspect(
@@ -207,7 +188,7 @@ pub async fn get_transaction_inspect(
         .map_err(|e| HttpError::BadRequest(format!("Invalid txid: {}", e)))?;
     let btx = env.bitcoin.get_raw_transaction(&txid).await?;
     let conn = env.reader.connection().await?;
-    inspect(&conn, btx).await
+    Ok(inspect(&conn, btx).await?.into())
 }
 
 pub async fn post_simulate(
@@ -216,31 +197,12 @@ pub async fn post_simulate(
 ) -> Result<Vec<OpWithResult>> {
     let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
         .map_err(|e| HttpError::BadRequest(e.to_string()))?;
-    let tx = filter_map((0, btx.clone()))
-        .ok_or(HttpError::BadRequest("Invalid transaction".to_string()))?;
-    let mut runtime = env.runtime_pool.get().await?;
-    runtime.storage.savepoint().await?;
-    let block_row = select_block_latest(&runtime.storage.conn).await?;
-    let height = block_row.as_ref().map_or(1, |row| row.height as u64 + 1);
-    reactor::block_handler(
-        &mut runtime,
-        &Block {
-            height,
-            hash: new_mock_block_hash(height as u32),
-            prev_hash: block_row
-                .as_ref()
-                .map_or(new_mock_block_hash(0), |row| row.hash),
-            transactions: vec![tx],
-        },
-    )
-    .await?;
-    let result = inspect(&runtime.storage.conn, btx).await;
-    runtime
-        .storage
-        .rollback()
-        .await
-        .expect("Failed to rollback");
-    result
+    let (ret_tx, ret_rx) = tokio::sync::oneshot::channel();
+    env.simulate_tx.send((btx, ret_tx)).await?;
+    Ok(ret_rx
+        .await?
+        .map_err(|e| HttpError::BadRequest(e.to_string()))?
+        .into())
 }
 
 pub async fn post_contract(

@@ -1,7 +1,8 @@
 pub mod types;
 
-use anyhow::{Result, bail};
-use indexer_types::{Block, BlockRow, Event, Op, TransactionRow};
+use anyhow::{Result, anyhow, bail};
+use futures_util::future::pending;
+use indexer_types::{Block, BlockRow, Event, Op, OpWithResult, TransactionRow};
 use tokio::{
     select,
     sync::{
@@ -20,6 +21,7 @@ use crate::{
         ctrl::CtrlChannel,
         events::{BlockId, Event as FollowerEvent},
     },
+    block::{filter_map, inspect},
     database::{
         self,
         queries::{
@@ -32,6 +34,11 @@ use crate::{
     test_utils::new_mock_block_hash,
 };
 
+pub type Simulation = (
+    bitcoin::Transaction,
+    oneshot::Sender<Result<Vec<OpWithResult>>>,
+);
+
 struct Reactor {
     reader: database::Reader,
     writer: database::Writer,
@@ -41,9 +48,39 @@ struct Reactor {
     init_tx: Option<oneshot::Sender<bool>>,
     event_tx: Option<mpsc::Sender<Event>>,
     runtime: Runtime,
+    simulate_rx: Option<Receiver<Simulation>>,
 
     last_height: u64,
     option_last_hash: Option<BlockHash>,
+}
+
+pub async fn simulate_handler(
+    runtime: &mut Runtime,
+    btx: bitcoin::Transaction,
+) -> Result<Vec<OpWithResult>> {
+    let tx = filter_map((0, btx.clone())).ok_or(anyhow!("Invalid transaction"))?;
+    runtime.storage.savepoint().await?;
+    let block_row = select_block_latest(&runtime.storage.conn).await?;
+    let height = block_row.as_ref().map_or(1, |row| row.height as u64 + 1);
+    block_handler(
+        runtime,
+        &Block {
+            height,
+            hash: new_mock_block_hash(height as u32),
+            prev_hash: block_row
+                .as_ref()
+                .map_or(new_mock_block_hash(0), |row| row.hash),
+            transactions: vec![tx],
+        },
+    )
+    .await?;
+    let result = inspect(&runtime.storage.conn, btx).await;
+    runtime
+        .storage
+        .rollback()
+        .await
+        .expect("Failed to rollback");
+    result
 }
 
 pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
@@ -127,6 +164,7 @@ impl Reactor {
         cancel_token: CancellationToken,
         init_tx: Option<oneshot::Sender<bool>>,
         event_tx: Option<mpsc::Sender<Event>>,
+        simulate_rx: Option<Receiver<Simulation>>,
     ) -> Result<Self> {
         let conn = &*reader.connection().await?;
         let (last_height, option_last_hash) = match select_block_latest(conn).await? {
@@ -186,6 +224,7 @@ impl Reactor {
             cancel_token,
             ctrl,
             bitcoin_event_rx: None,
+            simulate_rx,
             last_height,
             option_last_hash,
             init_tx,
@@ -333,6 +372,14 @@ impl Reactor {
                 }
             };
 
+            let simulate_rx = async {
+                if let Some(rx) = self.simulate_rx.as_mut() {
+                    rx.recv().await
+                } else {
+                    pending().await
+                }
+            };
+
             select! {
                 _ = self.cancel_token.cancelled() => {
                     info!("Cancelled");
@@ -373,6 +420,11 @@ impl Reactor {
                         },
                     }
                 }
+                option_event = simulate_rx => {
+                    if let Some((btx, ret_tx)) = option_event {
+                        let _ = ret_tx.send(simulate_handler(&mut self.runtime, btx).await);
+                    }
+                }
             }
         }
         Ok(())
@@ -398,6 +450,7 @@ pub fn run(
     ctrl: CtrlChannel,
     init_tx: Option<oneshot::Sender<bool>>,
     event_tx: Option<mpsc::Sender<Event>>,
+    simulate_rx: Option<Receiver<Simulation>>,
 ) -> JoinHandle<()> {
     tokio::spawn({
         async move {
@@ -409,6 +462,7 @@ pub fn run(
                 cancel_token.clone(),
                 init_tx,
                 event_tx,
+                simulate_rx,
             )
             .await
             {
