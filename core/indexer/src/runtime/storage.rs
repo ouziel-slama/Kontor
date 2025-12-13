@@ -142,6 +142,27 @@ impl Storage {
         .await?)
     }
 
+    pub fn build_contract_result_row(
+        &self,
+        result_index: i64,
+        contract_id: i64,
+        func: String,
+        gas: i64,
+        value: Option<String>,
+    ) -> ContractResultRow {
+        ContractResultRow::builder()
+            .contract_id(contract_id)
+            .height(self.height)
+            .tx_index(self.tx_index)
+            .input_index(self.input_index)
+            .op_index(self.op_index)
+            .result_index(result_index)
+            .func(func)
+            .gas(gas)
+            .maybe_value(value)
+            .build()
+    }
+
     pub async fn insert_contract_result(
         &self,
         result_index: i64,
@@ -152,17 +173,7 @@ impl Storage {
     ) -> Result<i64> {
         Ok(insert_contract_result(
             &self.conn,
-            ContractResultRow::builder()
-                .contract_id(contract_id)
-                .height(self.height)
-                .tx_index(self.tx_index)
-                .input_index(self.input_index)
-                .op_index(self.op_index)
-                .result_index(result_index)
-                .func(func)
-                .gas(gas)
-                .maybe_value(value)
-                .build(),
+            self.build_contract_result_row(result_index, contract_id, func, gas, value),
         )
         .await?)
     }

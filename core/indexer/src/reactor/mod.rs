@@ -2,6 +2,7 @@ pub mod types;
 
 use anyhow::{Result, bail};
 use indexer_types::{Block, BlockRow, Event, Op, TransactionRow};
+use libsql::Connection;
 use tokio::{
     select,
     sync::{
@@ -27,6 +28,7 @@ use crate::{
             select_block_at_height, select_block_latest, select_block_with_hash,
             set_block_processed,
         },
+        types::ContractResultRow,
     },
     runtime::{ComponentCache, Runtime, Storage},
     test_utils::new_mock_block_hash,
@@ -44,6 +46,90 @@ struct Reactor {
 
     last_height: u64,
     option_last_hash: Option<BlockHash>,
+}
+
+pub async fn block_handler(
+    runtime: &mut Runtime,
+    conn: &Connection,
+    block: &Block,
+    simulate: bool,
+) -> Result<Option<ContractResultRow>> {
+    if !simulate {
+        insert_block(conn, block.into()).await?;
+    }
+
+    for t in &block.transactions {
+        if !simulate {
+            insert_transaction(
+                conn,
+                TransactionRow::builder()
+                    .height(block.height as i64)
+                    .tx_index(t.index)
+                    .txid(t.txid.to_string())
+                    .build(),
+            )
+            .await?;
+        }
+        for op in &t.ops {
+            let metadata = op.metadata();
+            let input_index = metadata.input_index;
+            let op_return_data = t.op_return_data.get(&(input_index as u64)).cloned();
+            info!("Op return data: {:#?}", op_return_data);
+            runtime.set_simulate(simulate);
+            runtime
+                .set_context(
+                    block.height as i64,
+                    t.index,
+                    input_index,
+                    0,
+                    t.txid,
+                    Some(metadata.previous_output),
+                    op_return_data.map(Into::into),
+                )
+                .await;
+
+            match op {
+                Op::Publish {
+                    metadata,
+                    gas_limit,
+                    name,
+                    bytes,
+                } => {
+                    runtime.set_gas_limit(*gas_limit);
+                    let result = runtime.publish(&metadata.signer, name, bytes).await;
+                    if !simulate && result.is_err() {
+                        warn!("Publish operation failed: {:?}", result);
+                    }
+                }
+                Op::Call {
+                    metadata,
+                    gas_limit,
+                    contract,
+                    expr,
+                } => {
+                    runtime.set_gas_limit(*gas_limit);
+                    let result = runtime
+                        .execute(Some(&metadata.signer), &(contract.into()), expr)
+                        .await;
+                    if !simulate && result.is_err() {
+                        warn!("Call operation failed: {:?}", result);
+                    }
+                }
+                Op::Issuance { metadata, .. } => {
+                    let result = runtime.issuance(&metadata.signer).await;
+                    if !simulate && result.is_err() {
+                        warn!("Issuance operation failed: {:?}", result);
+                    }
+                }
+            };
+        }
+    }
+
+    if !simulate {
+        set_block_processed(conn, block.height as i64).await?;
+    }
+
+    Ok(runtime.take_last_simulated_result())
 }
 
 impl Reactor {
@@ -223,77 +309,11 @@ impl Reactor {
         self.last_height = height;
         self.option_last_hash = Some(hash);
 
-        let conn = self.writer.connection();
-        insert_block(&conn, (&block).into()).await?;
-
         info!("# Block Kontor Transactions: {}", block.transactions.len());
 
-        for t in &block.transactions {
-            insert_transaction(
-                &conn,
-                TransactionRow::builder()
-                    .height(height as i64)
-                    .tx_index(t.index)
-                    .txid(t.txid.to_string())
-                    .build(),
-            )
-            .await?;
-            for op in &t.ops {
-                let metadata = op.metadata();
-                let input_index = metadata.input_index;
-                let op_return_data = t.op_return_data.get(&(input_index as u64)).cloned();
-                info!("Op return data: {:#?}", op_return_data);
-                self.runtime
-                    .set_context(
-                        height as i64,
-                        t.index,
-                        input_index,
-                        0,
-                        t.txid,
-                        Some(metadata.previous_output),
-                        op_return_data.map(Into::into),
-                    )
-                    .await;
+        let conn = self.writer.connection();
+        block_handler(&mut self.runtime, &conn, &block, false).await?;
 
-                match op {
-                    Op::Publish {
-                        metadata,
-                        gas_limit,
-                        name,
-                        bytes,
-                    } => {
-                        self.runtime.set_gas_limit(*gas_limit);
-                        let result = self.runtime.publish(&metadata.signer, name, bytes).await;
-                        if result.is_err() {
-                            warn!("Publish operation failed: {:?}", result);
-                        }
-                    }
-                    Op::Call {
-                        metadata,
-                        gas_limit,
-                        contract,
-                        expr,
-                    } => {
-                        self.runtime.set_gas_limit(*gas_limit);
-                        let result = self
-                            .runtime
-                            .execute(Some(&metadata.signer), &(contract.into()), expr)
-                            .await;
-                        if result.is_err() {
-                            warn!("Call operation failed: {:?}", result);
-                        }
-                    }
-                    Op::Issuance { metadata, .. } => {
-                        let result = self.runtime.issuance(&metadata.signer).await;
-                        if result.is_err() {
-                            warn!("Issuance operation failed: {:?}", result);
-                        }
-                    }
-                };
-            }
-        }
-
-        set_block_processed(&conn, height as i64).await?;
         if !block.transactions.is_empty()
             && let Some(tx) = &self.event_tx
         {

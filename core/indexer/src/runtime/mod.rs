@@ -53,6 +53,7 @@ use wasmtime::{
 };
 
 use crate::database::native_contracts::TOKEN;
+use crate::database::types::ContractResultRow;
 use crate::runtime::kontor::built_in::context::{OpReturnData, OutPoint};
 use crate::runtime::wit::{CoreContext, Transaction};
 use crate::{
@@ -89,6 +90,8 @@ pub struct Runtime {
     pub result_id_counter: Counter,
     pub stack: Stack<i64>,
     pub gauge: Option<FuelGauge>,
+    pub simulate: bool,
+    pub last_simulated_result: Option<ContractResultRow>,
     pub gas_limit: Option<u64>,
     pub gas_limit_for_non_procs: u64,
     pub gas_to_fuel_multiplier: u64,
@@ -141,6 +144,8 @@ impl Runtime {
             result_id_counter: Counter::new(),
             stack: Stack::new(),
             gauge: Some(FuelGauge::new()),
+            simulate: false,
+            last_simulated_result: None,
             gas_limit: None,
             gas_limit_for_non_procs: 100_000,
             gas_to_fuel_multiplier: 1_000,
@@ -188,6 +193,14 @@ impl Runtime {
         if let Some(gauge) = self.gauge.as_ref() {
             gauge.reset().await;
         }
+    }
+
+    pub fn set_simulate(&mut self, simulate: bool) {
+        self.simulate = simulate;
+    }
+
+    pub fn take_last_simulated_result(&mut self) -> Option<ContractResultRow> {
+        self.last_simulated_result.take()
     }
 
     pub fn get_storage_conn(&self) -> Connection {
@@ -240,10 +253,19 @@ impl Runtime {
         }
 
         self.storage
+            .savepoint()
+            .await
+            .expect("Failed to create savepoint");
+        self.storage
             .insert_contract(name, bytes)
             .await
             .expect("Failed to insert contract");
         self.execute(Some(signer), &address, "init()").await?;
+        if self.simulate {
+            self.storage.rollback().await.expect("Failed to rollback");
+        } else {
+            self.storage.commit().await.expect("Failed to commit");
+        }
         Ok(to_wave_expr(address.clone()))
     }
 
@@ -565,7 +587,10 @@ impl Runtime {
             }
         };
 
-        if result.as_ref().is_ok_and(|val| val.starts_with("err(")) || result.is_err() {
+        if self.simulate
+            || result.is_err()
+            || result.as_ref().is_ok_and(|val| val.starts_with("err("))
+        {
             self.storage
                 .rollback()
                 .await
@@ -585,7 +610,7 @@ impl Runtime {
     }
 
     pub async fn handle_procedure(
-        &self,
+        &mut self,
         signer: &Signer,
         contract_id: i64,
         contract_address: &ContractAddress,
@@ -619,12 +644,13 @@ impl Runtime {
             Box::pin({
                 let mut runtime = self.clone();
                 runtime.stack = Stack::new();
+                let gas_to_token_multiplier = self.gas_to_token_multiplier;
                 async move {
                     token::api::release(
                         &mut runtime,
                         &Signer::Core(Box::new(signer.clone())),
                         Decimal::from(gas)
-                            .mul(self.gas_to_token_multiplier)
+                            .mul(gas_to_token_multiplier)
                             .expect("Failed to convert gas consumed to token amount"),
                     )
                     .await
@@ -639,22 +665,33 @@ impl Runtime {
             return result;
         }
         let value = result.as_ref().map(|v| v.clone()).ok();
-        self.storage
-            .insert_contract_result(
-                self.result_id_counter.get().await as i64,
+        let result_index = self.result_id_counter.get().await as i64;
+        if self.simulate {
+            self.last_simulated_result = Some(self.storage.build_contract_result_row(
+                result_index,
                 contract_id,
                 func_name.to_string(),
                 gas as i64,
                 value,
-            )
-            .await
-            .expect("Failed to insert contract result");
+            ))
+        } else {
+            self.storage
+                .insert_contract_result(
+                    result_index,
+                    contract_id,
+                    func_name.to_string(),
+                    gas as i64,
+                    value,
+                )
+                .await
+                .expect("Failed to insert contract result");
+        }
         self.result_id_counter.increment().await;
         result
     }
 
     async fn _call<T>(
-        &self,
+        &mut self,
         accessor: &Accessor<T, Self>,
         signer: Option<Resource<Signer>>,
         contract_address: &ContractAddress,
