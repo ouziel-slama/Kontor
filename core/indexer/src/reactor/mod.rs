@@ -1,7 +1,8 @@
 pub mod types;
 
-use anyhow::{Result, bail};
-use indexer_types::{Block, BlockRow, Event, Op, TransactionRow};
+use anyhow::{Result, anyhow, bail};
+use futures_util::future::pending;
+use indexer_types::{Block, BlockRow, Event, Op, OpWithResult, TransactionRow};
 use tokio::{
     select,
     sync::{
@@ -20,6 +21,7 @@ use crate::{
         ctrl::CtrlChannel,
         events::{BlockId, Event as FollowerEvent},
     },
+    block::{filter_map, inspect},
     database::{
         self,
         queries::{
@@ -32,6 +34,11 @@ use crate::{
     test_utils::new_mock_block_hash,
 };
 
+pub type Simulation = (
+    bitcoin::Transaction,
+    oneshot::Sender<Result<Vec<OpWithResult>>>,
+);
+
 struct Reactor {
     reader: database::Reader,
     writer: database::Writer,
@@ -41,9 +48,111 @@ struct Reactor {
     init_tx: Option<oneshot::Sender<bool>>,
     event_tx: Option<mpsc::Sender<Event>>,
     runtime: Runtime,
+    simulate_rx: Option<Receiver<Simulation>>,
 
     last_height: u64,
     option_last_hash: Option<BlockHash>,
+}
+
+pub async fn simulate_handler(
+    runtime: &mut Runtime,
+    btx: bitcoin::Transaction,
+) -> Result<Vec<OpWithResult>> {
+    let tx = filter_map((0, btx.clone())).ok_or(anyhow!("Invalid transaction"))?;
+    runtime.storage.savepoint().await?;
+    let block_row = select_block_latest(&runtime.storage.conn).await?;
+    let height = block_row.as_ref().map_or(1, |row| row.height as u64 + 1);
+    block_handler(
+        runtime,
+        &Block {
+            height,
+            hash: new_mock_block_hash(height as u32),
+            prev_hash: block_row
+                .as_ref()
+                .map_or(new_mock_block_hash(0), |row| row.hash),
+            transactions: vec![tx],
+        },
+    )
+    .await?;
+    let result = inspect(&runtime.storage.conn, btx).await;
+    runtime
+        .storage
+        .rollback()
+        .await
+        .expect("Failed to rollback");
+    result
+}
+
+pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
+    insert_block(&runtime.storage.conn, block.into()).await?;
+
+    for t in &block.transactions {
+        insert_transaction(
+            &runtime.storage.conn,
+            TransactionRow::builder()
+                .height(block.height as i64)
+                .tx_index(t.index)
+                .txid(t.txid.to_string())
+                .build(),
+        )
+        .await?;
+        for op in &t.ops {
+            let metadata = op.metadata();
+            let input_index = metadata.input_index;
+            let op_return_data = t.op_return_data.get(&(input_index as u64)).cloned();
+            info!("Op return data: {:#?}", op_return_data);
+            runtime
+                .set_context(
+                    block.height as i64,
+                    t.index,
+                    input_index,
+                    0,
+                    t.txid,
+                    Some(metadata.previous_output),
+                    op_return_data.map(Into::into),
+                )
+                .await;
+
+            match op {
+                Op::Publish {
+                    metadata,
+                    gas_limit,
+                    name,
+                    bytes,
+                } => {
+                    runtime.set_gas_limit(*gas_limit);
+                    let result = runtime.publish(&metadata.signer, name, bytes).await;
+                    if result.is_err() {
+                        warn!("Publish operation failed: {:?}", result);
+                    }
+                }
+                Op::Call {
+                    metadata,
+                    gas_limit,
+                    contract,
+                    expr,
+                } => {
+                    runtime.set_gas_limit(*gas_limit);
+                    let result = runtime
+                        .execute(Some(&metadata.signer), &(contract.into()), expr)
+                        .await;
+                    if result.is_err() {
+                        warn!("Call operation failed: {:?}", result);
+                    }
+                }
+                Op::Issuance { metadata, .. } => {
+                    let result = runtime.issuance(&metadata.signer).await;
+                    if result.is_err() {
+                        warn!("Issuance operation failed: {:?}", result);
+                    }
+                }
+            };
+        }
+    }
+
+    set_block_processed(&runtime.storage.conn, block.height as i64).await?;
+
+    Ok(())
 }
 
 impl Reactor {
@@ -55,6 +164,7 @@ impl Reactor {
         cancel_token: CancellationToken,
         init_tx: Option<oneshot::Sender<bool>>,
         event_tx: Option<mpsc::Sender<Event>>,
+        simulate_rx: Option<Receiver<Simulation>>,
     ) -> Result<Self> {
         let conn = &*reader.connection().await?;
         let (last_height, option_last_hash) = match select_block_latest(conn).await? {
@@ -114,6 +224,7 @@ impl Reactor {
             cancel_token,
             ctrl,
             bitcoin_event_rx: None,
+            simulate_rx,
             last_height,
             option_last_hash,
             init_tx,
@@ -223,77 +334,10 @@ impl Reactor {
         self.last_height = height;
         self.option_last_hash = Some(hash);
 
-        let conn = self.writer.connection();
-        insert_block(&conn, (&block).into()).await?;
-
         info!("# Block Kontor Transactions: {}", block.transactions.len());
 
-        for t in &block.transactions {
-            insert_transaction(
-                &conn,
-                TransactionRow::builder()
-                    .height(height as i64)
-                    .tx_index(t.index)
-                    .txid(t.txid.to_string())
-                    .build(),
-            )
-            .await?;
-            for op in &t.ops {
-                let metadata = op.metadata();
-                let input_index = metadata.input_index;
-                let op_return_data = t.op_return_data.get(&(input_index as u64)).cloned();
-                info!("Op return data: {:#?}", op_return_data);
-                self.runtime
-                    .set_context(
-                        height as i64,
-                        t.index,
-                        input_index,
-                        0,
-                        t.txid,
-                        Some(metadata.previous_output),
-                        op_return_data.map(Into::into),
-                    )
-                    .await;
+        block_handler(&mut self.runtime, &block).await?;
 
-                match op {
-                    Op::Publish {
-                        metadata,
-                        gas_limit,
-                        name,
-                        bytes,
-                    } => {
-                        self.runtime.set_gas_limit(*gas_limit);
-                        let result = self.runtime.publish(&metadata.signer, name, bytes).await;
-                        if result.is_err() {
-                            warn!("Publish operation failed: {:?}", result);
-                        }
-                    }
-                    Op::Call {
-                        metadata,
-                        gas_limit,
-                        contract,
-                        expr,
-                    } => {
-                        self.runtime.set_gas_limit(*gas_limit);
-                        let result = self
-                            .runtime
-                            .execute(Some(&metadata.signer), &(contract.into()), expr)
-                            .await;
-                        if result.is_err() {
-                            warn!("Call operation failed: {:?}", result);
-                        }
-                    }
-                    Op::Issuance { metadata, .. } => {
-                        let result = self.runtime.issuance(&metadata.signer).await;
-                        if result.is_err() {
-                            warn!("Issuance operation failed: {:?}", result);
-                        }
-                    }
-                };
-            }
-        }
-
-        set_block_processed(&conn, height as i64).await?;
         if !block.transactions.is_empty()
             && let Some(tx) = &self.event_tx
         {
@@ -325,6 +369,14 @@ impl Reactor {
                 Some(rx) => rx,
                 None => {
                     bail!("handler loop started with missing event channel");
+                }
+            };
+
+            let simulate_rx = async {
+                if let Some(rx) = self.simulate_rx.as_mut() {
+                    rx.recv().await
+                } else {
+                    pending().await
                 }
             };
 
@@ -368,6 +420,11 @@ impl Reactor {
                         },
                     }
                 }
+                option_event = simulate_rx => {
+                    if let Some((btx, ret_tx)) = option_event {
+                        let _ = ret_tx.send(simulate_handler(&mut self.runtime, btx).await);
+                    }
+                }
             }
         }
         Ok(())
@@ -393,6 +450,7 @@ pub fn run(
     ctrl: CtrlChannel,
     init_tx: Option<oneshot::Sender<bool>>,
     event_tx: Option<mpsc::Sender<Event>>,
+    simulate_rx: Option<Receiver<Simulation>>,
 ) -> JoinHandle<()> {
     tokio::spawn({
         async move {
@@ -404,6 +462,7 @@ pub fn run(
                 cancel_token.clone(),
                 init_tx,
                 event_tx,
+                simulate_rx,
             )
             .await
             {

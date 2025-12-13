@@ -10,11 +10,10 @@ use indexer_types::{
     OpWithResult, PaginatedResponse, ResultRow, RevealOutputs, RevealQuery, TransactionHex,
     TransactionRow, ViewExpr, ViewResult,
 };
-use libsql::Connection;
 
 use crate::{
     api::compose::reveal_inputs_from_query,
-    block::filter_map,
+    block::inspect,
     built_info,
     database::{
         queries::{
@@ -171,22 +170,6 @@ pub async fn get_transaction(
     }
 }
 
-async fn inspect(conn: &Connection, btx: bitcoin::Transaction) -> Result<Vec<OpWithResult>> {
-    let mut ops = Vec::new();
-    if let Some(tx) = filter_map((0, btx)) {
-        for op in tx.ops {
-            let id = OpResultId::builder()
-                .txid(tx.txid.to_string())
-                .input_index(op.metadata().input_index)
-                .op_index(0)
-                .build();
-            let result = get_op_result(conn, &id).await?.map(Into::into);
-            ops.push(OpWithResult { op, result });
-        }
-    }
-    Ok(ops.into())
-}
-
 pub async fn post_transaction_hex_inspect(
     State(env): State<Env>,
     Json(TransactionHex { hex }): Json<TransactionHex>,
@@ -194,7 +177,7 @@ pub async fn post_transaction_hex_inspect(
     let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
         .map_err(|e| HttpError::BadRequest(e.to_string()))?;
     let conn = env.reader.connection().await?;
-    inspect(&conn, btx).await
+    Ok(inspect(&conn, btx).await?.into())
 }
 
 pub async fn get_transaction_inspect(
@@ -205,7 +188,21 @@ pub async fn get_transaction_inspect(
         .map_err(|e| HttpError::BadRequest(format!("Invalid txid: {}", e)))?;
     let btx = env.bitcoin.get_raw_transaction(&txid).await?;
     let conn = env.reader.connection().await?;
-    inspect(&conn, btx).await
+    Ok(inspect(&conn, btx).await?.into())
+}
+
+pub async fn post_simulate(
+    State(env): State<Env>,
+    Json(TransactionHex { hex }): Json<TransactionHex>,
+) -> Result<Vec<OpWithResult>> {
+    let btx = encode::deserialize_hex::<bitcoin::Transaction>(&hex)
+        .map_err(|e| HttpError::BadRequest(e.to_string()))?;
+    let (ret_tx, ret_rx) = tokio::sync::oneshot::channel();
+    env.simulate_tx.send((btx, ret_tx)).await?;
+    Ok(ret_rx
+        .await?
+        .map_err(|e| HttpError::BadRequest(e.to_string()))?
+        .into())
 }
 
 pub async fn post_contract(

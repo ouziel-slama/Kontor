@@ -240,11 +240,21 @@ impl Runtime {
         }
 
         self.storage
+            .savepoint()
+            .await
+            .expect("Failed to create savepoint");
+        self.storage
             .insert_contract(name, bytes)
             .await
             .expect("Failed to insert contract");
-        self.execute(Some(signer), &address, "init()").await?;
-        Ok(to_wave_expr(address.clone()))
+        let result = self.execute(Some(signer), &address, "init()").await;
+        if result.is_err() {
+            self.storage.rollback().await.expect("Failed to rollback");
+            result
+        } else {
+            self.storage.commit().await.expect("Failed to commit");
+            Ok(to_wave_expr(address.clone()))
+        }
     }
 
     pub async fn issuance(&mut self, signer: &Signer) -> Result<()> {
@@ -565,7 +575,7 @@ impl Runtime {
             }
         };
 
-        if result.as_ref().is_ok_and(|val| val.starts_with("err(")) || result.is_err() {
+        if result.is_err() || result.as_ref().is_ok_and(|val| val.starts_with("err(")) {
             self.storage
                 .rollback()
                 .await
@@ -585,7 +595,7 @@ impl Runtime {
     }
 
     pub async fn handle_procedure(
-        &self,
+        &mut self,
         signer: &Signer,
         contract_id: i64,
         contract_address: &ContractAddress,
@@ -619,12 +629,13 @@ impl Runtime {
             Box::pin({
                 let mut runtime = self.clone();
                 runtime.stack = Stack::new();
+                let gas_to_token_multiplier = self.gas_to_token_multiplier;
                 async move {
                     token::api::release(
                         &mut runtime,
                         &Signer::Core(Box::new(signer.clone())),
                         Decimal::from(gas)
-                            .mul(self.gas_to_token_multiplier)
+                            .mul(gas_to_token_multiplier)
                             .expect("Failed to convert gas consumed to token amount"),
                     )
                     .await
@@ -639,9 +650,10 @@ impl Runtime {
             return result;
         }
         let value = result.as_ref().map(|v| v.clone()).ok();
+        let result_index = self.result_id_counter.get().await as i64;
         self.storage
             .insert_contract_result(
-                self.result_id_counter.get().await as i64,
+                result_index,
                 contract_id,
                 func_name.to_string(),
                 gas as i64,
@@ -654,7 +666,7 @@ impl Runtime {
     }
 
     async fn _call<T>(
-        &self,
+        &mut self,
         accessor: &Accessor<T, Self>,
         signer: Option<Resource<Signer>>,
         contract_address: &ContractAddress,

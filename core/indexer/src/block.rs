@@ -3,10 +3,14 @@ use bitcoin::{
     opcodes::all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
     script::Instruction,
 };
-use indexer_types::{Inst, Op, OpMetadata, Transaction, deserialize};
+use indexer_types::{Inst, Op, OpMetadata, OpWithResult, Transaction, deserialize};
 use indexmap::IndexMap;
+use libsql::Connection;
 
-use crate::runtime::wit::Signer;
+use crate::{
+    database::{queries::get_op_result, types::OpResultId},
+    runtime::wit::Signer,
+};
 
 pub type TransactionFilterMap = fn((usize, bitcoin::Transaction)) -> Option<Transaction>;
 
@@ -101,4 +105,23 @@ pub fn filter_map((tx_index, tx): (usize, bitcoin::Transaction)) -> Option<Trans
         ops,
         op_return_data,
     })
+}
+
+pub async fn inspect(
+    conn: &Connection,
+    btx: bitcoin::Transaction,
+) -> anyhow::Result<Vec<OpWithResult>> {
+    let mut ops = Vec::new();
+    if let Some(tx) = filter_map((0, btx)) {
+        for op in tx.ops {
+            let id = OpResultId::builder()
+                .txid(tx.txid.to_string())
+                .input_index(op.metadata().input_index)
+                .op_index(0)
+                .build();
+            let result = get_op_result(conn, &id).await?.map(Into::into);
+            ops.push(OpWithResult { op, result });
+        }
+    }
+    Ok(ops)
 }

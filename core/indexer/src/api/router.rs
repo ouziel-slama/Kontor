@@ -20,7 +20,7 @@ use tracing::{Level, Span, error, field, info, span};
 
 use crate::api::handlers::{
     get_blocks, get_contract, get_contracts, get_index, get_result, get_results, get_transaction,
-    get_transaction_inspect, get_transactions, post_compose, post_contract,
+    get_transaction_inspect, get_transactions, post_compose, post_contract, post_simulate,
     post_transaction_hex_inspect, stop,
 };
 
@@ -110,6 +110,7 @@ pub fn new(context: Env) -> Router {
                         .route("/{txid}", get(get_transaction))
                         .route("/{txid}/inspect", get(get_transaction_inspect))
                         .route("/inspect", post(post_transaction_hex_inspect))
+                        .route("/simulate", post(post_simulate))
                         .nest(
                             "/compose",
                             Router::new()

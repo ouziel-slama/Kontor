@@ -1,5 +1,6 @@
 use std::panic;
 use std::sync::Arc;
+use std::thread::available_parallelism;
 
 use crate::api::Env;
 use anyhow::Result;
@@ -50,6 +51,7 @@ async fn main() -> Result<()> {
     let available = Arc::new(RwLock::new(false));
     let (event_tx, event_rx) = mpsc::channel(10);
     let event_subscriber = EventSubscriber::new();
+    let (simulate_tx, simulate_rx) = mpsc::channel(available_parallelism()?.into());
     handles.push(event_subscriber.run(cancel_token.clone(), event_rx));
     handles.push(
         api::run(Env {
@@ -60,6 +62,7 @@ async fn main() -> Result<()> {
             event_subscriber: event_subscriber.clone(),
             bitcoin: bitcoin.clone(),
             runtime_pool: runtime::pool::new(config.data_dir.clone(), filename.to_string()).await?,
+            simulate_tx,
         })
         .await?,
     );
@@ -74,6 +77,7 @@ async fn main() -> Result<()> {
         ctrl,
         Some(init_tx),
         Some(event_tx),
+        Some(simulate_rx),
     ));
     init_rx.await?;
     let (init_tx, init_rx) = oneshot::channel();
