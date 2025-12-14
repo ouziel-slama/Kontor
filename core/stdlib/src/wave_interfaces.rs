@@ -1,3 +1,5 @@
+use alloc::{string::String, vec::Vec};
+
 pub trait WaveType {
     fn wave_type() -> wasm_wave::value::Type;
 }

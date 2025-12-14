@@ -1,3 +1,4 @@
+#![no_std]
 extern crate alloc;
 
 mod dot_path_buf;
@@ -21,16 +22,4 @@ pub trait CheckedArithmetics<E, Other = Self> {
     fn sub(self, other: Other) -> Result<Self::Output, E>;
     fn mul(self, other: Other) -> Result<Self::Output, E>;
     fn div(self, other: Other) -> Result<Self::Output, E>;
-}
-
-impl FromString for String {
-    fn from_string(s: String) -> Self {
-        s
-    }
-}
-
-impl FromString for u64 {
-    fn from_string(s: String) -> Self {
-        s.parse::<u64>().unwrap()
-    }
 }

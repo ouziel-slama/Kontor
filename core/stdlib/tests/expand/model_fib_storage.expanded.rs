@@ -124,9 +124,12 @@ impl FibStorageCacheModel {
     pub fn load(&self) -> Map<u64, FibValue> {
         Map::new(&[])
     }
-    pub fn keys<'a, T: ToString + FromString + Clone + 'a>(
+    pub fn keys<'a, T: ToString + FromStr + Clone + 'a>(
         &'a self,
-    ) -> impl Iterator<Item = T> + 'a {
+    ) -> impl Iterator<Item = T> + 'a
+    where
+        <T as FromStr>::Err: Debug,
+    {
         self.ctx.__get_keys(&self.base_path)
     }
 }
@@ -195,9 +198,12 @@ impl FibStorageCacheWriteModel {
     pub fn load(&self) -> Map<u64, FibValue> {
         Map::new(&[])
     }
-    pub fn keys<'a, T: ToString + FromString + Clone + 'a>(
+    pub fn keys<'a, T: ToString + FromStr + Clone + 'a>(
         &'a self,
-    ) -> impl Iterator<Item = T> + 'a {
+    ) -> impl Iterator<Item = T> + 'a
+    where
+        <T as FromStr>::Err: Debug,
+    {
         self.ctx.__get_keys(&self.base_path)
     }
 }
