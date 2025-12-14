@@ -1,9 +1,5 @@
 use crate::DotPathBuf;
 
-pub trait FromString {
-    fn from_string(s: String) -> Self;
-}
-
 pub trait Store<T>: Clone {
     fn __set(ctx: &alloc::rc::Rc<T>, base_path: DotPathBuf, value: Self);
 }

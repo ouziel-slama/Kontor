@@ -1,5 +1,7 @@
 use core::{fmt::Display, ops::Deref, str::FromStr};
 
+use alloc::{string::String, vec::Vec};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DotPathBuf {
     segments: Vec<String>,

@@ -21,6 +21,7 @@ pub fn generate(config: Config) -> TokenStream {
             string::{String, ToString},
             vec::Vec,
         };
+        use core::{fmt::Debug, str::FromStr};
 
         wit_bindgen::generate!({
             world: "root",
@@ -36,16 +37,28 @@ pub fn generate(config: Config) -> TokenStream {
         use kontor::built_in::foreign::{ContractAddressModel, ContractAddressWriteModel, get_contract_address};
         use kontor::built_in::numbers::{IntegerModel, IntegerWriteModel, DecimalModel, DecimalWriteModel};
 
-        fn make_keys_iterator<T: FromString>(keys: context::Keys) -> impl Iterator<Item = T> {
-            struct KeysIterator<T: FromString> {
+        fn make_keys_iterator<T>(keys: context::Keys) -> impl Iterator<Item = T>
+        where
+            T: FromStr,
+            <T as FromStr>::Err: Debug,
+        {
+            struct KeysIterator<T>
+            where
+                T: FromStr,
+                <T as FromStr>::Err: Debug,
+            {
                 keys: context::Keys,
                 _phantom: core::marker::PhantomData<T>,
             }
 
-            impl<T: FromString> Iterator for KeysIterator<T> {
+            impl<T> Iterator for KeysIterator<T>
+            where
+                T: FromStr,
+                <T as FromStr>::Err: Debug,
+            {
                 type Item = T;
                 fn next(&mut self) -> Option<Self::Item> {
-                    self.keys.next().map(|s| T::from_string(s))
+                    self.keys.next().map(|s| T::from_str(&s).unwrap())
                 }
             }
 
@@ -77,7 +90,10 @@ pub fn generate(config: Config) -> TokenStream {
                 self.get_list_u8(path)
             }
 
-            fn __get_keys<'a, T: ToString + FromString + Clone + 'a>(self: &alloc::rc::Rc<Self>, path: &'a str) -> impl Iterator<Item = T> + 'a {
+            fn __get_keys<'a, T: ToString + FromStr + Clone + 'a>(self: &alloc::rc::Rc<Self>, path: &'a str) -> impl Iterator<Item = T> + 'a
+            where                                       // <--- Add this section
+                <T as FromStr>::Err: Debug,
+            {
                 make_keys_iterator(self.get_keys(path))
             }
 
@@ -116,7 +132,10 @@ pub fn generate(config: Config) -> TokenStream {
                 self.get_list_u8(path)
             }
 
-            fn __get_keys<'a, T: ToString + FromString + Clone + 'a>(self: &alloc::rc::Rc<Self>, path: &'a str) -> impl Iterator<Item = T> + 'a{
+            fn __get_keys<'a, T: ToString + FromStr + Clone + 'a>(self: &alloc::rc::Rc<Self>, path: &'a str) -> impl Iterator<Item = T> + 'a
+            where                                       // <--- Add this section
+                <T as FromStr>::Err: Debug,
+            {
                 make_keys_iterator(self.get_keys(path))
             }
 
@@ -338,11 +357,11 @@ pub fn generate(config: Config) -> TokenStream {
         }
 
         #[derive(Clone)]
-        pub struct Map<K: ToString + FromString + Clone, V: Store<context::ProcStorage>> {
+        pub struct Map<K: ToString + FromStr + Clone, V: Store<context::ProcStorage>> {
             pub entries: Vec<(K, V)>,
         }
 
-        impl<K: ToString + FromString + Clone, V: Store<context::ProcStorage>> Map<K, V> {
+        impl<K: ToString + FromStr + Clone, V: Store<context::ProcStorage>> Map<K, V> {
             pub fn new(entries: &[(K, V)]) -> Self {
                 Map {
                     entries: entries.to_vec(),
@@ -350,7 +369,7 @@ pub fn generate(config: Config) -> TokenStream {
             }
         }
 
-        impl<K: ToString + FromString + Clone, V: Store<context::ProcStorage>> Default for Map<K, V> {
+        impl<K: ToString + FromStr + Clone, V: Store<context::ProcStorage>> Default for Map<K, V> {
             fn default() -> Self {
                 Self {
                     entries: Default::default(),
@@ -358,7 +377,7 @@ pub fn generate(config: Config) -> TokenStream {
             }
         }
 
-        impl<K: ToString + FromString + Clone, V: Store<context::ProcStorage>> Store<context::ProcStorage> for Map<K, V> {
+        impl<K: ToString + FromStr + Clone, V: Store<context::ProcStorage>> Store<context::ProcStorage> for Map<K, V> {
             fn __set(ctx: &alloc::rc::Rc<context::ProcStorage>, base_path: DotPathBuf, value: Map<K, V>) {
                 for (k, v) in value.entries.into_iter() {
                     ctx.__set(base_path.push(k.to_string()), v)
