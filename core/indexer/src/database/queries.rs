@@ -964,9 +964,9 @@ pub async fn insert_file_metadata(
         VALUES (?, ?, ?, ?, ?, ?)"#,
         params![
             entry.file_id.clone(),
-            entry.root.clone(),
-            entry.padded_len,
-            entry.original_size,
+            entry.root,
+            entry.padded_len as i64,
+            entry.original_size as i64,
             entry.filename.clone(),
             entry.height,
         ],

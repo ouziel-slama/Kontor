@@ -1131,8 +1131,12 @@ impl built_in::file_ledger::Host for Runtime {
         let metadata = FileMetadata {
             file_id,
             root: root_field,
-            padded_len: padded_len as usize,
-            original_size: original_size as usize,
+            padded_len: padded_len
+                .try_into()
+                .map_err(|e| anyhow!("Failed to convert padded_len to usize: {}", e))?,
+            original_size: original_size
+                .try_into()
+                .map_err(|e| anyhow!("Failed to convert original_size to usize: {}", e))?,
             filename,
         };
 

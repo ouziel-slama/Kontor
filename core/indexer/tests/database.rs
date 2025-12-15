@@ -648,13 +648,13 @@ async fn test_file_metadata_operations() -> Result<()> {
     // Insert a file metadata entry
     let file_id = "file_abc123".to_string();
     let root = [1u8; 32]; // 32 bytes for FieldElement
-    let padded_len = 1024i64;
-    let original_size = 1000i64;
+    let padded_len = 1024usize;
+    let original_size = 1000usize;
     let filename = "test_file.dat".to_string();
 
     let entry1 = FileMetadataRow::builder()
         .file_id(file_id.clone())
-        .root(root.clone())
+        .root(root)
         .padded_len(padded_len)
         .original_size(original_size)
         .filename(filename.clone())
@@ -691,13 +691,13 @@ async fn test_file_metadata_operations() -> Result<()> {
 
     let file_id2 = "file_def456".to_string();
     let root2 = [2u8; 32];
-    let padded_len2 = 2048i64;
-    let original_size2 = 2000i64;
+    let padded_len2 = 2048usize;
+    let original_size2 = 2000usize;
     let filename2 = "test_file2.dat".to_string();
 
     let entry2 = FileMetadataRow::builder()
         .file_id(file_id2.clone())
-        .root(root2.clone())
+        .root(root2)
         .padded_len(padded_len2)
         .original_size(original_size2)
         .filename(filename2.clone())

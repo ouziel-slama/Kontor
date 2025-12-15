@@ -277,23 +277,22 @@ pub struct FileMetadataRow {
     pub id: i64,
     pub file_id: String,
     pub root: [u8; 32],
-    pub padded_len: i64,
-    pub original_size: i64,
+    pub padded_len: usize,
+    pub original_size: usize,
     pub filename: String,
     pub height: i64,
 }
 
 impl FileMetadataRow {
     pub fn from_metadata(metadata: &FileMetadata, height: i64) -> Self {
-        Self {
-            id: 0,
-            file_id: metadata.file_id.clone(),
-            root: metadata.root.to_bytes(),
-            padded_len: metadata.padded_len as i64,
-            original_size: metadata.original_size as i64,
-            filename: metadata.filename.clone(),
-            height,
-        }
+        Self::builder()
+            .file_id(metadata.file_id.clone())
+            .root(metadata.root.to_bytes())
+            .padded_len(metadata.padded_len)
+            .original_size(metadata.original_size)
+            .filename(metadata.filename.clone())
+            .height(height)
+            .build()
     }
 
     pub fn to_metadata(&self) -> anyhow::Result<FileMetadata> {
@@ -304,8 +303,8 @@ impl FileMetadataRow {
         Ok(FileMetadata {
             file_id: self.file_id.clone(),
             root,
-            padded_len: self.padded_len as usize,
-            original_size: self.original_size as usize,
+            padded_len: self.padded_len,
+            original_size: self.original_size,
             filename: self.filename.clone(),
         })
     }
