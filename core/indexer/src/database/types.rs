@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DefaultOnNull, DisplayFromStr, serde_as};
 
 use crate::runtime::ContractAddress;
-use kontor_crypto::api::FileMetadata;
 
 pub trait HasRowId {
     fn id(&self) -> i64;
@@ -279,17 +278,6 @@ pub struct FileMetadataRow {
     pub root: [u8; 32],
     pub depth: i64,
     pub height: i64,
-}
-
-impl FileMetadataRow {
-    pub fn from_metadata(metadata: &FileMetadata, height: i64) -> Self {
-        Self::builder()
-            .file_id(metadata.file_id.clone())
-            .root(metadata.root.to_bytes())
-            .depth(metadata.depth() as i64)
-            .height(height)
-            .build()
-    }
 }
 
 impl FileDescriptor for FileMetadataRow {
