@@ -79,5 +79,5 @@ impl HasContractId for CoreContext {
 pub struct Transaction {}
 
 pub struct FileDescriptor {
-    pub file_metadata_row: FileMetadataRow
+    pub file_metadata_row: FileMetadataRow,
 }
