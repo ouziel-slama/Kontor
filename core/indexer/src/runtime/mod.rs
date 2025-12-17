@@ -730,6 +730,19 @@ impl Runtime {
         result
     }
 
+    async fn _add_file<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        file_id: String,
+        root: Vec<u8>,
+        tree_depth: i64,
+    ) -> Result<()> {
+        Fuel::AddFile.consume(accessor, self.gauge.as_ref()).await?;
+        self.file_ledger
+            .add_file(&self.storage, file_id, root, tree_depth)
+            .await
+    }
+
     async fn _get_primitive<S, T: HasContractId, R: for<'de> Deserialize<'de>>(
         &self,
         accessor: &Accessor<S, Self>,
@@ -1106,25 +1119,23 @@ impl HasData for Runtime {
 
 impl built_in::error::Host for Runtime {}
 
-impl built_in::crypto::Host for Runtime {}
+impl built_in::file_ledger::Host for Runtime {}
 
-impl built_in::file_ledger::Host for Runtime {
-    async fn register_file(
-        &mut self,
+impl built_in::file_ledger::HostWithStore for Runtime {
+    async fn register_file<T>(
+        accessor: &Accessor<T, Self>,
         file_id: String,
         root: Vec<u8>,
         tree_depth: i64,
-    ) -> Result<Result<(), String>> {
-        match self
-            .file_ledger
-            .add_file(&self.storage, file_id, root, tree_depth)
+    ) -> Result<()> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._add_file(accessor, file_id, root, tree_depth)
             .await
-        {
-            Ok(()) => Ok(Ok(())),
-            Err(e) => Ok(Err(e.to_string())),
-        }
     }
 }
+
+impl built_in::crypto::Host for Runtime {}
 
 impl built_in::crypto::HostWithStore for Runtime {
     async fn hash<T>(accessor: &Accessor<T, Self>, input: String) -> Result<(String, Vec<u8>)> {
