@@ -8,6 +8,7 @@ pub mod numerics;
 pub mod pool;
 mod stack;
 mod storage;
+pub mod storage_agreement;
 pub mod token;
 mod types;
 pub mod wit;
@@ -53,7 +54,7 @@ use wasmtime::{
     },
 };
 
-use crate::database::native_contracts::TOKEN;
+use crate::database::native_contracts::{STORAGE_AGREEMENT, TOKEN};
 use crate::database::types::FileMetadataRow;
 use crate::runtime::kontor::built_in::context::{OpReturnData, OutPoint};
 use crate::runtime::wit::{CoreContext, FileDescriptor, Transaction};
@@ -237,6 +238,12 @@ impl Runtime {
         self.set_gas_limit(self.gas_limit_for_non_procs);
         self.publish(&Signer::Core(Box::new(Signer::Nobody)), "token", TOKEN)
             .await?;
+        self.publish(
+            &Signer::Core(Box::new(Signer::Nobody)),
+            "storage_agreement",
+            STORAGE_AGREEMENT,
+        )
+        .await?;
         Ok(())
     }
 
