@@ -94,6 +94,7 @@ pub fn import(
                 "core-context",
                 "signer",
                 "file-descriptor",
+                "raw-file-descriptor",
                 "error",
                 "keys",
                 "integer",
@@ -132,6 +133,7 @@ pub fn import(
     let supers = if test {
         quote! {
             use super::ContractAddress;
+            use super::RawFileDescriptor;
             use super::Error;
             use super::AnyhowError;
             use super::Runtime;
@@ -143,6 +145,7 @@ pub fn import(
             use super::context;
             use super::foreign;
             use super::foreign::ContractAddress;
+            use super::file_ledger::RawFileDescriptor;
             use super::error::Error;
             use super::numbers::{ Decimal, Integer };
         }

@@ -4,16 +4,7 @@ world root {
   include kontor:built-in/built-in;
   use kontor:built-in/context.{view-context, proc-context};
   use kontor:built-in/error.{error};
-
-  // ─────────────────────────────────────────────────────────────────
-  // Input Types
-  // ─────────────────────────────────────────────────────────────────
-
-  record file-metadata {
-    file-id: string,
-    root: list<u8>,
-    depth: s64,
-  }
+  use kontor:built-in/file-ledger.{raw-file-descriptor};
 
   // ─────────────────────────────────────────────────────────────────
   // Output/Storage Types
@@ -23,7 +14,7 @@ world root {
     agreement-id: string,
     file-id: string,
     root: list<u8>,
-    depth: s64,
+    depth: u64,
     active: bool,
   }
 
@@ -39,7 +30,7 @@ world root {
 
   export create-agreement: func(
     ctx: borrow<proc-context>,
-    metadata: file-metadata
+    descriptor: raw-file-descriptor
   ) -> result<create-agreement-result, error>;
 
   export get-agreement: func(

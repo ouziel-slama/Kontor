@@ -21,7 +21,7 @@ const DEFAULT_CHALLENGE_DEADLINE_BLOCKS: u64 = 2016;
 struct Agreement {
     pub file_id: String,
     pub root: Vec<u8>,
-    pub depth: i64,
+    pub depth: u64,
     pub active: bool,
 }
 
@@ -64,20 +64,20 @@ impl Guest for StorageAgreement {
 
     fn create_agreement(
         ctx: &ProcContext,
-        metadata: FileMetadata,
+        descriptor: RawFileDescriptor,
     ) -> Result<CreateAgreementResult, Error> {
         // Validate inputs
-        if metadata.file_id.is_empty() {
+        if descriptor.file_id.is_empty() {
             return Err(Error::Message("file_id cannot be empty".to_string()));
         }
-        if metadata.depth <= 0 {
+        if descriptor.depth == 0 {
             return Err(Error::Message("depth must be positive".to_string()));
         }
 
         let model = ctx.model();
 
         // Check for duplicate agreement
-        let agreement_id = metadata.file_id.clone();
+        let agreement_id = descriptor.file_id.clone();
         if model.agreements().get(&agreement_id).is_some() {
             return Err(Error::Message(format!(
                 "agreement already exists for file_id: {}",
@@ -85,21 +85,15 @@ impl Guest for StorageAgreement {
             )));
         }
 
-        let root = metadata.root.clone();
-        let fd = file_ledger::FileDescriptor::from_raw(&file_ledger::RawFileDescriptor {
-            file_id: metadata.file_id.clone(),
-            root,
-            depth: metadata.depth as u64,
-        })?;
-
-        // Register with the FileLedger host function
+        // Validate and register with the FileLedger host function
+        let fd = file_ledger::FileDescriptor::from_raw(&descriptor)?;
         file_ledger::add_file(&fd);
 
         // Create the agreement (starts inactive until nodes join)
         let agreement = Agreement {
-            file_id: metadata.file_id,
-            root: metadata.root,
-            depth: metadata.depth,
+            file_id: descriptor.file_id,
+            root: descriptor.root,
+            depth: descriptor.depth,
             active: false,
         };
 
