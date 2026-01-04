@@ -8,6 +8,7 @@ pub use crate::{
             Signer,
             kontor::built_in::{
                 error::Error,
+                file_ledger::RawFileDescriptor,
                 foreign::ContractAddress,
                 numbers::{Decimal, Integer},
             },
