@@ -1168,6 +1168,46 @@ impl Runtime {
         self.table.lock().await.delete(rep)?;
         Ok(())
     }
+
+    async fn _verify_challenge_proof(
+        &self,
+        challenge_id: String,
+        _proof: Vec<u8>,
+    ) -> Result<Result<built_in::challenges::VerifyProofResult, Error>> {
+        use crate::database::queries::{get_challenge_by_id, update_challenge_status};
+        use crate::database::types::ChallengeStatus;
+
+        // Look up the challenge
+        let challenge = match get_challenge_by_id(&self.storage.conn, &challenge_id).await? {
+            Some(c) => c,
+            None => {
+                return Ok(Ok(built_in::challenges::VerifyProofResult {
+                    verified: false,
+                    error_message: Some(format!("Challenge not found: {}", challenge_id)),
+                }));
+            }
+        };
+
+        // Check if challenge is still pending
+        if challenge.status != ChallengeStatus::Pending {
+            return Ok(Ok(built_in::challenges::VerifyProofResult {
+                verified: false,
+                error_message: Some("Challenge is not pending".to_string()),
+            }));
+        }
+
+        // TODO: Implement actual proof verification using kontor-crypto
+        // 1. Get the file root from the agreement (need to read from contract state)
+        // 2. Call kontor_crypto::verify_proof(file_root, chunk_index, proof)
+        // 3. Return result
+        let _chunk_index = challenge.chunk_index;
+        let _agreement_id = challenge.agreement_id.clone();
+        todo!("Implement proof verification with kontor-crypto");
+
+        // When implemented, on success:
+        // update_challenge_status(&self.storage.conn, &challenge_id, ChallengeStatus::Proven).await?;
+        // Ok(Ok(built_in::challenges::VerifyProofResult { verified: true, error_message: None }))
+    }
 }
 
 impl HasData for Runtime {
@@ -2158,5 +2198,20 @@ impl built_in::numbers::HostWithStore for Runtime {
             )
             .await?;
         Ok(numerics::log10_decimal(a))
+    }
+}
+
+impl built_in::challenges::Host for Runtime {}
+
+impl built_in::challenges::HostWithStore for Runtime {
+    async fn verify_challenge_proof<T>(
+        accessor: &Accessor<T, Self>,
+        challenge_id: String,
+        proof: Vec<u8>,
+    ) -> Result<Result<built_in::challenges::VerifyProofResult, Error>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._verify_challenge_proof(challenge_id, proof)
+            .await
     }
 }

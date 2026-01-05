@@ -7,8 +7,9 @@ use thiserror::Error as ThisError;
 
 use crate::{
     database::types::{
-        BlockQuery, CheckpointRow, ContractResultPublicRow, ContractResultRow, ContractRow,
-        FileMetadataRow, HasRowId, OpResultId, OrderDirection, ResultQuery, TransactionQuery,
+        BlockQuery, ChallengeQuery, ChallengeRow, ChallengeStatus, CheckpointRow,
+        ContractResultPublicRow, ContractResultRow, ContractRow, FileMetadataRow, HasRowId,
+        OpResultId, OrderDirection, ResultQuery, TransactionQuery,
     },
     runtime::ContractAddress,
 };
@@ -983,4 +984,174 @@ pub async fn insert_file_metadata(
     )
     .await?;
     Ok(conn.last_insert_rowid())
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Challenge queries
+// ─────────────────────────────────────────────────────────────────
+
+pub async fn insert_challenge(conn: &Connection, row: &ChallengeRow) -> Result<i64, Error> {
+    conn.execute(
+        r#"INSERT INTO challenges (
+            challenge_id,
+            agreement_id,
+            node_id,
+            chunk_index,
+            issued_height,
+            deadline_height,
+            status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        params![
+            row.challenge_id.clone(),
+            row.agreement_id.clone(),
+            row.node_id.clone(),
+            row.chunk_index,
+            row.issued_height,
+            row.deadline_height,
+            i64::from(row.status),
+        ],
+    )
+    .await?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub async fn get_challenge_by_id(
+    conn: &Connection,
+    challenge_id: &str,
+) -> Result<Option<ChallengeRow>, Error> {
+    let mut rows = conn
+        .query(
+            r#"SELECT 
+                id, 
+                challenge_id, 
+                agreement_id, 
+                node_id, 
+                chunk_index,
+                issued_height, 
+                deadline_height, 
+                status
+            FROM challenges WHERE challenge_id = ?"#,
+            params![challenge_id],
+        )
+        .await?;
+
+    match rows.next().await? {
+        Some(row) => {
+            let status_val: i64 = row.get(7)?;
+            Ok(Some(ChallengeRow {
+                id: row.get(0)?,
+                challenge_id: row.get(1)?,
+                agreement_id: row.get(2)?,
+                node_id: row.get(3)?,
+                chunk_index: row.get(4)?,
+                issued_height: row.get(5)?,
+                deadline_height: row.get(6)?,
+                status: ChallengeStatus::from(status_val),
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
+pub async fn update_challenge_status(
+    conn: &Connection,
+    challenge_id: &str,
+    status: ChallengeStatus,
+) -> Result<u64, Error> {
+    Ok(conn
+        .execute(
+            "UPDATE challenges SET status = ? WHERE challenge_id = ?",
+            params![i64::from(status), challenge_id],
+        )
+        .await?)
+}
+
+pub async fn get_pending_challenges_by_deadline(
+    conn: &Connection,
+    deadline_height: i64,
+) -> Result<Vec<ChallengeRow>, Error> {
+    let mut rows = conn
+        .query(
+            r#"SELECT 
+                id, 
+                challenge_id, 
+                agreement_id, 
+                node_id, 
+                chunk_index,
+                issued_height, 
+                deadline_height, 
+                status
+            FROM challenges 
+            WHERE status = 0 AND deadline_height <= ?
+            ORDER BY id ASC"#,
+            params![deadline_height],
+        )
+        .await?;
+
+    let mut results = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let status_val: i64 = row.get(7)?;
+        results.push(ChallengeRow {
+            id: row.get(0)?,
+            challenge_id: row.get(1)?,
+            agreement_id: row.get(2)?,
+            node_id: row.get(3)?,
+            chunk_index: row.get(4)?,
+            issued_height: row.get(5)?,
+            deadline_height: row.get(6)?,
+            status: ChallengeStatus::from(status_val),
+        });
+    }
+    Ok(results)
+}
+
+pub async fn get_pending_challenges_for_node(
+    conn: &Connection,
+    node_id: &str,
+) -> Result<Vec<ChallengeRow>, Error> {
+    let mut rows = conn
+        .query(
+            r#"SELECT 
+                id, 
+                challenge_id, 
+                agreement_id, 
+                node_id, 
+                chunk_index,
+                issued_height, 
+                deadline_height, 
+                status
+            FROM challenges 
+            WHERE node_id = ? AND status = 0
+            ORDER BY deadline_height ASC"#,
+            params![node_id],
+        )
+        .await?;
+
+    let mut results = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let status_val: i64 = row.get(7)?;
+        results.push(ChallengeRow {
+            id: row.get(0)?,
+            challenge_id: row.get(1)?,
+            agreement_id: row.get(2)?,
+            node_id: row.get(3)?,
+            chunk_index: row.get(4)?,
+            issued_height: row.get(5)?,
+            deadline_height: row.get(6)?,
+            status: ChallengeStatus::from(status_val),
+        });
+    }
+    Ok(results)
+}
+
+pub async fn expire_challenges_at_height(
+    conn: &Connection,
+    current_height: i64,
+) -> Result<u64, Error> {
+    Ok(conn
+        .execute(
+            "UPDATE challenges SET status = 2 WHERE status = 0 AND deadline_height <= ?",
+            params![current_height],
+        )
+        .await?)
 }

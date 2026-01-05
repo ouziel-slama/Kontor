@@ -1,3 +1,4 @@
+pub mod challenges;
 pub mod types;
 
 use anyhow::{Result, anyhow, bail};
@@ -86,6 +87,16 @@ pub async fn simulate_handler(
 pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
     insert_block(&runtime.storage.conn, block.into()).await?;
 
+    // TODO: Challenge generation would happen here, before processing transactions
+    // This requires reading active agreements from contract state
+    // challenges::generate_challenges(
+    //     &runtime.storage.conn,
+    //     block.height as i64,
+    //     &block.hash.to_byte_array(),
+    //     &active_agreements,
+    //     &challenges::ChallengeConfig::default(),
+    // ).await?;
+
     for t in &block.transactions {
         insert_transaction(
             &runtime.storage.conn,
@@ -151,6 +162,9 @@ pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
     }
 
     set_block_processed(&runtime.storage.conn, block.height as i64).await?;
+
+    // Process expired challenges after block is processed
+    challenges::process_expired_challenges(&runtime.storage.conn, block.height as i64).await?;
 
     Ok(())
 }
