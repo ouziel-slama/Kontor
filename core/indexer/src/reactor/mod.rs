@@ -1,4 +1,3 @@
-pub mod challenges;
 pub mod types;
 
 use anyhow::{Result, anyhow, bail};
@@ -15,7 +14,6 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use bitcoin::BlockHash;
-use bitcoin::hashes::Hash;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -27,9 +25,9 @@ use crate::{
     database::{
         self,
         queries::{
-            get_files_with_active_challenges, insert_block, insert_processed_block,
-            insert_transaction, rollback_to_height, select_block_at_height, select_block_latest,
-            select_block_with_hash, set_block_processed,
+            insert_block, insert_processed_block, insert_transaction, rollback_to_height,
+            select_block_at_height, select_block_latest, select_block_with_hash,
+            set_block_processed,
         },
     },
     runtime::{ComponentCache, Runtime, Storage},
@@ -88,21 +86,9 @@ pub async fn simulate_handler(
 pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
     insert_block(&runtime.storage.conn, block.into()).await?;
 
-    // Challenge generation: select files to audit and create challenges
-    let active_agreements = challenges::get_active_agreements(&runtime.storage.conn).await?;
-    let active_file_ids = get_files_with_active_challenges(&runtime.storage.conn).await?;
-
-    if !active_agreements.is_empty() {
-        challenges::generate_challenges(
-            &runtime.storage.conn,
-            block.height as i64,
-            block.hash.as_byte_array(),
-            &active_agreements,
-            &active_file_ids,
-            &challenges::ChallengeConfig::default(),
-        )
-        .await?;
-    }
+    // TODO: Challenge generation will be done via contract calls once reactor-to-contract
+    // infrastructure is in place. For now, challenges are managed entirely within
+    // the filestorage contract.
 
     for t in &block.transactions {
         insert_transaction(
@@ -170,8 +156,9 @@ pub async fn block_handler(runtime: &mut Runtime, block: &Block) -> Result<()> {
 
     set_block_processed(&runtime.storage.conn, block.height as i64).await?;
 
-    // Process expired challenges after block is processed
-    challenges::process_expired_challenges(&runtime.storage.conn, block.height as i64).await?;
+    // TODO: Challenge expiration will be done via contract calls once reactor-to-contract
+    // infrastructure is in place. For now, challenges are managed entirely within
+    // the filestorage contract via the expire_challenges function.
 
     Ok(())
 }

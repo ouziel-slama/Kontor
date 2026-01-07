@@ -3,6 +3,8 @@ contract!(name = "filestorage");
 
 use stdlib::*;
 
+use ChallengeStatus as ChallengeStatusWit;
+
 // ─────────────────────────────────────────────────────────────────
 // Protocol Constants
 // ─────────────────────────────────────────────────────────────────
@@ -37,12 +39,48 @@ struct Agreement {
     pub node_count: u64,
 }
 
+/// Challenge status for storage - uses path-based variant encoding via Storage derive
+#[derive(Clone, Copy, Default, PartialEq, Eq, Storage)]
+enum ChallengeStatusStorage {
+    #[default]
+    Active,
+    Proven,
+    Expired,
+    BadProof,
+}
+
+impl ChallengeStatusStorage {
+    fn to_wit(self) -> ChallengeStatusWit {
+        match self {
+            Self::Active => ChallengeStatusWit::Active,
+            Self::Proven => ChallengeStatusWit::Proven,
+            Self::Expired => ChallengeStatusWit::Expired,
+            Self::BadProof => ChallengeStatusWit::BadProof,
+        }
+    }
+}
+
+/// A storage challenge issued to a node
+#[derive(Clone, Default, Storage)]
+struct Challenge {
+    pub challenge_id: String,
+    pub agreement_id: String,
+    pub file_id: String,
+    pub node_id: String,
+    pub issued_height: u64,
+    pub deadline_height: u64,
+    pub seed: Vec<u8>,
+    pub num_challenges: u64,
+    pub status: ChallengeStatusStorage,
+}
+
 #[derive(Clone, Default, StorageRoot)]
 struct ProtocolState {
     pub min_nodes: u64,
     pub challenge_deadline_blocks: u64,
     pub agreements: Map<String, Agreement>,
     pub agreement_count: u64,
+    pub challenges: Map<String, Challenge>,
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -56,6 +94,7 @@ impl Guest for Filestorage {
             challenge_deadline_blocks: DEFAULT_CHALLENGE_DEADLINE_BLOCKS,
             agreements: Map::default(),
             agreement_count: 0,
+            challenges: Map::default(),
         }
         .init(ctx);
     }
@@ -268,15 +307,175 @@ impl Guest for Filestorage {
         ctx.model().min_nodes()
     }
 
-    fn submit_proof(_ctx: &ProcContext, proof: Vec<u8>) -> Result<SubmitProofResult, Error> {
-        let result = challenges::verify_challenge_proof(&proof)?;
+    // ─────────────────────────────────────────────────────────────────
+    // Challenge Management
+    // ─────────────────────────────────────────────────────────────────
 
-        if let Some(error_msg) = result.error_message {
-            return Err(Error::Message(error_msg));
+    fn create_challenge(
+        ctx: &ProcContext,
+        challenge_id: String,
+        agreement_id: String,
+        node_id: String,
+        issued_height: u64,
+        seed: Vec<u8>,
+        num_challenges: u64,
+    ) -> Result<ChallengeData, Error> {
+        let model = ctx.model();
+
+        // Validate challenge doesn't already exist
+        if model.challenges().get(&challenge_id).is_some() {
+            return Err(Error::Message(format!(
+                "challenge already exists: {}",
+                challenge_id
+            )));
         }
 
-        Ok(SubmitProofResult {
-            verified: result.verified,
+        // Validate agreement exists and is active
+        let agreement = model
+            .agreements()
+            .get(&agreement_id)
+            .ok_or(Error::Message(format!(
+                "agreement not found: {}",
+                agreement_id
+            )))?;
+
+        if !agreement.active() {
+            return Err(Error::Message(format!(
+                "agreement not active: {}",
+                agreement_id
+            )));
+        }
+
+        // Validate node is in the agreement
+        if !agreement.nodes().get(&node_id).unwrap_or(false) {
+            return Err(Error::Message(format!(
+                "node {} not in agreement {}",
+                node_id, agreement_id
+            )));
+        }
+
+        let file_id = agreement.file_metadata().file_id();
+        let deadline_height = issued_height + model.challenge_deadline_blocks();
+
+        let challenge = Challenge {
+            challenge_id: challenge_id.clone(),
+            agreement_id: agreement_id.clone(),
+            file_id: file_id.clone(),
+            node_id: node_id.clone(),
+            issued_height,
+            deadline_height,
+            seed: seed.clone(),
+            num_challenges,
+            status: ChallengeStatusStorage::Active,
+        };
+
+        model.challenges().set(challenge_id.clone(), challenge);
+
+        Ok(ChallengeData {
+            challenge_id,
+            agreement_id,
+            file_id,
+            node_id,
+            issued_height,
+            deadline_height,
+            seed,
+            num_challenges,
+            status: ChallengeStatus::Active,
         })
+    }
+
+    fn get_challenge(ctx: &ViewContext, challenge_id: String) -> Option<ChallengeData> {
+        ctx.model()
+            .challenges()
+            .get(&challenge_id)
+            .map(|c| ChallengeData {
+                challenge_id: c.challenge_id(),
+                agreement_id: c.agreement_id(),
+                file_id: c.file_id(),
+                node_id: c.node_id(),
+                issued_height: c.issued_height(),
+                deadline_height: c.deadline_height(),
+                seed: c.seed(),
+                num_challenges: c.num_challenges(),
+                status: c.status().load().to_wit(),
+            })
+    }
+
+    fn get_active_challenges(ctx: &ViewContext) -> Vec<ChallengeData> {
+        let model = ctx.model();
+        model
+            .challenges()
+            .keys()
+            .filter_map(|challenge_id| {
+                let challenge = model.challenges().get(&challenge_id)?;
+                if challenge.status().load() != ChallengeStatusStorage::Active {
+                    return None;
+                }
+                Some(ChallengeData {
+                    challenge_id,
+                    agreement_id: challenge.agreement_id(),
+                    file_id: challenge.file_id(),
+                    node_id: challenge.node_id(),
+                    issued_height: challenge.issued_height(),
+                    deadline_height: challenge.deadline_height(),
+                    seed: challenge.seed(),
+                    num_challenges: challenge.num_challenges(),
+                    status: challenge.status().load().to_wit(),
+                })
+            })
+            .collect()
+    }
+
+    fn get_challenges_for_node(ctx: &ViewContext, node_id: String) -> Vec<ChallengeData> {
+        let model = ctx.model();
+        model
+            .challenges()
+            .keys()
+            .filter_map(|challenge_id| {
+                let challenge = model.challenges().get(&challenge_id)?;
+                if challenge.node_id() != node_id {
+                    return None;
+                }
+                if challenge.status().load() != ChallengeStatusStorage::Active {
+                    return None;
+                }
+                Some(ChallengeData {
+                    challenge_id,
+                    agreement_id: challenge.agreement_id(),
+                    file_id: challenge.file_id(),
+                    node_id: challenge.node_id(),
+                    issued_height: challenge.issued_height(),
+                    deadline_height: challenge.deadline_height(),
+                    seed: challenge.seed(),
+                    num_challenges: challenge.num_challenges(),
+                    status: challenge.status().load().to_wit(),
+                })
+            })
+            .collect()
+    }
+
+    fn expire_challenges(ctx: &ProcContext, current_height: u64) {
+        let model = ctx.model();
+
+        // Iterate through all challenges and expire those past deadline
+        for challenge_id in model.challenges().keys::<String>() {
+            if let Some(challenge) = model.challenges().get(&challenge_id)
+                && challenge.status().load() == ChallengeStatusStorage::Active
+                && challenge.deadline_height() <= current_height
+            {
+                challenge.set_status(ChallengeStatusStorage::Expired);
+            }
+        }
+    }
+
+    fn submit_proof(
+        _ctx: &ProcContext,
+        _challenge_ids: Vec<String>,
+        _proof: Vec<u8>,
+    ) -> Result<SubmitProofResult, Error> {
+        // TODO: Implement proof verification
+        // 1. Call host function to verify proof
+        // 2. Update challenge statuses to Proven if verified
+        todo!("Proof verification not yet implemented")
     }
 }

@@ -80,24 +80,3 @@ CREATE TABLE IF NOT EXISTS file_metadata (
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_metadata_file_id ON file_metadata (file_id);
-
--- Storage challenges for Proof of Retrievability
-CREATE TABLE IF NOT EXISTS challenges (
-  id INTEGER PRIMARY KEY,
-  challenge_id TEXT NOT NULL UNIQUE,
-  agreement_id TEXT NOT NULL,
-  file_id TEXT NOT NULL,
-  node_id TEXT NOT NULL,
-  issued_height INTEGER NOT NULL,
-  deadline_height INTEGER NOT NULL,
-  seed BLOB NOT NULL,          
-  num_challenges INTEGER NOT NULL,
-  status INTEGER NOT NULL DEFAULT 0, -- 0=active, 1=proven, 2=expired, 3=failed
-  FOREIGN KEY (issued_height) REFERENCES blocks (height) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges (status);
-CREATE INDEX IF NOT EXISTS idx_challenges_deadline ON challenges (deadline_height, status);
-CREATE INDEX IF NOT EXISTS idx_challenges_node ON challenges (node_id, status);
-CREATE INDEX IF NOT EXISTS idx_challenges_agreement ON challenges (agreement_id);
-CREATE INDEX IF NOT EXISTS idx_challenges_file ON challenges (file_id, status);
