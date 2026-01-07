@@ -39,6 +39,7 @@ pub fn generate(config: Config) -> TokenStream {
             additional_derives: [stdlib::Storage, stdlib::Wavey],
             export_macro_name: "__export__",
             runtime_path: "stdlib::wit_bindgen::rt",
+            async: false,
         });
 
         use kontor::built_in::*;
