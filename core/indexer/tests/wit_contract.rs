@@ -32,14 +32,14 @@ world root {
     amt: decimal,
   }
 
-  export mint: func(ctx: borrow<proc-context>, amt: decimal) -> result<mint, error>;
-  export burn: func(ctx: borrow<proc-context>, amt: decimal) -> result<burn, error>;
-  export transfer: func(ctx: borrow<proc-context>, dst: string, amt: decimal) -> result<transfer, error>;
-  export balance: func(ctx: borrow<view-context>, acc: string) -> option<decimal>;
-  export balances: func(ctx: borrow<view-context>) -> list<balance>;
-  export total-supply: func(ctx: borrow<view-context>) -> decimal;
-  export attach: func(ctx: borrow<proc-context>, vout: u64, amt: decimal) -> result<transfer, error>;
-  export detach: func(ctx: borrow<proc-context>) -> result<transfer, error>;
+  export mint: async func(ctx: borrow<proc-context>, amt: decimal) -> result<mint, error>;
+  export burn: async func(ctx: borrow<proc-context>, amt: decimal) -> result<burn, error>;
+  export transfer: async func(ctx: borrow<proc-context>, dst: string, amt: decimal) -> result<transfer, error>;
+  export balance: async func(ctx: borrow<view-context>, acc: string) -> option<decimal>;
+  export balances: async func(ctx: borrow<view-context>) -> list<balance>;
+  export total-supply: async func(ctx: borrow<view-context>) -> decimal;
+  export attach: async func(ctx: borrow<proc-context>, vout: u64, amt: decimal) -> result<transfer, error>;
+  export detach: async func(ctx: borrow<proc-context>) -> result<transfer, error>;
 }
 "#;
 

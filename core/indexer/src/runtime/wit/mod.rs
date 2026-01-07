@@ -21,11 +21,8 @@ wasmtime::component::bindgen!({
     },
     additional_derives: [stdlib::Wavey],
     imports: {
-        "kontor:built-in/context": async | store | trappable,
-        "kontor:built-in/crypto": async | store | trappable,
-        "kontor:built-in/foreign": async | store | trappable,
-        "kontor:built-in/numbers": async | store | trappable,
-        "kontor:built-in/file-ledger": async | store | trappable,
-        default: async | trappable,
+        // async func in wits automatically makes them "async | store"
+        // but we still need this here from implicit built-ins like resource drops.
+        default:  async | store | trappable,
     }
 });
