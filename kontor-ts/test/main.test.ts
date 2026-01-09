@@ -62,6 +62,7 @@ world root {
     use kontor:built-in/context.{proc-context, view-context};
     use kontor:built-in/error.{error};
 
+    export init: async func(ctx: borrow<proc-context>);
     export get-value: async func(ctx: borrow<view-context>) -> string;
     export set-value: async func(ctx: borrow<proc-context>, val: string) -> result<_, error>;
 }
