@@ -27,57 +27,10 @@ const DEFAULT_S_CHAL: u64 = 100;
 // ─────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Default, Storage)]
-struct FileMetadata {
-    pub file_id: String,
-    pub root: Vec<u8>,
-    pub padded_len: u64,
-    pub original_size: u64,
-    pub filename: String,
-}
-
-/// A storage agreement for a file
-/// nodes: Map<node_id, is_active> - true means active, false means left
-#[derive(Clone, Default, Storage)]
-struct Agreement {
-    pub agreement_id: String,
-    pub file_metadata: FileMetadata,
-    pub active: bool,
+struct AgreementNodes {
+    /// node_id -> is_active (true means active, false means left)
     pub nodes: Map<String, bool>,
     pub node_count: u64,
-}
-
-#[derive(Clone, Copy, Default, PartialEq, Eq, Storage)]
-enum ChallengeStatusStorage {
-    #[default]
-    Active,
-    Proven,
-    Expired,
-    Failed,
-}
-
-impl From<ChallengeStatusStorage> for ChallengeStatus {
-    fn from(s: ChallengeStatusStorage) -> Self {
-        match s {
-            ChallengeStatusStorage::Active => ChallengeStatus::Active,
-            ChallengeStatusStorage::Proven => ChallengeStatus::Proven,
-            ChallengeStatusStorage::Expired => ChallengeStatus::Expired,
-            ChallengeStatusStorage::Failed => ChallengeStatus::Failed,
-        }
-    }
-}
-
-/// A storage challenge - mirrors WIT challenge-data exactly
-#[derive(Clone, Default, Storage)]
-struct Challenge {
-    pub challenge_id: String,
-    pub agreement_id: String,
-    pub file_metadata: FileMetadata,
-    pub block_height: u64,
-    pub num_challenges: u64,
-    pub seed: Vec<u8>,
-    pub prover_id: String,
-    pub deadline_height: u64,
-    pub status: ChallengeStatusStorage,
 }
 
 #[derive(Clone, Default, StorageRoot)]
@@ -87,9 +40,10 @@ struct ProtocolState {
     pub c_target: u64,
     pub s_chal: u64,
     pub blocks_per_year: u64,
-    pub agreements: Map<String, Agreement>,
+    pub agreements: Map<String, AgreementData>,
+    pub agreement_nodes: Map<String, AgreementNodes>,
     pub agreement_count: u64,
-    pub challenges: Map<String, Challenge>,
+    pub challenges: Map<String, ChallengeData>,
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -105,6 +59,7 @@ impl Guest for Filestorage {
             s_chal: DEFAULT_S_CHAL,
             blocks_per_year: DEFAULT_BLOCKS_PER_YEAR,
             agreements: Map::default(),
+            agreement_nodes: Map::default(),
             agreement_count: 0,
             challenges: Map::default(),
         }
@@ -140,25 +95,24 @@ impl Guest for Filestorage {
         let fd = file_ledger::FileDescriptor::from_raw(&descriptor)?;
         file_ledger::add_file(&fd);
 
-        let file_metadata = FileMetadata {
-            file_id: descriptor.file_id,
-            root: descriptor.root,
-            padded_len: descriptor.padded_len,
-            original_size: descriptor.original_size,
-            filename: descriptor.filename,
-        };
-
         // Create the agreement (starts inactive until nodes join)
-        let agreement = Agreement {
+        let agreement = AgreementData {
             agreement_id: agreement_id.clone(),
-            file_metadata,
+            file_metadata: FileMetadataData {
+                file_id: descriptor.file_id,
+                root: descriptor.root,
+                padded_len: descriptor.padded_len,
+                original_size: descriptor.original_size,
+                filename: descriptor.filename,
+            },
             active: false,
-            nodes: Map::default(),
-            node_count: 0,
         };
 
-        // Store the agreement
+        // Store the agreement and initialize node tracking
         model.agreements().set(agreement_id.clone(), agreement);
+        model
+            .agreement_nodes()
+            .set(agreement_id.clone(), AgreementNodes::default());
 
         // Increment count
         model.update_agreement_count(|c| c + 1);
@@ -167,20 +121,10 @@ impl Guest for Filestorage {
     }
 
     fn get_agreement(ctx: &ViewContext, agreement_id: String) -> Option<AgreementData> {
-        ctx.model().agreements().get(&agreement_id).map(|a| {
-            let fm = a.file_metadata();
-            AgreementData {
-                agreement_id: a.agreement_id(),
-                file_metadata: FileMetadataData {
-                    file_id: fm.file_id(),
-                    root: fm.root(),
-                    padded_len: fm.padded_len(),
-                    original_size: fm.original_size(),
-                    filename: fm.filename(),
-                },
-                active: a.active(),
-            }
-        })
+        ctx.model()
+            .agreements()
+            .get(&agreement_id)
+            .map(|a| a.load())
     }
 
     fn agreement_count(ctx: &ViewContext) -> u64 {
@@ -191,26 +135,13 @@ impl Guest for Filestorage {
         let model = ctx.model();
         model
             .agreements()
-            .keys()
-            .filter_map(|agreement_id| {
+            .keys::<String>()
+            .filter_map(|agreement_id: String| {
                 let agreement = model.agreements().get(&agreement_id)?;
                 if !agreement.active() {
                     return None;
                 }
-
-                let fm = agreement.file_metadata();
-
-                Some(AgreementData {
-                    agreement_id,
-                    file_metadata: FileMetadataData {
-                        file_id: fm.file_id(),
-                        root: fm.root(),
-                        padded_len: fm.padded_len(),
-                        original_size: fm.original_size(),
-                        filename: fm.filename(),
-                    },
-                    active: agreement.active(),
-                })
+                Some(agreement.load())
             })
             .collect()
     }
@@ -230,9 +161,16 @@ impl Guest for Filestorage {
                 "agreement not found: {}",
                 agreement_id
             )))?;
+        let nodes_state = model
+            .agreement_nodes()
+            .get(&agreement_id)
+            .ok_or(Error::Message(format!(
+                "agreement nodes not found: {}",
+                agreement_id
+            )))?;
 
         // Check if node is already active in agreement
-        if agreement.nodes().get(&node_id).unwrap_or(false) {
+        if nodes_state.nodes().get(&node_id).unwrap_or(false) {
             return Err(Error::Message(format!(
                 "node {} already in agreement {}",
                 node_id, agreement_id
@@ -240,11 +178,11 @@ impl Guest for Filestorage {
         }
 
         // Add node to agreement (or reactivate if previously left)
-        agreement.nodes().set(node_id.clone(), true);
+        nodes_state.nodes().set(node_id.clone(), true);
 
         // Increment node count
-        agreement.update_node_count(|c| c + 1);
-        let node_count = agreement.node_count();
+        nodes_state.update_node_count(|c| c + 1);
+        let node_count = nodes_state.node_count();
 
         // Check if we should activate (only if not already active)
         let min_nodes = model.min_nodes();
@@ -269,16 +207,23 @@ impl Guest for Filestorage {
         let model = ctx.model();
 
         // Validate agreement exists
-        let agreement = model
+        let _agreement = model
             .agreements()
             .get(&agreement_id)
             .ok_or(Error::Message(format!(
                 "agreement not found: {}",
                 agreement_id
             )))?;
+        let nodes_state = model
+            .agreement_nodes()
+            .get(&agreement_id)
+            .ok_or(Error::Message(format!(
+                "agreement nodes not found: {}",
+                agreement_id
+            )))?;
 
         // Validate node is active in agreement
-        if !agreement.nodes().get(&node_id).unwrap_or(false) {
+        if !nodes_state.nodes().get(&node_id).unwrap_or(false) {
             return Err(Error::Message(format!(
                 "node {} not in agreement {}",
                 node_id, agreement_id
@@ -286,10 +231,10 @@ impl Guest for Filestorage {
         }
 
         // Mark node as inactive (don't delete, just set to false)
-        agreement.nodes().set(node_id.clone(), false);
+        nodes_state.nodes().set(node_id.clone(), false);
 
         // Decrement node count
-        agreement.update_node_count(|c| c.saturating_sub(1));
+        nodes_state.update_node_count(|c| c.saturating_sub(1));
 
         Ok(LeaveAgreementResult {
             agreement_id,
@@ -297,21 +242,28 @@ impl Guest for Filestorage {
         })
     }
 
-    fn get_agreement_nodes(ctx: &ViewContext, agreement_id: String) -> Option<Vec<String>> {
-        ctx.model().agreements().get(&agreement_id).map(|a| {
-            // Collect only active nodes (value = true)
-            a.nodes()
-                .keys()
-                .filter(|k: &String| a.nodes().get(k).unwrap_or(false))
-                .collect()
-        })
+    fn get_agreement_nodes(ctx: &ViewContext, agreement_id: String) -> Vec<NodeInfo> {
+        ctx.model()
+            .agreement_nodes()
+            .get(&agreement_id)
+            .map(|s| {
+                // Return all nodes we’ve seen, including inactive ones
+                s.nodes()
+                    .keys()
+                    .map(|node_id: String| NodeInfo {
+                        node_id: node_id.clone(),
+                        active: s.nodes().get(&node_id).unwrap_or(false),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn is_node_in_agreement(ctx: &ViewContext, agreement_id: String, node_id: String) -> bool {
         ctx.model()
-            .agreements()
+            .agreement_nodes()
             .get(&agreement_id)
-            .map(|a| a.nodes().get(&node_id).unwrap_or(false))
+            .map(|s| s.nodes().get(&node_id).unwrap_or(false))
             .unwrap_or(false)
     }
 
@@ -324,26 +276,10 @@ impl Guest for Filestorage {
     // ─────────────────────────────────────────────────────────────────
 
     fn get_challenge(ctx: &ViewContext, challenge_id: String) -> Option<ChallengeData> {
-        ctx.model().challenges().get(&challenge_id).map(|c| {
-            let fm = c.file_metadata();
-            ChallengeData {
-                challenge_id: c.challenge_id(),
-                agreement_id: c.agreement_id(),
-                file_metadata: FileMetadataData {
-                    file_id: fm.file_id(),
-                    root: fm.root(),
-                    padded_len: fm.padded_len(),
-                    original_size: fm.original_size(),
-                    filename: fm.filename(),
-                },
-                block_height: c.block_height(),
-                num_challenges: c.num_challenges(),
-                seed: c.seed(),
-                prover_id: c.prover_id(),
-                deadline_height: c.deadline_height(),
-                status: c.status().load().into(),
-            }
-        })
+        ctx.model()
+            .challenges()
+            .get(&challenge_id)
+            .map(|c| c.load())
     }
 
     fn get_active_challenges(ctx: &ViewContext) -> Vec<ChallengeData> {
@@ -353,27 +289,10 @@ impl Guest for Filestorage {
             .keys()
             .filter_map(|challenge_id: String| {
                 let c = model.challenges().get(&challenge_id)?;
-                if c.status().load() != ChallengeStatusStorage::Active {
+                if c.status().load() != ChallengeStatus::Active {
                     return None;
                 }
-                let fm = c.file_metadata();
-                Some(ChallengeData {
-                    challenge_id: c.challenge_id(),
-                    agreement_id: c.agreement_id(),
-                    file_metadata: FileMetadataData {
-                        file_id: fm.file_id(),
-                        root: fm.root(),
-                        padded_len: fm.padded_len(),
-                        original_size: fm.original_size(),
-                        filename: fm.filename(),
-                    },
-                    block_height: c.block_height(),
-                    num_challenges: c.num_challenges(),
-                    seed: c.seed(),
-                    prover_id: c.prover_id(),
-                    deadline_height: c.deadline_height(),
-                    status: c.status().load().into(),
-                })
+                Some(c.load())
             })
             .collect()
     }
@@ -384,10 +303,10 @@ impl Guest for Filestorage {
         // Iterate through all challenges and expire those past deadline
         for challenge_id in model.challenges().keys::<String>() {
             if let Some(challenge) = model.challenges().get(&challenge_id)
-                && challenge.status().load() == ChallengeStatusStorage::Active
+                && challenge.status().load() == ChallengeStatus::Active
                 && challenge.deadline_height() <= current_height
             {
-                challenge.set_status(ChallengeStatusStorage::Expired);
+                challenge.set_status(ChallengeStatus::Expired);
             }
         }
     }
@@ -421,15 +340,14 @@ impl Guest for Filestorage {
             .keys()
             .filter_map(|cid: String| {
                 let c = model.challenges().get(&cid)?;
-                (c.status().load() == ChallengeStatusStorage::Active)
-                    .then(|| c.file_metadata().file_id())
+                (c.status().load() == ChallengeStatus::Active).then(|| c.file_metadata().file_id())
             })
             .collect();
 
         // Get eligible agreements: active and file not already challenged
         let eligible_agreement_ids: Vec<String> = model
             .agreements()
-            .keys()
+            .keys::<String>()
             .filter(|aid: &String| {
                 model.agreements().get(aid).is_some_and(|a| {
                     a.active() && !challenged_file_ids.contains(&a.file_metadata().file_id())
@@ -497,10 +415,14 @@ impl Guest for Filestorage {
             };
 
             // Get active nodes for this agreement
-            let active_nodes: Vec<String> = agreement
+            let nodes_state = match model.agreement_nodes().get(agreement_id) {
+                Some(s) => s,
+                None => continue,
+            };
+            let active_nodes: Vec<String> = nodes_state
                 .nodes()
-                .keys()
-                .filter(|nid: &String| agreement.nodes().get(nid).unwrap_or(false))
+                .keys::<String>()
+                .filter(|nid: &String| nodes_state.nodes().get(nid).unwrap_or(false))
                 .collect();
 
             if active_nodes.is_empty() {
@@ -533,27 +455,7 @@ impl Guest for Filestorage {
                 Err(_) => continue,
             };
 
-            // Create and store challenge
-            let challenge = Challenge {
-                challenge_id: challenge_id.clone(),
-                agreement_id: agreement_id.clone(),
-                file_metadata: FileMetadata {
-                    file_id: file_id.clone(),
-                    root: fm.root(),
-                    padded_len: fm.padded_len(),
-                    original_size: fm.original_size(),
-                    filename: fm.filename(),
-                },
-                block_height,
-                num_challenges: s_chal,
-                seed: seed.clone(),
-                prover_id: prover_id.clone(),
-                deadline_height,
-                status: ChallengeStatusStorage::Active,
-            };
-            model.challenges().set(challenge_id.clone(), challenge);
-
-            new_challenges.push(ChallengeData {
+            let challenge = ChallengeData {
                 challenge_id,
                 agreement_id: agreement_id.clone(),
                 file_metadata: FileMetadataData {
@@ -569,7 +471,12 @@ impl Guest for Filestorage {
                 prover_id,
                 deadline_height,
                 status: ChallengeStatus::Active,
-            });
+            };
+            model
+                .challenges()
+                .set(challenge.challenge_id.clone(), challenge.clone());
+
+            new_challenges.push(challenge);
         }
 
         new_challenges

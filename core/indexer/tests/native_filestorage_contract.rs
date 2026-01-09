@@ -7,6 +7,12 @@ import!(
     path = "../../native-contracts/filestorage/wit",
 );
 
+fn has_node(nodes: &[filestorage::NodeInfo], node_id: &str, active: bool) -> bool {
+    nodes
+        .iter()
+        .any(|n| n.node_id == node_id && n.active == active)
+}
+
 fn make_descriptor(
     file_id: String,
     root: Vec<u8>,
@@ -55,7 +61,7 @@ async fn filestorage_create_and_get(runtime: &mut Runtime) -> Result<()> {
 
     // Check nodes via separate function
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    assert!(nodes.expect("should exist").is_empty());
+    assert!(nodes.is_empty());
     Ok(())
 }
 
@@ -171,9 +177,8 @@ async fn filestorage_join_agreement(runtime: &mut Runtime) -> Result<()> {
     assert!(!agreement.active);
 
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    let nodes = nodes.expect("should exist");
     assert_eq!(nodes.len(), 1);
-    assert!(nodes.contains(&"node_1".to_string()));
+    assert!(has_node(&nodes, "node_1", true));
 
     Ok(())
 }
@@ -214,7 +219,10 @@ async fn filestorage_join_activates_at_min_nodes(runtime: &mut Runtime) -> Resul
     assert!(agreement.active);
 
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    assert_eq!(nodes.expect("should exist").len(), 3);
+    assert_eq!(nodes.len(), 3);
+    assert!(has_node(&nodes, "node_1", true));
+    assert!(has_node(&nodes, "node_2", true));
+    assert!(has_node(&nodes, "node_3", true));
 
     Ok(())
 }
@@ -273,10 +281,9 @@ async fn filestorage_leave_agreement(runtime: &mut Runtime) -> Result<()> {
 
     // Verify node is removed
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    let nodes = nodes.expect("should exist");
-    assert_eq!(nodes.len(), 1);
-    assert!(!nodes.contains(&"node_1".to_string()));
-    assert!(nodes.contains(&"node_2".to_string()));
+    assert_eq!(nodes.len(), 2);
+    assert!(has_node(&nodes, "node_1", false));
+    assert!(has_node(&nodes, "node_2", true));
 
     Ok(())
 }
@@ -341,7 +348,10 @@ async fn filestorage_leave_does_not_deactivate(runtime: &mut Runtime) -> Result<
     assert!(agreement.active); // Still active!
 
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    assert_eq!(nodes.expect("should exist").len(), 1);
+    assert_eq!(nodes.len(), 3);
+    assert!(has_node(&nodes, "node_1", false));
+    assert!(has_node(&nodes, "node_2", false));
+    assert!(has_node(&nodes, "node_3", true));
 
     Ok(())
 }
@@ -423,7 +433,7 @@ async fn filestorage_rejoin_after_leave(runtime: &mut Runtime) -> Result<()> {
     assert!(is_in);
 
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    assert_eq!(nodes.expect("should exist").len(), 1);
+    assert_eq!(nodes.len(), 1);
 
     Ok(())
 }
@@ -456,7 +466,7 @@ async fn filestorage_join_after_activation_not_reactivated(runtime: &mut Runtime
     assert!(agreement.expect("exists").active);
 
     let nodes = filestorage::get_agreement_nodes(runtime, &created.agreement_id).await?;
-    assert_eq!(nodes.expect("should exist").len(), 4);
+    assert_eq!(nodes.len(), 4);
 
     Ok(())
 }
