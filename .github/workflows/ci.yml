@@ -61,6 +61,19 @@ jobs:
       - name: Check wit-validator compiles to wasm32-unknown-unknown
         run: cargo check -p wit-validator --target wasm32-unknown-unknown
         working-directory: ./core
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install kontor-ts dependencies
+        run: npm ci
+        working-directory: ./kontor-ts
+      - name: Build kontor-ts (Rust + TS)
+        run: npm run build:rs && npm run build
+        working-directory: ./kontor-ts
+      - name: Test kontor-ts
+        run: npm test
+        working-directory: ./kontor-ts
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Audit (test-contracts)
