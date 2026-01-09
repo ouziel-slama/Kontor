@@ -70,46 +70,29 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     extern crate std;
+    use std::format;
 
     use super::*;
 
-    fn validate_fixture(wit: &str) -> ValidationResult {
-        Validator::validate_str(wit).expect("Failed to parse WIT")
+    /// Wraps fixture content in standard WIT boilerplate
+    fn wrap(content: &str) -> std::string::String {
+        format!(
+            r#"package root:component;
+
+world root {{
+    include kontor:built-in/built-in;
+    use kontor:built-in/context.{{proc-context, view-context, fall-context}};
+    use kontor:built-in/error.{{error}};
+
+{content}
+}}"#
+        )
     }
 
-    const VALID_BASIC: &str = include_str!("tests/fixtures/valid_basic/contract.wit");
-    const VALID_LIST_U8_IN_RECORD: &str =
-        include_str!("tests/fixtures/valid_list_u8_in_record/contract.wit");
-    const INVALID_NO_CONTEXT: &str = include_str!("tests/fixtures/invalid_no_context/contract.wit");
-    const INVALID_WRONG_CONTEXT: &str =
-        include_str!("tests/fixtures/invalid_wrong_context/contract.wit");
-    const INVALID_EMPTY_RECORD: &str =
-        include_str!("tests/fixtures/invalid_empty_record/contract.wit");
-    const INVALID_WRONG_ERROR_TYPE: &str =
-        include_str!("tests/fixtures/invalid_wrong_error_type/contract.wit");
-    const INVALID_NESTED_LIST: &str =
-        include_str!("tests/fixtures/invalid_nested_list/contract.wit");
-    const INVALID_LIST_IN_RECORD: &str =
-        include_str!("tests/fixtures/invalid_list_in_record/contract.wit");
-    const INVALID_RESULT_IN_PARAM: &str =
-        include_str!("tests/fixtures/invalid_result_in_param/contract.wit");
-    const INVALID_FLOAT: &str = include_str!("tests/fixtures/invalid_float/contract.wit");
-    const INVALID_FLAGS: &str = include_str!("tests/fixtures/invalid_flags/contract.wit");
-    const INVALID_CYCLE: &str = include_str!("tests/fixtures/invalid_cycle/contract.wit");
-    const INVALID_SYNC_EXPORT: &str =
-        include_str!("tests/fixtures/invalid_sync_export/contract.wit");
-    const VALID_INIT_FALLBACK: &str =
-        include_str!("tests/fixtures/valid_init_fallback/contract.wit");
-    const INVALID_INIT_WRONG_CONTEXT: &str =
-        include_str!("tests/fixtures/invalid_init_wrong_context/contract.wit");
-    const INVALID_INIT_HAS_RETURN: &str =
-        include_str!("tests/fixtures/invalid_init_has_return/contract.wit");
-    const INVALID_FALLBACK_WRONG_CONTEXT: &str =
-        include_str!("tests/fixtures/invalid_fallback_wrong_context/contract.wit");
-    const INVALID_FALLBACK_WRONG_RETURN: &str =
-        include_str!("tests/fixtures/invalid_fallback_wrong_return/contract.wit");
-    const INVALID_MISSING_INIT: &str =
-        include_str!("tests/fixtures/invalid_missing_init/contract.wit");
+    fn validate(content: &str) -> ValidationResult {
+        let wit = wrap(content);
+        Validator::validate_str(&wit).expect("Failed to parse WIT")
+    }
 
     #[test]
     fn test_empty_resolve_is_valid() {
@@ -120,305 +103,323 @@ mod tests {
 
     #[test]
     fn test_valid_basic() {
-        let result = validate_fixture(VALID_BASIC);
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export get-value: async func(ctx: borrow<view-context>) -> string;
+    export set-value: async func(ctx: borrow<proc-context>, val: string) -> result<_, error>;
+"#,
+        );
         assert!(result.is_valid(), "Expected valid, got errors: {}", result);
     }
 
     #[test]
     fn test_valid_list_u8_in_record() {
-        let result = validate_fixture(VALID_LIST_U8_IN_RECORD);
+        let result = validate(
+            r#"
+    record my-data {
+        bytes: list<u8>,
+        name: string,
+    }
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get-data: async func(ctx: borrow<view-context>) -> my-data;
+"#,
+        );
         assert!(
             result.is_valid(),
-            "Expected valid (list<u8> is allowed in records), got errors: {}",
+            "list<u8> should be allowed in records, got: {}",
             result
         );
     }
 
     #[test]
     fn test_invalid_no_context_parameter() {
-        let result = validate_fixture(INVALID_NO_CONTEXT);
-        assert!(
-            result.has_errors(),
-            "Expected error for missing context parameter"
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export bad-func: async func() -> string;
+"#,
         );
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("context")),
-            "Expected error about context parameter, got: {}",
-            result
-        );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("context")));
     }
 
     #[test]
     fn test_invalid_wrong_context_type() {
-        let result = validate_fixture(INVALID_WRONG_CONTEXT);
-        assert!(result.has_errors(), "Expected error for wrong context type");
+        let result = validate(
+            r#"
+    resource my-context {}
+
+    export init: async func(ctx: borrow<proc-context>);
+    export bad-func: async func(ctx: borrow<my-context>) -> string;
+"#,
+        );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("context type")),
-            "Expected error about context type, got: {}",
-            result
+                .any(|e| e.message.contains("context type"))
         );
     }
 
     #[test]
     fn test_invalid_empty_record() {
-        let result = validate_fixture(INVALID_EMPTY_RECORD);
-        assert!(result.has_errors(), "Expected error for empty record");
+        let result = validate(
+            r#"
+    record empty {}
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> empty;
+"#,
+        );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("at least one field")),
-            "Expected error about empty record, got: {}",
-            result
+                .any(|e| e.message.contains("at least one field"))
         );
     }
 
     #[test]
     fn test_invalid_wrong_error_type() {
-        let result = validate_fixture(INVALID_WRONG_ERROR_TYPE);
-        assert!(result.has_errors(), "Expected error for wrong error type");
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("'error'")),
-            "Expected error about error type, got: {}",
-            result
+        let result = validate(
+            r#"
+    record my-error { msg: string }
+
+    export init: async func(ctx: borrow<proc-context>);
+    export bad: async func(ctx: borrow<proc-context>) -> result<string, my-error>;
+"#,
         );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("'error'")));
     }
 
     #[test]
     fn test_invalid_nested_list() {
-        let result = validate_fixture(INVALID_NESTED_LIST);
-        assert!(result.has_errors(), "Expected error for nested list");
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export bad: async func(ctx: borrow<view-context>) -> list<list<string>>;
+"#,
+        );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("nested list")),
-            "Expected error about nested list, got: {}",
-            result
+                .any(|e| e.message.contains("nested list"))
         );
     }
 
     #[test]
     fn test_invalid_list_in_record() {
-        let result = validate_fixture(INVALID_LIST_IN_RECORD);
-        assert!(result.has_errors(), "Expected error for list<T> in record");
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("list<T>")),
-            "Expected error about list in record, got: {}",
-            result
+        let result = validate(
+            r#"
+    record bad { names: list<string> }
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> bad;
+"#,
         );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("list<T>")));
     }
 
     #[test]
     fn test_invalid_result_in_param() {
-        let result = validate_fixture(INVALID_RESULT_IN_PARAM);
-        assert!(
-            result.has_errors(),
-            "Expected error for result in parameter"
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export bad: async func(ctx: borrow<proc-context>, r: result<string, error>) -> string;
+"#,
         );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("return type")),
-            "Expected error about result usage, got: {}",
-            result
+                .any(|e| e.message.contains("return type"))
         );
     }
 
     #[test]
     fn test_invalid_float() {
-        let result = validate_fixture(INVALID_FLOAT);
-        assert!(result.has_errors(), "Expected error for float type");
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export bad: async func(ctx: borrow<view-context>) -> f64;
+"#,
+        );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("floating point")),
-            "Expected error about float type, got: {}",
-            result
+                .any(|e| e.message.contains("floating point"))
         );
     }
 
     #[test]
     fn test_invalid_flags() {
-        let result = validate_fixture(INVALID_FLAGS);
-        assert!(result.has_errors(), "Expected error for flags type");
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("flags")),
-            "Expected error about flags, got: {}",
-            result
+        let result = validate(
+            r#"
+    flags perms { read, write, exec }
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> perms;
+"#,
         );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("flags")));
     }
 
     #[test]
     fn test_invalid_cycle() {
-        let result = Validator::validate_str(INVALID_CYCLE);
-        assert!(
-            result.is_err(),
-            "Expected parse error for cyclic type, got: {:?}",
-            result
-        );
-        let err = std::format!("{}", result.unwrap_err());
-        assert!(
-            err.contains("depends on itself"),
-            "Expected error about cycle, got: {}",
-            err
-        );
+        let result = Validator::validate_str(&wrap(
+            r#"
+    record node { value: string, next: node }
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> node;
+"#,
+        ));
+        assert!(result.is_err(), "Expected parse error for cyclic type");
+        assert!(format!("{}", result.unwrap_err()).contains("depends on itself"));
     }
 
     #[test]
     fn test_invalid_sync_export() {
-        let result = validate_fixture(INVALID_SYNC_EXPORT);
-        assert!(result.has_errors(), "Expected error for sync export");
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("async")),
-            "Expected error about async, got: {}",
-            result
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export bad: func(ctx: borrow<view-context>) -> string;
+"#,
         );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("async")));
     }
 
     #[test]
     fn test_valid_init_fallback() {
-        let result = validate_fixture(VALID_INIT_FALLBACK);
-        assert!(
-            result.is_valid(),
-            "Expected valid init/fallback, got errors: {}",
-            result
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export fallback: async func(ctx: borrow<fall-context>, expr: string) -> string;
+    export get-value: async func(ctx: borrow<view-context>) -> string;
+"#,
         );
+        assert!(result.is_valid(), "Expected valid, got errors: {}", result);
     }
 
     #[test]
     fn test_invalid_init_wrong_context() {
-        let result = validate_fixture(INVALID_INIT_WRONG_CONTEXT);
-        assert!(
-            result.has_errors(),
-            "Expected error for init with wrong context"
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<view-context>);
+"#,
         );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("proc-context")),
-            "Expected error about proc-context, got: {}",
-            result
+                .any(|e| e.message.contains("proc-context"))
         );
     }
 
     #[test]
     fn test_invalid_init_has_return() {
-        let result = validate_fixture(INVALID_INIT_HAS_RETURN);
-        assert!(
-            result.has_errors(),
-            "Expected error for init with return type"
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>) -> string;
+"#,
         );
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("return")),
-            "Expected error about return type, got: {}",
-            result
-        );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("return")));
     }
 
     #[test]
     fn test_invalid_fallback_wrong_context() {
-        let result = validate_fixture(INVALID_FALLBACK_WRONG_CONTEXT);
-        assert!(
-            result.has_errors(),
-            "Expected error for fallback with wrong context"
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export fallback: async func(ctx: borrow<proc-context>, expr: string) -> string;
+"#,
         );
+        assert!(result.has_errors());
         assert!(
             result
                 .errors
                 .iter()
-                .any(|e| e.message.contains("fall-context")),
-            "Expected error about fall-context, got: {}",
-            result
+                .any(|e| e.message.contains("fall-context"))
         );
     }
 
     #[test]
     fn test_invalid_fallback_wrong_return() {
-        let result = validate_fixture(INVALID_FALLBACK_WRONG_RETURN);
-        assert!(
-            result.has_errors(),
-            "Expected error for fallback with wrong return"
+        let result = validate(
+            r#"
+    export init: async func(ctx: borrow<proc-context>);
+    export fallback: async func(ctx: borrow<fall-context>, expr: string) -> u64;
+"#,
         );
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("string")),
-            "Expected error about string return, got: {}",
-            result
-        );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("string")));
     }
 
     #[test]
     fn test_invalid_missing_init() {
-        let result = validate_fixture(INVALID_MISSING_INIT);
-        assert!(result.has_errors(), "Expected error for missing init");
-        assert!(
-            result.errors.iter().any(|e| e.message.contains("init")),
-            "Expected error about missing init, got: {}",
-            result
+        let result = validate(
+            r#"
+    export get-value: async func(ctx: borrow<view-context>) -> string;
+"#,
         );
+        assert!(result.has_errors());
+        assert!(result.errors.iter().any(|e| e.message.contains("init")));
     }
-}
-
-#[cfg(test)]
-mod cycle_tests {
-    extern crate std;
-
-    use super::*;
 
     #[test]
     fn test_cross_type_cycle_record_variant() {
-        let wit = r#"
-package test:cross-cycle;
-world root {
-    include kontor:built-in/built-in;
-    use kontor:built-in/context.{view-context};
+        let result = Validator::validate_str(&wrap(
+            r#"
     record wrapper { data: my-variant }
     variant my-variant { some(wrapper), none }
-    export get: func(ctx: borrow<view-context>) -> wrapper;
-}
-"#;
-        let result = Validator::validate_str(wit);
-        std::println!("Cross-type cycle result: {:?}", result);
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> wrapper;
+"#,
+        ));
         assert!(result.is_err() || result.unwrap().has_errors());
     }
 
     #[test]
     fn test_variant_self_reference() {
-        let wit = r#"
-package test:variant-self;
-world root {
-    include kontor:built-in/built-in;
-    use kontor:built-in/context.{view-context};
+        let result = Validator::validate_str(&wrap(
+            r#"
     variant tree { leaf(string), branch(tree) }
-    export get: func(ctx: borrow<view-context>) -> tree;
-}
-"#;
-        let result = Validator::validate_str(wit);
-        std::println!("Variant self-ref result: {:?}", result);
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> tree;
+"#,
+        ));
         assert!(result.is_err() || result.unwrap().has_errors());
     }
 
     #[test]
     fn test_indirect_cycle_three_types() {
-        let wit = r#"
-package test:indirect;
-world root {
-    include kontor:built-in/built-in;
-    use kontor:built-in/context.{view-context};
+        let result = Validator::validate_str(&wrap(
+            r#"
     record a { b-field: b }
     record b { c-field: c }
     record c { a-field: a }
-    export get: func(ctx: borrow<view-context>) -> a;
-}
-"#;
-        let result = Validator::validate_str(wit);
-        std::println!("Indirect 3-type cycle result: {:?}", result);
+
+    export init: async func(ctx: borrow<proc-context>);
+    export get: async func(ctx: borrow<view-context>) -> a;
+"#,
+        ));
         assert!(result.is_err() || result.unwrap().has_errors());
     }
 }

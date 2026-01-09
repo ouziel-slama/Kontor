@@ -1,8 +1,0 @@
-package root:component;
-
-world root {
-    include kontor:built-in/built-in;
-    use kontor:built-in/context.{view-context};
-
-    export bad-func: func(ctx: borrow<view-context>) -> string;
-}

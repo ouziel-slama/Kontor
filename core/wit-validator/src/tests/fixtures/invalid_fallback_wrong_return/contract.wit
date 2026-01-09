@@ -1,8 +1,0 @@
-package root:component;
-
-world root {
-    include kontor:built-in/built-in;
-    use kontor:built-in/context.{fall-context};
-
-    export fallback: async func(ctx: borrow<fall-context>, expr: string) -> u64;
-}
