@@ -206,6 +206,7 @@ dependencies = [
  "quote",
  "syn",
  "wit-parser 0.244.0",
+ "wit-validator",
 ]
 
 [[package]]
@@ -538,4 +539,12 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser 0.244.0",
+]
+
+[[package]]
+name = "wit-validator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "wit-parser 0.244.0",
 ]

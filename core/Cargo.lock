@@ -3130,6 +3130,7 @@ dependencies = [
  "quote",
  "syn 2.0.114",
  "wit-parser 0.244.0",
+ "wit-validator",
 ]
 
 [[package]]
