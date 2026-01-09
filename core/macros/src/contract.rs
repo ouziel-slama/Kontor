@@ -4,6 +4,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use std::path::Path;
 use syn::Ident;
+use wit_parser::Resolve;
+use wit_validator::Validator;
 
 #[derive(FromMeta)]
 pub struct Config {
@@ -20,6 +22,23 @@ pub fn generate(config: Config) -> TokenStream {
     if !abs_path.exists() {
         panic!("Path does not exist: {}", abs_path.display());
     }
+
+    let mut resolve = Resolve::new();
+    resolve
+        .push_dir(&abs_path)
+        .unwrap_or_else(|e| panic!("Failed to parse WIT at {}: {}", abs_path.display(), e));
+
+    let result = Validator::validate_resolve(&resolve);
+    if result.has_errors() {
+        let error_messages: Vec<String> =
+            result.errors.iter().map(|e| format!("  - {}", e)).collect();
+        panic!(
+            "WIT validation failed for {}:\n{}",
+            abs_path.display(),
+            error_messages.join("\n")
+        );
+    }
+
     let path = abs_path.to_string_lossy().to_string();
     quote! {
         extern crate alloc;
