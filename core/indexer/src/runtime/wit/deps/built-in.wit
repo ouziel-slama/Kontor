@@ -95,10 +95,10 @@ interface foreign {
 }
 
 interface crypto {
-    hash: func(input: string) -> tuple<string, list<u8>>;
-    hash-with-salt: func(input: string, salt: string) -> tuple<string, list<u8>>;
+    hash: async func(input: string) -> tuple<string, list<u8>>;
+    hash-with-salt: async func(input: string, salt: string) -> tuple<string, list<u8>>;
 
-    hkdf-derive: func(
+    hkdf-derive: async func(
         ikm: list<u8>,
         salt: list<u8>,
         info: list<u8>
@@ -186,13 +186,17 @@ interface file-ledger {
 
     resource file-descriptor {
         file-id: async func() -> string;
+        root: async func() -> list<u8>;
+        padded-len: async func() -> u64;
+        original-size: async func() -> u64;
+        filename: async func() -> string;
         from-raw: static async func(raw: raw-file-descriptor) -> result<file-descriptor, error>;
     }
 
     add-file: async func(file-descriptor: borrow<file-descriptor>);
 
-    /// Fetch a raw-file-descriptor by file-id from the indexer database (if present).
-    get-raw: async func(file-id: string) -> option<raw-file-descriptor>;
+    /// Fetch a validated file-descriptor by file-id from the indexer database (if present).
+    get-file-descriptor: async func(file-id: string) -> option<file-descriptor>;
 }
 
 interface challenges {
@@ -204,7 +208,7 @@ interface challenges {
     }
 
     /// Compute a deterministic challenge ID using kontor-crypto (returns hex-encoded string)
-    compute-challenge-id: func(
+    compute-challenge-id: async func(
         file-id: string,
         root: list<u8>,
         padded-len: u64,
@@ -216,7 +220,7 @@ interface challenges {
         prover-id: string
     ) -> result<string, error>;
 
-    verify-challenge-proof: func(
+    verify-challenge-proof: async func(
         proof: list<u8>
     ) -> result<verify-proof-result, error>;
 }

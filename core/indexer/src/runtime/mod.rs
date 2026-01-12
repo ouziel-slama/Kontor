@@ -56,7 +56,6 @@ use wasmtime::{
 };
 
 use crate::database::native_contracts::{FILESTORAGE, TOKEN};
-use crate::database::types::FileMetadataRow;
 use crate::runtime::kontor::built_in::context::{OpReturnData, OutPoint};
 use crate::runtime::wit::{CoreContext, FileDescriptor, Transaction};
 use crate::{
@@ -92,23 +91,6 @@ impl PartialEq for RawFileDescriptor {
 }
 
 impl Eq for RawFileDescriptor {}
-
-impl RawFileDescriptor {
-    fn to_file_metadata_row(raw: RawFileDescriptor, height: i64) -> Result<FileMetadataRow, Error> {
-        let root = raw
-            .root
-            .try_into()
-            .map_err(|_| Error::Validation("expected 32 bytes for root".to_string()))?;
-        Ok(FileMetadataRow::builder()
-            .file_id(raw.file_id)
-            .root(root)
-            .padded_len(raw.padded_len)
-            .original_size(raw.original_size)
-            .filename(raw.filename)
-            .height(height)
-            .build())
-    }
-}
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -796,23 +778,71 @@ impl Runtime {
         Ok(file_id)
     }
 
-    async fn _get_raw_file_descriptor<T>(
+    async fn _root<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<Vec<u8>> {
+        Fuel::GetFileDescriptorRoot
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.root.to_vec())
+    }
+
+    async fn _padded_len<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        Fuel::GetFileDescriptorPaddedLen
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.padded_len)
+    }
+
+    async fn _original_size<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        Fuel::GetFileDescriptorOriginalSize
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.original_size)
+    }
+
+    async fn _filename<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<String> {
+        Fuel::GetFileDescriptorFilename
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.filename.clone())
+    }
+
+    async fn _get_file_descriptor<T>(
         &self,
         accessor: &Accessor<T, Self>,
         file_id: String,
-    ) -> Result<Option<built_in::file_ledger::RawFileDescriptor>> {
-        Fuel::GetRawFileDescriptor
+    ) -> Result<Option<Resource<FileDescriptor>>> {
+        Fuel::GetFileDescriptor
             .consume(accessor, self.gauge.as_ref())
             .await?;
 
         let row = self.storage.file_metadata_by_file_id(&file_id).await?;
-        Ok(row.map(|r| built_in::file_ledger::RawFileDescriptor {
-            file_id: r.file_id,
-            root: r.root.to_vec(),
-            padded_len: r.padded_len,
-            original_size: r.original_size,
-            filename: r.filename,
-        }))
+        let mut table = self.table.lock().await;
+        match row {
+            Some(file_metadata_row) => Ok(Some(
+                table.push(FileDescriptor::from_row(file_metadata_row))?,
+            )),
+            None => Ok(None),
+        }
     }
 
     async fn _from_raw<T>(
@@ -827,8 +857,8 @@ impl Runtime {
         let mut table = self.table.lock().await;
 
         Ok(
-            match RawFileDescriptor::to_file_metadata_row(raw, self.storage.height) {
-                Ok(file_metadata_row) => Ok(table.push(FileDescriptor { file_metadata_row })?),
+            match FileDescriptor::try_from_raw(raw, self.storage.height) {
+                Ok(fd) => Ok(table.push(fd)?),
                 Err(error) => Err(error),
             },
         )
@@ -1262,13 +1292,13 @@ impl built_in::file_ledger::HostWithStore for Runtime {
             .await
     }
 
-    async fn get_raw<T>(
+    async fn get_file_descriptor<T>(
         accessor: &Accessor<T, Self>,
         file_id: String,
-    ) -> Result<Option<built_in::file_ledger::RawFileDescriptor>> {
+    ) -> Result<Option<Resource<FileDescriptor>>> {
         accessor
             .with(|mut access| access.get().clone())
-            ._get_raw_file_descriptor(accessor, file_id)
+            ._get_file_descriptor(accessor, file_id)
             .await
     }
 }
@@ -1288,6 +1318,46 @@ impl built_in::file_ledger::HostFileDescriptorWithStore for Runtime {
         accessor
             .with(|mut access| access.get().clone())
             ._file_id(accessor, rep)
+            .await
+    }
+
+    async fn root<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<Vec<u8>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._root(accessor, rep)
+            .await
+    }
+
+    async fn padded_len<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._padded_len(accessor, rep)
+            .await
+    }
+
+    async fn original_size<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._original_size(accessor, rep)
+            .await
+    }
+
+    async fn filename<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<String> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._filename(accessor, rep)
             .await
     }
 

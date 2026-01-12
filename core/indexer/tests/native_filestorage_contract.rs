@@ -52,11 +52,7 @@ async fn filestorage_create_and_get(runtime: &mut Runtime) -> Result<()> {
     let got = got.expect("agreement should exist");
 
     assert_eq!(got.agreement_id, created.agreement_id);
-    assert_eq!(got.file_metadata.file_id, descriptor.file_id);
-    assert_eq!(got.file_metadata.root, descriptor.root);
-    assert_eq!(got.file_metadata.padded_len, descriptor.padded_len);
-    assert_eq!(got.file_metadata.original_size, descriptor.original_size);
-    assert_eq!(got.file_metadata.filename, descriptor.filename);
+    assert_eq!(got.file_id, descriptor.file_id);
     assert!(!got.active);
 
     // Check nodes via separate function
@@ -69,7 +65,13 @@ async fn filestorage_count_increments(runtime: &mut Runtime) -> Result<()> {
     let signer = runtime.identity().await?;
 
     let c0 = filestorage::agreement_count(runtime).await?;
-    let d1 = prepare_real_descriptor().await?;
+    let d1 = make_descriptor(
+        "count_file_1".to_string(),
+        vec![9u8; 32],
+        16,
+        100,
+        "count_file_1.txt".to_string(),
+    );
     filestorage::create_agreement(runtime, &signer, d1).await??;
     let c1 = filestorage::agreement_count(runtime).await?;
     assert_eq!(c1, c0 + 1);

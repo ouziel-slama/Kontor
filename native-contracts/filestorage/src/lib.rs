@@ -92,7 +92,7 @@ impl Guest for Filestorage {
         }
 
         // Validate and register with the FileLedger host function
-        let fd = file_ledger::FileDescriptor::from_raw(&descriptor)?;
+        let fd: file_ledger::FileDescriptor = file_ledger::FileDescriptor::from_raw(&descriptor)?;
         file_ledger::add_file(&fd);
 
         // Create the agreement (starts inactive until nodes join)
@@ -434,18 +434,18 @@ impl Guest for Filestorage {
             let node_index = node_u64 as usize % active_nodes.len();
             let prover_id = active_nodes[node_index].clone();
 
-            let descriptor = match file_ledger::get_raw(&file_id) {
+            let descriptor = match file_ledger::get_file_descriptor(&file_id) {
                 Some(d) => d,
                 None => continue,
             };
 
             // Compute challenge ID via host function
             let challenge_id = match challenges::compute_challenge_id(
-                &file_id,
-                &descriptor.root,
-                descriptor.padded_len,
-                descriptor.original_size,
-                &descriptor.filename,
+                &descriptor.file_id(),
+                &descriptor.root(),
+                descriptor.padded_len(),
+                descriptor.original_size(),
+                &descriptor.filename(),
                 block_height,
                 s_chal,
                 &seed,
