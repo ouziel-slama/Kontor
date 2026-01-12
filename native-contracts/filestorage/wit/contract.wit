@@ -10,14 +10,6 @@ world root {
   // Output/Storage Types
   // ─────────────────────────────────────────────────────────────────
 
-  record file-metadata-data {
-    file-id: string,
-    root: list<u8>,
-    padded-len: u64,
-    original-size: u64,
-    filename: string,
-  }
-
   record node-info {
     node-id: string,
     active: bool,
@@ -25,7 +17,7 @@ world root {
 
   record agreement-data {
     agreement-id: string,
-    file-metadata: file-metadata-data,
+    file-id: string,
     active: bool,
   }
 
@@ -59,7 +51,6 @@ world root {
   record challenge-data {
     challenge-id: string,
     agreement-id: string,
-    file-metadata: file-metadata-data,
     block-height: u64,
     num-challenges: u64,
     seed: list<u8>,

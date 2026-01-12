@@ -98,13 +98,7 @@ impl Guest for Filestorage {
         // Create the agreement (starts inactive until nodes join)
         let agreement = AgreementData {
             agreement_id: agreement_id.clone(),
-            file_metadata: FileMetadataData {
-                file_id: descriptor.file_id,
-                root: descriptor.root,
-                padded_len: descriptor.padded_len,
-                original_size: descriptor.original_size,
-                filename: descriptor.filename,
-            },
+            file_id: descriptor.file_id.clone(),
             active: false,
         };
 
@@ -334,24 +328,25 @@ impl Guest for Filestorage {
         let model = ctx.model();
         let mut new_challenges = Vec::new();
 
-        // Build set of file IDs that already have active challenges
-        let challenged_file_ids: Vec<String> = model
+        // Exclude any agreement_id that already has an active challenge.
+        let challenged_agreement_ids: Vec<String> = model
             .challenges()
             .keys()
             .filter_map(|cid: String| {
                 let c = model.challenges().get(&cid)?;
-                (c.status().load() == ChallengeStatus::Active).then(|| c.file_metadata().file_id())
+                (c.status().load() == ChallengeStatus::Active).then(|| c.agreement_id())
             })
             .collect();
 
-        // Get eligible agreements: active and file not already challenged
+        // Get eligible agreements: active and agreement not already challenged
         let eligible_agreement_ids: Vec<String> = model
             .agreements()
             .keys::<String>()
             .filter(|aid: &String| {
-                model.agreements().get(aid).is_some_and(|a| {
-                    a.active() && !challenged_file_ids.contains(&a.file_metadata().file_id())
-                })
+                model
+                    .agreements()
+                    .get(aid)
+                    .is_some_and(|a| a.active() && !challenged_agreement_ids.contains(aid))
             })
             .collect();
 
@@ -429,9 +424,9 @@ impl Guest for Filestorage {
                 continue;
             }
 
-            // Deterministically select one node
-            let fm = agreement.file_metadata();
-            let file_id = fm.file_id();
+            // Deterministically select one node (agreement-level exclusion ensures we create
+            // at most 1 active challenge per agreement total).
+            let file_id = agreement.file_id();
             let node_seed_input = [prev_block_hash.as_slice(), b":", file_id.as_bytes()].concat();
             let node_seed = derive_seed(&node_seed_input, b"node_selection");
             let mut node_counter: u64 = 0;
@@ -439,13 +434,18 @@ impl Guest for Filestorage {
             let node_index = node_u64 as usize % active_nodes.len();
             let prover_id = active_nodes[node_index].clone();
 
+            let descriptor = match file_ledger::get_raw(&file_id) {
+                Some(d) => d,
+                None => continue,
+            };
+
             // Compute challenge ID via host function
             let challenge_id = match challenges::compute_challenge_id(
                 &file_id,
-                &fm.root(),
-                fm.padded_len(),
-                fm.original_size(),
-                &fm.filename(),
+                &descriptor.root,
+                descriptor.padded_len,
+                descriptor.original_size,
+                &descriptor.filename,
                 block_height,
                 s_chal,
                 &seed,
@@ -458,13 +458,6 @@ impl Guest for Filestorage {
             let challenge = ChallengeData {
                 challenge_id,
                 agreement_id: agreement_id.clone(),
-                file_metadata: FileMetadataData {
-                    file_id,
-                    root: fm.root(),
-                    padded_len: fm.padded_len(),
-                    original_size: fm.original_size(),
-                    filename: fm.filename(),
-                },
                 block_height,
                 num_challenges: s_chal,
                 seed: seed.clone(),

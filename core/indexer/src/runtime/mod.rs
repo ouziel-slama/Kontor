@@ -81,22 +81,30 @@ pub fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
     result.into()
 }
 
+impl PartialEq for RawFileDescriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.file_id == other.file_id
+            && self.root == other.root
+            && self.padded_len == other.padded_len
+            && self.original_size == other.original_size
+            && self.filename == other.filename
+    }
+}
+
+impl Eq for RawFileDescriptor {}
+
 impl RawFileDescriptor {
     fn to_file_metadata_row(raw: RawFileDescriptor, height: i64) -> Result<FileMetadataRow, Error> {
         let root = raw
             .root
             .try_into()
             .map_err(|_| Error::Validation("expected 32 bytes for root".to_string()))?;
-        // Compute depth from padded_len (matches kontor_crypto::FileMetadata::depth())
-        let depth = if raw.padded_len == 0 {
-            0
-        } else {
-            raw.padded_len.trailing_zeros() as i64
-        };
         Ok(FileMetadataRow::builder()
             .file_id(raw.file_id)
             .root(root)
-            .depth(depth)
+            .padded_len(raw.padded_len)
+            .original_size(raw.original_size)
+            .filename(raw.filename)
             .height(height)
             .build())
     }
@@ -788,6 +796,25 @@ impl Runtime {
         Ok(file_id)
     }
 
+    async fn _get_raw_file_descriptor<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        file_id: String,
+    ) -> Result<Option<built_in::file_ledger::RawFileDescriptor>> {
+        Fuel::GetRawFileDescriptor
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+
+        let row = self.storage.file_metadata_by_file_id(&file_id).await?;
+        Ok(row.map(|r| built_in::file_ledger::RawFileDescriptor {
+            file_id: r.file_id,
+            root: r.root.to_vec(),
+            padded_len: r.padded_len,
+            original_size: r.original_size,
+            filename: r.filename,
+        }))
+    }
+
     async fn _from_raw<T>(
         &self,
         accessor: &Accessor<T, Self>,
@@ -1232,6 +1259,16 @@ impl built_in::file_ledger::HostWithStore for Runtime {
         accessor
             .with(|mut access| access.get().clone())
             ._add_file(accessor, file_descriptor)
+            .await
+    }
+
+    async fn get_raw<T>(
+        accessor: &Accessor<T, Self>,
+        file_id: String,
+    ) -> Result<Option<built_in::file_ledger::RawFileDescriptor>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._get_raw_file_descriptor(accessor, file_id)
             .await
     }
 }

@@ -294,7 +294,9 @@ pub struct FileMetadataRow {
     pub id: i64,
     pub file_id: String,
     pub root: [u8; 32],
-    pub depth: i64,
+    pub padded_len: u64,
+    pub original_size: u64,
+    pub filename: String,
     pub height: i64,
     pub historical_root: Option<[u8; 32]>,
 }
@@ -309,6 +311,11 @@ impl FileDescriptor for FileMetadataRow {
     }
 
     fn depth(&self) -> usize {
-        self.depth as usize
+        let padded_len = self.padded_len;
+        if padded_len == 0 {
+            0
+        } else {
+            padded_len.trailing_zeros() as usize
+        }
     }
 }

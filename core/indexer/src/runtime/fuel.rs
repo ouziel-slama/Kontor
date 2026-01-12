@@ -40,6 +40,7 @@ pub enum Fuel {
     CryptoGenerateId,
     AddFile,
     GetFileId,
+    GetRawFileDescriptor,
     FromRawFileDescriptor,
     NumbersU64ToInteger,
     NumbersS64ToInteger,
@@ -94,6 +95,7 @@ impl Fuel {
             Self::CryptoGenerateId => 500,
             Self::AddFile => 500,
             Self::GetFileId => 100,
+            Self::GetRawFileDescriptor => 200,
             Self::FromRawFileDescriptor => 500,
             Self::NumbersU64ToInteger
             | Self::NumbersS64ToInteger

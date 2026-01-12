@@ -17,7 +17,7 @@ fn create_test_storage(conn: libsql::Connection) -> Storage {
 }
 
 /// Helper to create a FileMetadataRow from actual file data using kontor_crypto::prepare_file.
-/// This produces real merkle roots and depths from the cryptographic library.
+/// This produces real merkle roots from the cryptographic library.
 fn create_file_metadata_from_data(data: &[u8], filename: &str, height: i64) -> FileMetadataRow {
     let (_prepared, metadata) = prepare_file(data, filename).expect("Failed to prepare file");
 
@@ -27,7 +27,9 @@ fn create_file_metadata_from_data(data: &[u8], filename: &str, height: i64) -> F
     FileMetadataRow::builder()
         .file_id(metadata.clone().file_id)
         .root(root)
-        .depth(metadata.depth() as i64)
+        .padded_len(metadata.padded_len as u64)
+        .original_size(metadata.original_size as u64)
+        .filename(metadata.filename)
         .height(height)
         .build()
 }
@@ -81,7 +83,9 @@ async fn test_file_ledger_add_file_persists_to_database() -> Result<()> {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].file_id, metadata.file_id);
     assert_eq!(entries[0].root, metadata.root);
-    assert_eq!(entries[0].depth, metadata.depth);
+    assert_eq!(entries[0].padded_len, metadata.padded_len);
+    assert_eq!(entries[0].original_size, metadata.original_size);
+    assert_eq!(entries[0].filename, metadata.filename);
     assert_eq!(entries[0].height, height);
 
     Ok(())

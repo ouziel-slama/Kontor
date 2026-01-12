@@ -190,6 +190,9 @@ interface file-ledger {
     }
 
     add-file: async func(file-descriptor: borrow<file-descriptor>);
+
+    /// Fetch a raw-file-descriptor by file-id from the indexer database (if present).
+    get-raw: async func(file-id: string) -> option<raw-file-descriptor>;
 }
 
 interface challenges {

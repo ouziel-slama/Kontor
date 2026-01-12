@@ -477,154 +477,44 @@ async fn filestorage_join_after_activation_not_reactivated(runtime: &mut Runtime
 
 #[testlib::test(contracts_dir = "../../test-contracts")]
 async fn test_filestorage_create_and_get() -> Result<()> {
-    filestorage_create_and_get(runtime).await
+    filestorage_create_and_get(runtime).await?;
+    filestorage_count_increments(runtime).await?;
+    filestorage_duplicate_fails(runtime).await?;
+    filestorage_invalid_root_fails(runtime).await?;
+    filestorage_invalid_padded_len_fails(runtime).await?;
+    filestorage_join_agreement(runtime).await?;
+    filestorage_join_activates_at_min_nodes(runtime).await?;
+    filestorage_double_join_fails(runtime).await?;
+    filestorage_join_nonexistent_agreement_fails(runtime).await?;
+    filestorage_leave_agreement(runtime).await?;
+    filestorage_leave_nonmember_fails(runtime).await?;
+    filestorage_leave_nonexistent_agreement_fails(runtime).await?;
+    filestorage_leave_does_not_deactivate(runtime).await?;
+    filestorage_is_node_in_agreement(runtime).await?;
+    filestorage_is_node_in_nonexistent_agreement(runtime).await?;
+    filestorage_rejoin_after_leave(runtime).await?;
+    filestorage_join_after_activation_not_reactivated(runtime).await?;
+    Ok(())
 }
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_count_increments() -> Result<()> {
-    filestorage_count_increments(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_duplicate_fails() -> Result<()> {
-    filestorage_duplicate_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_invalid_root_fails() -> Result<()> {
-    filestorage_invalid_root_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_invalid_padded_len_fails() -> Result<()> {
-    filestorage_invalid_padded_len_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_join_agreement() -> Result<()> {
-    filestorage_join_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_join_activates_at_min_nodes() -> Result<()> {
-    filestorage_join_activates_at_min_nodes(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_double_join_fails() -> Result<()> {
-    filestorage_double_join_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_join_nonexistent_agreement_fails() -> Result<()> {
-    filestorage_join_nonexistent_agreement_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_leave_agreement() -> Result<()> {
-    filestorage_leave_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_leave_nonmember_fails() -> Result<()> {
-    filestorage_leave_nonmember_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_leave_nonexistent_agreement_fails() -> Result<()> {
-    filestorage_leave_nonexistent_agreement_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_leave_does_not_deactivate() -> Result<()> {
-    filestorage_leave_does_not_deactivate(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_is_node_in_agreement() -> Result<()> {
-    filestorage_is_node_in_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_is_node_in_nonexistent_agreement() -> Result<()> {
-    filestorage_is_node_in_nonexistent_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_rejoin_after_leave() -> Result<()> {
-    filestorage_rejoin_after_leave(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_join_after_activation_not_reactivated() -> Result<()> {
-    filestorage_join_after_activation_not_reactivated(runtime).await
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Regtest Tests
-// ─────────────────────────────────────────────────────────────────
 
 #[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
 async fn test_filestorage_create_and_get_regtest() -> Result<()> {
-    filestorage_create_and_get(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_count_increments_regtest() -> Result<()> {
-    filestorage_count_increments(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_duplicate_fails_regtest() -> Result<()> {
-    filestorage_duplicate_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_invalid_root_fails_regtest() -> Result<()> {
-    filestorage_invalid_root_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_invalid_padded_len_fails_regtest() -> Result<()> {
-    filestorage_invalid_padded_len_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_join_agreement_regtest() -> Result<()> {
-    filestorage_join_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_join_activates_at_min_nodes_regtest() -> Result<()> {
-    filestorage_join_activates_at_min_nodes(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_double_join_fails_regtest() -> Result<()> {
-    filestorage_double_join_fails(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_leave_agreement_regtest() -> Result<()> {
-    filestorage_leave_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_leave_does_not_deactivate_regtest() -> Result<()> {
-    filestorage_leave_does_not_deactivate(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_is_node_in_agreement_regtest() -> Result<()> {
-    filestorage_is_node_in_agreement(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_rejoin_after_leave_regtest() -> Result<()> {
-    filestorage_rejoin_after_leave(runtime).await
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_join_after_activation_not_reactivated_regtest() -> Result<()> {
-    filestorage_join_after_activation_not_reactivated(runtime).await
+    filestorage_create_and_get(runtime).await?;
+    filestorage_count_increments(runtime).await?;
+    filestorage_duplicate_fails(runtime).await?;
+    filestorage_invalid_root_fails(runtime).await?;
+    filestorage_invalid_padded_len_fails(runtime).await?;
+    filestorage_join_agreement(runtime).await?;
+    filestorage_join_activates_at_min_nodes(runtime).await?;
+    filestorage_double_join_fails(runtime).await?;
+    filestorage_join_nonexistent_agreement_fails(runtime).await?;
+    filestorage_leave_agreement(runtime).await?;
+    filestorage_leave_nonmember_fails(runtime).await?;
+    filestorage_leave_nonexistent_agreement_fails(runtime).await?;
+    filestorage_leave_does_not_deactivate(runtime).await?;
+    filestorage_is_node_in_agreement(runtime).await?;
+    filestorage_is_node_in_nonexistent_agreement(runtime).await?;
+    filestorage_rejoin_after_leave(runtime).await?;
+    filestorage_join_after_activation_not_reactivated(runtime).await?;
+    Ok(())
 }
