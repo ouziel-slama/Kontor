@@ -72,82 +72,82 @@ world root {
   // Functions
   // ─────────────────────────────────────────────────────────────────
 
-  export init: func(ctx: borrow<proc-context>);
+  export init: async func(ctx: borrow<proc-context>);
 
   // Agreement management
-  export create-agreement: func(
+  export create-agreement: async func(
     ctx: borrow<proc-context>,
     descriptor: raw-file-descriptor
   ) -> result<create-agreement-result, error>;
 
-  export get-agreement: func(
+  export get-agreement: async func(
     ctx: borrow<view-context>,
     agreement-id: string
   ) -> option<agreement-data>;
 
-  export agreement-count: func(ctx: borrow<view-context>) -> u64;
+  export agreement-count: async func(ctx: borrow<view-context>) -> u64;
 
-  export get-all-active-agreements: func(
+  export get-all-active-agreements: async func(
     ctx: borrow<view-context>
   ) -> list<agreement-data>;
 
   // Node participation
-  export join-agreement: func(
+  export join-agreement: async func(
     ctx: borrow<proc-context>,
     agreement-id: string,
     node-id: string
   ) -> result<join-agreement-result, error>;
 
-  export leave-agreement: func(
+  export leave-agreement: async func(
     ctx: borrow<proc-context>,
     agreement-id: string,
     node-id: string
   ) -> result<leave-agreement-result, error>;
 
   // Node queries
-  export get-agreement-nodes: func(
+  export get-agreement-nodes: async func(
     ctx: borrow<view-context>,
     agreement-id: string
   ) -> list<node-info>;
 
-  export is-node-in-agreement: func(
+  export is-node-in-agreement: async func(
     ctx: borrow<view-context>,
     agreement-id: string,
     node-id: string
   ) -> bool;
 
-  export submit-proof: func(
+  export submit-proof: async func(
     ctx: borrow<proc-context>,
     challenge-ids: list<string>,
     proof: list<u8>
   ) -> result<submit-proof-result, error>;
 
   // Protocol parameters
-  export get-min-nodes: func(ctx: borrow<view-context>) -> u64;
-  export get-c-target: func(ctx: borrow<view-context>) -> u64;
-  export get-blocks-per-year: func(ctx: borrow<view-context>) -> u64;
-  export get-s-chal: func(ctx: borrow<view-context>) -> u64;
+  export get-min-nodes: async func(ctx: borrow<view-context>) -> u64;
+  export get-c-target: async func(ctx: borrow<view-context>) -> u64;
+  export get-blocks-per-year: async func(ctx: borrow<view-context>) -> u64;
+  export get-s-chal: async func(ctx: borrow<view-context>) -> u64;
 
   // ─────────────────────────────────────────────────────────────────
   // Challenge Management
   // ─────────────────────────────────────────────────────────────────
 
-  export get-challenge: func(
+  export get-challenge: async func(
     ctx: borrow<view-context>,
     challenge-id: string
   ) -> option<challenge-data>;
 
-  export get-active-challenges: func(
+  export get-active-challenges: async func(
     ctx: borrow<view-context>
   ) -> list<challenge-data>;
 
-  export expire-challenges: func(
+  export expire-challenges: async func(
     ctx: borrow<proc-context>,
     current-height: u64
   );
 
   // Challenge generation - called by reactor each block
-  export generate-challenges-for-block: func(
+  export generate-challenges-for-block: async func(
     ctx: borrow<proc-context>,
     block-height: u64,
     prev-block-hash: list<u8>
