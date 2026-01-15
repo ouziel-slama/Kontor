@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS file_metadata (
   id INTEGER PRIMARY KEY,
   file_id TEXT NOT NULL UNIQUE,
   root BLOB NOT NULL,
-  depth INTEGER NOT NULL,
+  padded_len INTEGER NOT NULL,
+  original_size INTEGER NOT NULL,
+  filename TEXT NOT NULL,
   height INTEGER NOT NULL,
   historical_root BLOB,
   FOREIGN KEY (height) REFERENCES blocks (height) ON DELETE CASCADE

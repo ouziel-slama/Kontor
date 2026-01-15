@@ -27,6 +27,8 @@ pub enum Error {
     OutOfFuel,
     #[error("Contract not found: {0}")]
     ContractNotFound(String),
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
 }
 
 pub async fn insert_block(conn: &Connection, block: BlockRow) -> Result<i64, Error> {
@@ -938,7 +940,9 @@ pub async fn select_all_file_metadata(conn: &Connection) -> Result<Vec<FileMetad
             id, 
             file_id, 
             root,
-            depth, 
+            padded_len,
+            original_size,
+            filename,
             height, 
             historical_root
             FROM file_metadata
@@ -952,6 +956,31 @@ pub async fn select_all_file_metadata(conn: &Connection) -> Result<Vec<FileMetad
         entries.push(from_row(&row)?);
     }
     Ok(entries)
+}
+
+pub async fn select_file_metadata_by_file_id(
+    conn: &Connection,
+    file_id: &str,
+) -> Result<Option<FileMetadataRow>, Error> {
+    let mut rows = conn
+        .query(
+            r#"SELECT 
+            id, 
+            file_id, 
+            root,
+            padded_len,
+            original_size,
+            filename,
+            height, 
+            historical_root
+            FROM file_metadata
+            WHERE file_id = ?
+            LIMIT 1"#,
+            params![file_id],
+        )
+        .await?;
+
+    Ok(rows.next().await?.map(|r| from_row(&r)).transpose()?)
 }
 
 pub async fn insert_file_metadata(
@@ -969,14 +998,18 @@ pub async fn insert_file_metadata(
         file_metadata 
         (file_id, 
         root, 
-        depth,
+        padded_len,
+        original_size,
+        filename,
         height,
         historical_root) 
-        VALUES (?, ?, ?, ?, ?)"#,
+        VALUES (?, ?, ?, ?, ?, ?, ?)"#,
         params![
             entry.file_id.clone(),
             entry.root,
-            entry.depth,
+            entry.padded_len,
+            entry.original_size,
+            entry.filename.clone(),
             entry.height,
             historical_root_value,
         ],

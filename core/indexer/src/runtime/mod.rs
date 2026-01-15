@@ -17,6 +17,7 @@ use bitcoin::{Txid, hashes::Hash};
 pub use component_cache::ComponentCache;
 pub use file_ledger::FileLedger;
 use futures_util::{StreamExt, future::OptionFuture};
+use hkdf::Hkdf;
 use libsql::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -55,7 +56,6 @@ use wasmtime::{
 };
 
 use crate::database::native_contracts::{FILESTORAGE, TOKEN};
-use crate::database::types::FileMetadataRow;
 use crate::runtime::kontor::built_in::context::{OpReturnData, OutPoint};
 use crate::runtime::wit::{CoreContext, FileDescriptor, Transaction};
 use crate::{
@@ -80,20 +80,17 @@ pub fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
     result.into()
 }
 
-impl RawFileDescriptor {
-    fn to_file_metadata_row(raw: RawFileDescriptor, height: i64) -> Result<FileMetadataRow, Error> {
-        let root = raw
-            .root
-            .try_into()
-            .map_err(|_| Error::Validation("expected 32 bytes for root".to_string()))?;
-        Ok(FileMetadataRow::builder()
-            .file_id(raw.file_id)
-            .root(root)
-            .depth(raw.depth as i64)
-            .height(height)
-            .build())
+impl PartialEq for RawFileDescriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.file_id == other.file_id
+            && self.root == other.root
+            && self.padded_len == other.padded_len
+            && self.original_size == other.original_size
+            && self.filename == other.filename
     }
 }
+
+impl Eq for RawFileDescriptor {}
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -781,6 +778,73 @@ impl Runtime {
         Ok(file_id)
     }
 
+    async fn _root<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<Vec<u8>> {
+        Fuel::GetFileDescriptorRoot
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.root.to_vec())
+    }
+
+    async fn _padded_len<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        Fuel::GetFileDescriptorPaddedLen
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.padded_len)
+    }
+
+    async fn _original_size<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        Fuel::GetFileDescriptorOriginalSize
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.original_size)
+    }
+
+    async fn _filename<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<String> {
+        Fuel::GetFileDescriptorFilename
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+        let table = self.table.lock().await;
+        Ok(table.get(&rep)?.file_metadata_row.filename.clone())
+    }
+
+    async fn _get_file_descriptor<T>(
+        &self,
+        accessor: &Accessor<T, Self>,
+        file_id: String,
+    ) -> Result<Option<Resource<FileDescriptor>>> {
+        Fuel::GetFileDescriptor
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+
+        let row = self.storage.file_metadata_by_file_id(&file_id).await?;
+        let mut table = self.table.lock().await;
+        match row {
+            Some(file_metadata_row) => Ok(Some(
+                table.push(FileDescriptor::from_row(file_metadata_row))?,
+            )),
+            None => Ok(None),
+        }
+    }
+
     async fn _from_raw<T>(
         &self,
         accessor: &Accessor<T, Self>,
@@ -793,8 +857,8 @@ impl Runtime {
         let mut table = self.table.lock().await;
 
         Ok(
-            match RawFileDescriptor::to_file_metadata_row(raw, self.storage.height) {
-                Ok(file_metadata_row) => Ok(table.push(FileDescriptor { file_metadata_row })?),
+            match FileDescriptor::try_from_raw(raw, self.storage.height) {
+                Ok(fd) => Ok(table.push(fd)?),
                 Err(error) => Err(error),
             },
         )
@@ -914,6 +978,31 @@ impl Runtime {
         let bs = hash_bytes(input.as_bytes());
         let s = hex::encode(bs);
         Ok((s, bs.to_vec()))
+    }
+
+    async fn _hkdf_derive<T>(
+        &self,
+        accessor: &Accessor<T, Runtime>,
+        ikm: Vec<u8>,
+        salt: Vec<u8>,
+        info: Vec<u8>,
+    ) -> Result<Vec<u8>> {
+        // Charge gas based on input size
+        Fuel::CryptoHash((ikm.len() + salt.len() + info.len()) as u64)
+            .consume(accessor, self.gauge.as_ref())
+            .await?;
+
+        // Use HKDF-SHA256 to derive a 32-byte key
+        let salt_ref = if salt.is_empty() {
+            None
+        } else {
+            Some(salt.as_slice())
+        };
+        let hk = Hkdf::<Sha256>::new(salt_ref, &ikm);
+        let mut okm = [0u8; 32];
+        hk.expand(&info, &mut okm)
+            .map_err(|e| anyhow::anyhow!("HKDF expand error: {}", e))?;
+        Ok(okm.to_vec())
     }
 
     async fn _generate_id<T>(&self, accessor: &Accessor<T, Self>) -> Result<String> {
@@ -1168,6 +1257,18 @@ impl Runtime {
         self.table.lock().await.delete(rep)?;
         Ok(())
     }
+
+    async fn _verify_challenge_proof(
+        &self,
+        _proof_bytes: Vec<u8>,
+    ) -> Result<Result<built_in::challenges::VerifyProofResult, Error>> {
+        // TODO: Implement proof verification
+        // 1. Deserialize the proof
+        // 2. Read challenge data from contract state
+        // 3. Reconstruct kontor-crypto Challenge objects
+        // 4. Call PorSystem::verify()
+        todo!("Proof verification not yet implemented")
+    }
 }
 
 impl HasData for Runtime {
@@ -1190,6 +1291,16 @@ impl built_in::file_ledger::HostWithStore for Runtime {
             ._add_file(accessor, file_descriptor)
             .await
     }
+
+    async fn get_file_descriptor<T>(
+        accessor: &Accessor<T, Self>,
+        file_id: String,
+    ) -> Result<Option<Resource<FileDescriptor>>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._get_file_descriptor(accessor, file_id)
+            .await
+    }
 }
 
 impl built_in::file_ledger::HostFileDescriptorWithStore for Runtime {
@@ -1207,6 +1318,46 @@ impl built_in::file_ledger::HostFileDescriptorWithStore for Runtime {
         accessor
             .with(|mut access| access.get().clone())
             ._file_id(accessor, rep)
+            .await
+    }
+
+    async fn root<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<Vec<u8>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._root(accessor, rep)
+            .await
+    }
+
+    async fn padded_len<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._padded_len(accessor, rep)
+            .await
+    }
+
+    async fn original_size<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<u64> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._original_size(accessor, rep)
+            .await
+    }
+
+    async fn filename<T>(
+        accessor: &Accessor<T, Self>,
+        rep: Resource<FileDescriptor>,
+    ) -> Result<String> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._filename(accessor, rep)
             .await
     }
 
@@ -1239,6 +1390,18 @@ impl built_in::crypto::HostWithStore for Runtime {
         accessor
             .with(|mut access| access.get().clone())
             ._hash(accessor, input + salt.as_str())
+            .await
+    }
+
+    async fn hkdf_derive<T>(
+        accessor: &Accessor<T, Self>,
+        ikm: Vec<u8>,
+        salt: Vec<u8>,
+        info: Vec<u8>,
+    ) -> Result<Vec<u8>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._hkdf_derive(accessor, ikm, salt, info)
             .await
     }
 }
@@ -2158,5 +2321,92 @@ impl built_in::numbers::HostWithStore for Runtime {
             )
             .await?;
         Ok(numerics::log10_decimal(a))
+    }
+}
+
+impl built_in::challenges::Host for Runtime {}
+
+impl built_in::challenges::HostWithStore for Runtime {
+    async fn compute_challenge_id<T>(
+        _accessor: &Accessor<T, Self>,
+        file_id: String,
+        root: Vec<u8>,
+        padded_len: u64,
+        original_size: u64,
+        filename: String,
+        block_height: u64,
+        num_challenges: u64,
+        seed: Vec<u8>,
+        prover_id: String,
+    ) -> Result<Result<String, Error>> {
+        use crate::database::types::bytes_to_field_element;
+        use kontor_crypto::api::Challenge;
+        use kontor_crypto::api::FileMetadata as CryptoFileMetadata;
+
+        // Convert inputs to kontor_crypto::FileMetadata
+        let root_bytes: [u8; 32] = match root.try_into() {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Ok(Err(Error::Validation(
+                    "Invalid root length, expected 32 bytes".to_string(),
+                )));
+            }
+        };
+        let root = match bytes_to_field_element(&root_bytes) {
+            Some(r) => r,
+            None => {
+                return Ok(Err(Error::Validation(
+                    "Invalid root field element".to_string(),
+                )));
+            }
+        };
+
+        let file_metadata = CryptoFileMetadata {
+            file_id,
+            root,
+            padded_len: padded_len as usize,
+            original_size: original_size as usize,
+            filename,
+        };
+
+        // Convert seed bytes to FieldElement
+        let seed_bytes: [u8; 32] = match seed.try_into() {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Ok(Err(Error::Validation(
+                    "Invalid seed length, expected 32 bytes".to_string(),
+                )));
+            }
+        };
+        let seed_field = match bytes_to_field_element(&seed_bytes) {
+            Some(s) => s,
+            None => {
+                return Ok(Err(Error::Validation(
+                    "Invalid seed field element".to_string(),
+                )));
+            }
+        };
+
+        // Create challenge and compute ID
+        let challenge = Challenge::new(
+            file_metadata,
+            block_height,
+            num_challenges as usize,
+            seed_field,
+            prover_id,
+        );
+
+        // TODO: Replace with challenge.id().to_string() once Display is implemented in kontor-crypto
+        Ok(Ok(hex::encode(challenge.id().0)))
+    }
+
+    async fn verify_challenge_proof<T>(
+        accessor: &Accessor<T, Self>,
+        proof: Vec<u8>,
+    ) -> Result<Result<built_in::challenges::VerifyProofResult, Error>> {
+        accessor
+            .with(|mut access| access.get().clone())
+            ._verify_challenge_proof(proof)
+            .await
     }
 }

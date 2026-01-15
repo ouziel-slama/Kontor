@@ -9,6 +9,23 @@ use serde_with::{DefaultOnNull, DisplayFromStr, serde_as};
 
 use crate::runtime::ContractAddress;
 
+// ─────────────────────────────────────────────────────────────────
+// FieldElement <-> [u8; 32] conversion utilities
+// ─────────────────────────────────────────────────────────────────
+
+/// Convert a 32-byte array to a FieldElement.
+/// Returns None if the bytes don't represent a valid field element.
+pub fn bytes_to_field_element(bytes: &[u8; 32]) -> Option<FieldElement> {
+    FieldElement::from_repr((*bytes).into()).into_option()
+}
+
+/// Convert a FieldElement to a 32-byte array.
+pub fn field_element_to_bytes(fe: &FieldElement) -> [u8; 32] {
+    fe.to_repr().into()
+}
+
+// ─────────────────────────────────────────────────────────────────
+
 pub trait HasRowId {
     fn id(&self) -> i64;
     fn id_name() -> String;
@@ -277,7 +294,9 @@ pub struct FileMetadataRow {
     pub id: i64,
     pub file_id: String,
     pub root: [u8; 32],
-    pub depth: i64,
+    pub padded_len: u64,
+    pub original_size: u64,
+    pub filename: String,
     pub height: i64,
     pub historical_root: Option<[u8; 32]>,
 }
@@ -288,12 +307,15 @@ impl FileDescriptor for FileMetadataRow {
     }
 
     fn root(&self) -> FieldElement {
-        FieldElement::from_repr(self.root.into())
-            .into_option()
-            .expect("Invalid field element bytes for root")
+        bytes_to_field_element(&self.root).expect("Invalid field element bytes for root")
     }
 
     fn depth(&self) -> usize {
-        self.depth as usize
+        let padded_len = self.padded_len;
+        if padded_len == 0 {
+            0
+        } else {
+            padded_len.trailing_zeros() as usize
+        }
     }
 }

@@ -4,6 +4,7 @@ use futures_util::Stream;
 pub use indexer_types::Signer;
 
 use crate::database::types::FileMetadataRow;
+use crate::runtime::kontor::built_in::{error::Error, file_ledger::RawFileDescriptor};
 
 pub trait HasContractId: 'static {
     fn get_contract_id(&self) -> i64;
@@ -80,4 +81,27 @@ pub struct Transaction {}
 
 pub struct FileDescriptor {
     pub file_metadata_row: FileMetadataRow,
+}
+
+impl FileDescriptor {
+    pub fn from_row(file_metadata_row: FileMetadataRow) -> Self {
+        Self { file_metadata_row }
+    }
+
+    pub fn try_from_raw(raw: RawFileDescriptor, height: i64) -> Result<Self, Error> {
+        let root = raw
+            .root
+            .try_into()
+            .map_err(|_| Error::Validation("expected 32 bytes for root".to_string()))?;
+        Ok(Self {
+            file_metadata_row: FileMetadataRow::builder()
+                .file_id(raw.file_id)
+                .root(root)
+                .padded_len(raw.padded_len)
+                .original_size(raw.original_size)
+                .filename(raw.filename)
+                .height(height)
+                .build(),
+        })
+    }
 }
