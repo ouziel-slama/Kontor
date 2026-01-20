@@ -204,7 +204,7 @@ export type ViewResult = { "type": "Ok"; value: string } | {
   message: string;
 };
 
-export type WsRequest = { "type": "Subscribe" };
+export type WsRequest = never;
 
 export type WsResponse = { "type": "Event"; event: Event } | {
   "type": "Error";

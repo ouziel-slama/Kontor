@@ -161,9 +161,7 @@ pub struct ResultResponse<T: TS> {
 #[derive(Debug, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export, export_to = "../../../kontor-ts/src/bindings.d.ts")]
 #[serde(tag = "type")]
-pub enum WsRequest {
-    Subscribe,
-}
+pub enum WsRequest {}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export, export_to = "../../../kontor-ts/src/bindings.d.ts")]
