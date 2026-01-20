@@ -82,13 +82,13 @@ pub async fn delete_unprocessed_blocks(conn: &Connection) -> Result<u64, Error> 
         .await?)
 }
 
-pub async fn select_block_by_height_or_hash(
+pub async fn select_processed_block_by_height_or_hash(
     conn: &Connection,
     identifier: &str,
 ) -> Result<Option<BlockRow>, Error> {
     let mut rows = conn
         .query(
-            "SELECT height, hash, relevant FROM blocks WHERE height = ? OR hash = ?",
+            "SELECT height, hash, relevant FROM blocks WHERE (height = ? OR hash = ?) AND processed = 1",
             params![identifier, identifier],
         )
         .await?;

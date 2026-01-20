@@ -6,7 +6,9 @@ use axum_test::{TestResponse, TestServer};
 use indexer::{
     api::{
         Env,
-        handlers::{get_block, get_block_latest, get_transaction, get_transactions},
+        handlers::{
+            get_block, get_block_latest, get_block_transactions, get_transaction, get_transactions,
+        },
     },
     bitcoin_client::Client,
     config::Config,
@@ -112,6 +114,10 @@ async fn create_test_app() -> Result<Router> {
 
     Ok(Router::new()
         .route("/api/blocks/{identifier}", get(get_block))
+        .route(
+            "/api/blocks/{identifier}/transactions",
+            get(get_block_transactions),
+        )
         .route("/api/blocks/latest", get(get_block_latest))
         .route("/api/transactions", get(get_transactions))
         .route("/api/transactions/{txid}", get(get_transaction))
@@ -403,6 +409,61 @@ async fn test_get_transactions_invalid_cursor() -> Result<()> {
 
     let response: TestResponse = server.get("/api/transactions?cursor=invalid_cursor").await;
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_block_transactions_by_height() -> Result<()> {
+    let app = create_test_app().await?;
+    let server = TestServer::new(app)?;
+
+    let response: TestResponse = server.get("/api/blocks/800000/transactions").await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    assert_eq!(result.result.results.len(), 2);
+    assert_eq!(result.result.pagination.total_count, 2);
+
+    for tx in &result.result.results {
+        assert_eq!(tx.height, 800000);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_block_transactions_by_hash() -> Result<()> {
+    let app = create_test_app().await?;
+    let server = TestServer::new(app)?;
+
+    // Use block hash for height 800000
+    let response: TestResponse = server
+        .get("/api/blocks/000000000000000000015d76e1b13f62d0edc4593ed326528c37b5af3c3fba04/transactions")
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+
+    let result: TransactionListResponseWrapper = serde_json::from_slice(response.as_bytes())?;
+    assert_eq!(result.result.results.len(), 2);
+    assert_eq!(result.result.pagination.total_count, 2);
+
+    for tx in &result.result.results {
+        assert_eq!(tx.height, 800000);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_block_transactions_not_found() -> Result<()> {
+    let app = create_test_app().await?;
+    let server = TestServer::new(app)?;
+
+    let response: TestResponse = server.get("/api/blocks/999999/transactions").await;
+    assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+
+    let error_body = response.text();
+    assert!(error_body.contains("block at height or hash: 999999"));
 
     Ok(())
 }
