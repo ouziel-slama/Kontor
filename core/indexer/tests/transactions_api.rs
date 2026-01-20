@@ -236,8 +236,8 @@ async fn test_get_transactions_with_limit() -> Result<()> {
     assert_eq!(result.result.results.len(), 3);
     assert_eq!(result.result.pagination.total_count, 3);
     assert!(!result.result.pagination.has_more);
-    assert!(result.result.pagination.next_offset.is_none());
-    assert!(result.result.pagination.next_cursor.is_none());
+    assert_eq!(result.result.pagination.next_offset, Some(3));
+    assert!(result.result.pagination.next_cursor.is_some());
 
     Ok(())
 }
