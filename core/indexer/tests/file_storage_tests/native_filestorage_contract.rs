@@ -1,3 +1,4 @@
+use indexer::test_utils::make_descriptor;
 use testlib::*;
 
 import!(
@@ -11,31 +12,6 @@ fn has_node(nodes: &[filestorage::NodeInfo], node_id: &str, active: bool) -> boo
     nodes
         .iter()
         .any(|n| n.node_id == node_id && n.active == active)
-}
-
-fn make_descriptor(
-    file_id: String,
-    root: Vec<u8>,
-    padded_len: u64,
-    original_size: u64,
-    filename: String,
-) -> RawFileDescriptor {
-    // Generate object_id and nonce from file_id for test determinism
-    let object_id = format!("object_{}", file_id);
-    let mut nonce = [0u8; 32];
-    for (i, b) in file_id.bytes().enumerate().take(32) {
-        nonce[i] = b;
-    }
-
-    RawFileDescriptor {
-        file_id,
-        object_id,
-        nonce: nonce.to_vec(),
-        root,
-        padded_len,
-        original_size,
-        filename,
-    }
 }
 
 async fn prepare_real_descriptor() -> Result<RawFileDescriptor> {
@@ -621,35 +597,7 @@ async fn challenge_gen_smoke_test(runtime: &mut Runtime) -> Result<()> {
     Ok(())
 }
 
-#[testlib::test(contracts_dir = "../../test-contracts")]
-async fn test_filestorage_create_and_get() -> Result<()> {
-    filestorage_defaults(runtime).await?;
-    filestorage_empty_file_id_fails(runtime).await?;
-    filestorage_get_all_active_agreements(runtime).await?;
-    filestorage_expire_challenges_noop(runtime).await?;
-    filestorage_create_and_get(runtime).await?;
-    filestorage_count_increments(runtime).await?;
-    filestorage_duplicate_fails(runtime).await?;
-    filestorage_invalid_root_fails(runtime).await?;
-    filestorage_invalid_padded_len_fails(runtime).await?;
-    filestorage_join_agreement(runtime).await?;
-    filestorage_join_activates_at_min_nodes(runtime).await?;
-    filestorage_double_join_fails(runtime).await?;
-    filestorage_join_nonexistent_agreement_fails(runtime).await?;
-    filestorage_leave_agreement(runtime).await?;
-    filestorage_leave_nonmember_fails(runtime).await?;
-    filestorage_leave_nonexistent_agreement_fails(runtime).await?;
-    filestorage_leave_does_not_deactivate(runtime).await?;
-    filestorage_is_node_in_agreement(runtime).await?;
-    filestorage_is_node_in_nonexistent_agreement(runtime).await?;
-    filestorage_rejoin_after_leave(runtime).await?;
-    filestorage_join_after_activation_not_reactivated(runtime).await?;
-    challenge_gen_smoke_test(runtime).await?;
-    Ok(())
-}
-
-#[testlib::test(contracts_dir = "../../test-contracts", mode = "regtest")]
-async fn test_filestorage_create_and_get_regtest() -> Result<()> {
+pub async fn run(runtime: &mut Runtime) -> Result<()> {
     filestorage_defaults(runtime).await?;
     filestorage_empty_file_id_fails(runtime).await?;
     filestorage_get_all_active_agreements(runtime).await?;

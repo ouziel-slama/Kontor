@@ -25,7 +25,9 @@ use tokio::time::{Duration, sleep};
 use crate::bitcoin_follower::blockchain_info::BlockchainInfo;
 use crate::bitcoin_follower::rpc;
 
+use crate::database::types::FileMetadataRow;
 use crate::database::{Reader, Writer, queries};
+use crate::runtime::RawFileDescriptor;
 
 pub enum PublicKey<'a> {
     Segwit(&'a CompressedPublicKey),
@@ -517,5 +519,51 @@ pub async fn await_block_at_height(conn: &Connection, height: i64) -> BlockRow {
             Err(e) => panic!("error: {:?}", e),
         };
         sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Helper to create a fake FileMetadataRow for testing.
+pub fn create_fake_file_metadata(file_id: &str, filename: &str, height: i64) -> FileMetadataRow {
+    // Create a simple valid root (32 bytes, small enough to be a valid field element)
+    let mut root = [0u8; 32];
+    root[0] = 1; // Non-zero but small value
+
+    // Create a simple nonce
+    let mut nonce = [0u8; 32];
+    nonce[0] = 2;
+
+    FileMetadataRow::builder()
+        .file_id(file_id.to_string())
+        .object_id(format!("object_{}", file_id))
+        .nonce(nonce)
+        .root(root)
+        .padded_len(1024)
+        .original_size(512)
+        .filename(filename.to_string())
+        .height(height)
+        .build()
+}
+
+pub fn make_descriptor(
+    file_id: String,
+    root: Vec<u8>,
+    padded_len: u64,
+    original_size: u64,
+    filename: String,
+) -> RawFileDescriptor {
+    let object_id = format!("object_{}", file_id);
+    let mut nonce = [0u8; 32];
+    for (i, b) in file_id.bytes().enumerate().take(32) {
+        nonce[i] = b;
+    }
+
+    RawFileDescriptor {
+        file_id,
+        object_id,
+        nonce: nonce.to_vec(),
+        root,
+        padded_len,
+        original_size,
+        filename,
     }
 }

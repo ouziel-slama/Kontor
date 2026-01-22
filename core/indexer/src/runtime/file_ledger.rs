@@ -1,10 +1,16 @@
 use anyhow::{Result, anyhow};
 use kontor_crypto::FileLedger as CryptoFileLedger;
+use kontor_crypto::Proof;
+use kontor_crypto::api::Challenge;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
+use crate::database::queries::{
+    insert_file_metadata, select_all_file_metadata, select_file_metadata_by_file_id,
+};
 use crate::database::types::FileMetadataRow;
-use crate::runtime::Storage;
+use crate::runtime::wit::FileDescriptor;
+use libsql::Connection;
 
 /// Inner state protected by a single mutex
 struct FileLedgerInner {
@@ -17,13 +23,13 @@ struct FileLedgerInner {
 /// Wrapper around kontor_crypto::FileLedger
 #[derive(Clone)]
 pub struct FileLedger {
-    inner: Arc<Mutex<FileLedgerInner>>,
+    inner: Arc<RwLock<FileLedgerInner>>,
 }
 
 impl FileLedger {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(FileLedgerInner {
+            inner: Arc::new(RwLock::new(FileLedgerInner {
                 ledger: CryptoFileLedger::new(),
                 dirty: false,
             })),
@@ -31,11 +37,11 @@ impl FileLedger {
     }
 
     /// Rebuild the ledger from database on startup.
-    pub async fn rebuild_from_db(storage: &Storage) -> Result<Self> {
+    pub async fn rebuild_from_db(conn: &Connection) -> Result<Self> {
         let file_ledger = Self::new();
         {
-            let mut inner = file_ledger.inner.lock().await;
-            Self::load_entries_into_ledger(&mut inner.ledger, storage).await?;
+            let mut inner = file_ledger.inner.write().await;
+            Self::load_entries_into_ledger(&mut inner.ledger, conn).await?;
         }
         tracing::info!("Rebuilt FileLedger from database");
         Ok(file_ledger)
@@ -45,8 +51,8 @@ impl FileLedger {
     ///
     /// Call this after a rollback to re-sync the in-memory state with the DB.
     /// Only rebuilds if the ledger has been modified (dirty flag is true).
-    pub async fn resync_from_db(&self, storage: &Storage) -> Result<()> {
-        let mut inner = self.inner.lock().await;
+    pub async fn resync_from_db(&self, conn: &Connection) -> Result<()> {
+        let mut inner = self.inner.write().await;
 
         // Skip rebuild if ledger hasn't been modified
         if !inner.dirty {
@@ -55,7 +61,7 @@ impl FileLedger {
         }
 
         inner.ledger = CryptoFileLedger::new();
-        Self::load_entries_into_ledger(&mut inner.ledger, storage).await?;
+        Self::load_entries_into_ledger(&mut inner.ledger, conn).await?;
 
         // Clear dirty flag after successful rebuild
         inner.dirty = false;
@@ -63,10 +69,10 @@ impl FileLedger {
         Ok(())
     }
 
-    pub async fn force_resync_from_db(&self, storage: &Storage) -> Result<()> {
-        let mut inner = self.inner.lock().await;
+    pub async fn force_resync_from_db(&self, conn: &Connection) -> Result<()> {
+        let mut inner = self.inner.write().await;
         inner.ledger = CryptoFileLedger::new();
-        Self::load_entries_into_ledger(&mut inner.ledger, storage).await?;
+        Self::load_entries_into_ledger(&mut inner.ledger, conn).await?;
         inner.dirty = false;
         tracing::info!("Force resynced FileLedger from database");
         Ok(())
@@ -76,9 +82,9 @@ impl FileLedger {
     /// Also restores the historical roots from the stored values.
     async fn load_entries_into_ledger(
         ledger: &mut CryptoFileLedger,
-        storage: &Storage,
+        conn: &Connection,
     ) -> Result<()> {
-        let rows = storage.all_file_metadata().await?;
+        let rows = select_all_file_metadata(conn).await?;
 
         // Add all files to rebuild the tree (this will generate incorrect historical roots)
         ledger
@@ -101,8 +107,8 @@ impl FileLedger {
     ///
     /// The historical root (the pre-modification ledger root) is captured and stored
     /// in the database for later reconstruction during rebuilds.
-    pub async fn add_file(&self, storage: &Storage, metadata: &FileMetadataRow) -> Result<()> {
-        let mut inner = self.inner.lock().await;
+    pub async fn add_file(&self, conn: &Connection, metadata: &FileMetadataRow) -> Result<()> {
+        let mut inner = self.inner.write().await;
 
         // Capture the number of historical roots before adding
         let historical_roots_count_before = inner.ledger.historical_roots.len();
@@ -130,9 +136,7 @@ impl FileLedger {
         };
 
         // Persist to database
-        storage
-            .insert_file_metadata(metadata_with_historical)
-            .await?;
+        insert_file_metadata(conn, &metadata_with_historical).await?;
 
         // Mark ledger as dirty (needs resync on rollback)
         inner.dirty = true;
@@ -143,7 +147,27 @@ impl FileLedger {
     /// Clear the dirty flag. Call this before starting a new operation
     /// that should be atomic with respect to rollback.
     pub async fn clear_dirty(&self) {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.write().await;
         inner.dirty = false;
+    }
+    /// Fetch a FileDescriptor from the database by file_id.
+    pub async fn get_file_descriptor(
+        &self,
+        conn: &Connection,
+        file_id: &str,
+    ) -> Result<Option<FileDescriptor>> {
+        let row = select_file_metadata_by_file_id(conn, file_id).await?;
+        Ok(row.map(FileDescriptor::from_row))
+    }
+
+    /// Verify a proof against challenges using the current ledger state.
+    pub async fn verify_proof(
+        &self,
+        proof: &Proof,
+        challenges: &[Challenge],
+    ) -> kontor_crypto::Result<bool> {
+        let inner = self.inner.read().await;
+        let system = kontor_crypto::PorSystem::new(&inner.ledger);
+        system.verify(proof, challenges)
     }
 }

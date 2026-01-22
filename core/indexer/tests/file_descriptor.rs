@@ -1,35 +1,8 @@
-use indexer::database::types::FileMetadataRow;
 use indexer::runtime::wit::FileDescriptor;
 
-/// Helper to create a fake FileMetadataRow for testing.
-/// Uses simple fake data - no need for real crypto operations.
-fn create_fake_file_metadata(file_id: &str, filename: &str, height: i64) -> FileMetadataRow {
-    // Create a simple valid root (32 bytes, small enough to be a valid field element)
-    let mut root = [0u8; 32];
-    root[0] = 1; // Non-zero but small value
-
-    // Create a simple nonce
-    let mut nonce = [0u8; 32];
-    nonce[0] = 2;
-
-    FileMetadataRow::builder()
-        .file_id(file_id.to_string())
-        .object_id(format!("object_{}", file_id))
-        .nonce(nonce)
-        .root(root)
-        .padded_len(1024)
-        .original_size(512)
-        .filename(filename.to_string())
-        .height(height)
-        .build()
-}
-
-/// Helper to create a valid 32-byte seed
 fn create_valid_seed() -> [u8; 32] {
     let mut seed = [0u8; 32];
-    // Use a simple pattern that's a valid field element
     seed[0] = 1;
-    seed[31] = 42;
     seed
 }
 
@@ -135,4 +108,58 @@ fn test_build_challenge_uses_correct_file_metadata() {
         expected_original_size as usize
     );
     assert_eq!(challenge.file_metadata.filename, expected_filename);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Proof Resource Tests
+// ─────────────────────────────────────────────────────────────────
+
+use indexer::runtime::wit::Proof;
+use indexer::test_utils::create_fake_file_metadata;
+
+#[test]
+fn test_proof_from_bytes_invalid_bytes_fails() {
+    // Invalid bytes should fail deserialization
+    let invalid_bytes = vec![0u8; 100];
+    let result = Proof::from_bytes(&invalid_bytes);
+
+    match result {
+        Err(indexer::runtime::Error::Validation(_)) => {} // Expected
+        Err(_) => panic!("Expected Validation error"),
+        Ok(_) => panic!("Invalid proof bytes should fail deserialization"),
+    }
+}
+
+#[test]
+fn test_proof_from_bytes_empty_bytes_fails() {
+    // Empty bytes should fail deserialization
+    let result = Proof::from_bytes(&[]);
+
+    assert!(
+        result.is_err(),
+        "Empty proof bytes should fail deserialization"
+    );
+}
+
+#[test]
+fn test_proof_from_bytes_truncated_header_fails() {
+    // Bytes too short to contain valid header
+    let short_bytes = vec![0u8; 5];
+    let result = Proof::from_bytes(&short_bytes);
+
+    assert!(
+        result.is_err(),
+        "Truncated header should fail deserialization"
+    );
+}
+
+#[test]
+fn test_proof_from_bytes_wrong_magic_fails() {
+    // Wrong magic bytes
+    let mut wrong_magic = vec![0u8; 20];
+    wrong_magic[0..4].copy_from_slice(b"XXXX"); // Wrong magic
+
+    let result = Proof::from_bytes(&wrong_magic);
+
+    assert!(result.is_err(), "Wrong magic bytes should fail");
 }
