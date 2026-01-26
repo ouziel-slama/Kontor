@@ -1,5 +1,5 @@
 [workspace]
-members = ["token", "filestorage"]
+members = ["token", "filestorage", "filestoragemock"]
 resolver = "2"
 
 [profile.release]

@@ -55,7 +55,7 @@ use wasmtime::{
     },
 };
 
-use crate::database::native_contracts::{FILESTORAGE, TOKEN};
+use crate::database::native_contracts::{FILESTORAGE, FILESTORAGEMOCK, TOKEN};
 use crate::runtime::kontor::built_in::context::{OpReturnData, OutPoint};
 use crate::runtime::wit::{CoreContext, FileDescriptor, Transaction};
 use crate::{
@@ -241,6 +241,12 @@ impl Runtime {
             &Signer::Core(Box::new(Signer::Nobody)),
             "filestorage",
             FILESTORAGE,
+        )
+        .await?;
+        self.publish(
+            &Signer::Core(Box::new(Signer::Nobody)),
+            "filestoragemock",
+            FILESTORAGEMOCK,
         )
         .await?;
         Ok(())

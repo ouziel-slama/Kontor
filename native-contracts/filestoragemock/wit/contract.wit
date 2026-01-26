@@ -1,0 +1,78 @@
+package root:component;
+
+world root {
+  include kontor:built-in/built-in;
+  use kontor:built-in/context.{view-context, proc-context};
+  use kontor:built-in/error.{error};
+
+  // ─────────────────────────────────────────────────────────────────
+  // Stored Instruction Types
+  // ─────────────────────────────────────────────────────────────────
+
+  record register-node-call {
+    node-id: string,
+    bls-public-key: string,
+    xpubkey: string,
+    signature: string,
+  }
+
+  record create-agreement-call {
+    user-id: string,
+    file-id: string,
+    filename: string,
+    original-size: string,
+    data-symbols: string,
+    parity-symbols: string,
+    merkle-root: string,
+    padded-len: string,
+    content-hash: string,
+    blob-size: string,
+    bls-public-key-index: u64,
+  }
+
+  record join-agreement-call {
+    node-id: string,
+    agreement-id: string,
+  }
+
+  record call-counts-result {
+    register-node-count: u64,
+    create-agreement-count: u64,
+    join-agreement-count: u64,
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Functions
+  // ─────────────────────────────────────────────────────────────────
+
+  export init: async func(ctx: borrow<proc-context>);
+
+  // Process api_calls payload (postcard-encoded)
+  export api-calls: async func(
+    ctx: borrow<proc-context>,
+    data: list<u8>
+  ) -> result<_, error>;
+
+  // Query stored calls
+  export get-register-node-calls: async func(
+    ctx: borrow<view-context>
+  ) -> list<register-node-call>;
+
+  export get-create-agreement-calls: async func(
+    ctx: borrow<view-context>
+  ) -> list<create-agreement-call>;
+
+  export get-join-agreement-calls: async func(
+    ctx: borrow<view-context>
+  ) -> list<join-agreement-call>;
+
+  // Get batch IDs that have been processed
+  export get-processed-batch-ids: async func(
+    ctx: borrow<view-context>
+  ) -> list<string>;
+
+  // Get call counts
+  export call-counts: async func(
+    ctx: borrow<view-context>
+  ) -> call-counts-result;
+}
